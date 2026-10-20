@@ -1,0 +1,28 @@
+# LiteLLM gateway: one OpenAI-compatible endpoint for every agent in MyWorkBuddy.
+# Model IDs come from .env so you can match what is enabled in your AWS account/region.
+model_list:
+  - model_name: chat
+    litellm_params:
+      model: os.environ/MWB_CHAT_MODEL_ID
+      aws_region_name: os.environ/AWS_REGION
+  - model_name: fast
+    litellm_params:
+      model: os.environ/MWB_FAST_MODEL_ID
+      aws_region_name: os.environ/AWS_REGION
+  - model_name: embed
+    litellm_params:
+      model: os.environ/MWB_EMBED_MODEL_ID
+      aws_region_name: os.environ/AWS_REGION
+  # To use an OpenAI-compatible endpoint instead of Bedrock for "chat", replace the entry above with:
+  # - model_name: chat
+  #   litellm_params:
+  #     model: openai/<model-name>
+  #     api_base: os.environ/OPENAI_COMPAT_BASE_URL
+  #     api_key: os.environ/OPENAI_COMPAT_API_KEY
+
+litellm_settings:
+  drop_params: true
+  request_timeout: 600
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

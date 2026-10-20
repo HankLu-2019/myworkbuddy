@@ -1,0 +1,77 @@
+name: myworkbuddy
+
+x-backend: &backend
+  build: ./backend
+  image: myworkbuddy-backend:latest
+  env_file: .env
+  environment:
+    MWB_DATABASE_URL: postgresql://mwb:${POSTGRES_PASSWORD}@postgres:5432/mwb
+    MWB_GATEWAY_URL: http://llm-gateway:4000
+    MWB_GATEWAY_KEY: ${LITELLM_MASTER_KEY}
+  volumes:
+    - mwbdata:/data
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: paradedb/paradedb:0.26.0-pg17
+    environment:
+      POSTGRES_USER: mwb
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: mwb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mwb -d mwb"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  llm-gateway:
+    image: ghcr.io/berriai/litellm:v1.103.5
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    env_file: .env
+    volumes:
+      - ./gateway/litellm.yaml:/app/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    <<: *backend
+    command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      llm-gateway:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  worker:
+    <<: *backend
+    command: ["procrastinate", "--app=app.tasks.app.app", "worker", "--concurrency=4"]
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build: ./frontend
+    image: myworkbuddy-web:latest
+    ports:
+      - "${MWB_WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  mwbdata:

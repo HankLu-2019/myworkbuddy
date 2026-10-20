@@ -1,0 +1,63 @@
+[project]
+name = "myworkbuddy"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.150",
+  "uvicorn[standard]>=0.30",
+  "sqlalchemy[asyncio]>=2.0.40",
+  "asyncpg>=0.30",
+  "psycopg[binary,pool]>=3.2",
+  "alembic>=1.15",
+  "pgvector>=0.4",
+  "pydantic-settings>=2.5",
+  "argon2-cffi>=25.1",
+  "cryptography>=44",
+  "structlog>=25",
+  "httpx>=0.28",
+  "pydantic-ai-slim[openai]>=2.50",
+  "procrastinate>=3.5",
+  "typer>=0.15",
+  "python-multipart>=0.0.20",
+  "pypdf>=6",
+  "tree-sitter>=0.25,<0.26",  # 0.26.0 returns corrupted nodes (segfaults) on class bodies
+  "tree-sitter-python>=0.25",
+  "tree-sitter-go>=0.25",
+  "pyyaml>=6",
+  "email-validator>=2.2",
+]
+
+[project.scripts]
+mwb = "app.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.25",
+  "pytest-cov>=6",
+  "ruff>=0.9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["app"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+# FastAPI declares dependencies and uploads via call defaults.
+ignore = ["B008"]
