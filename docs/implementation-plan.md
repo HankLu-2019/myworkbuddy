@@ -73,7 +73,7 @@ Design: [01-hardening.md](design/01-hardening.md) and, for H15–H16, [07-ux.md]
   - Indexer split (`prepare_document` / `embed_prepared` / `write_document`), per-file ingest commits, episode re-check, pool and timeout settings.
   - Acceptance: a test helper wraps the embedder and LLM test model to assert `session.in_transaction()` is false for every session open during their calls (applied to ingest, upload, wiki save, episode, librarian); a failure on file 3 of 5 keeps files 1, 2, 4, 5 indexed and marks the project `ready` with a warning; unchanged chunks reuse vectors (embedder called only for changed chunks); `idle_in_transaction_session_timeout` is set.
 
-- [ ] **H7 Wiki consistency** (01 §H7)
+- [x] **H7 Wiki consistency** (01 §H7). Also fixes review M16 (history no longer uses `git log --follow`). Reconcile also runs before the worker starts (non-blocking). The librarian already refuses to overwrite a page edited during its run (skips it); H8 adds the retry.
   - Acceptance: concurrent edits with the same `base_sha` → one 200, one `409 wiki_conflict` with current content; a DB failure injected after the git commit leaves git HEAD unchanged (compensation); publish with an injected DB failure leaves the file in the private repo; reconcile fixes each of the four situations in its table (one test each); history after publish includes pre-publish commits for the owner only; UI conflict dialog (vitest).
 
 - [ ] **H8 Librarian guardrails, per-user time** (01 §H8)

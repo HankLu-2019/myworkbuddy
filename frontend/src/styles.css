@@ -202,3 +202,8 @@ td.num { font-variant-numeric: tabular-nums; text-align: right; }
 .md .md-host { color: var(--muted); font-size: 0.85em; }
 .md .md-remote-image { font-style: italic; }
 .md img { max-width: 100%; }
+
+.conflict { border-left: 4px solid var(--danger); margin: 12px 0; }
+.conflict-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 767px) { .conflict-columns { grid-template-columns: 1fr; } }
+.notice { background: var(--accent-soft); padding: 8px 12px; border-radius: 6px; margin: 8px 0; }

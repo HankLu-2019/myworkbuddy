@@ -28,6 +28,16 @@ class Commit:
     email: str
     date: str
     message: str
+    moved_from: str | None = None  # "Moved-From: <repo dir>@<sha>" trailer on publish/unpublish commits
+
+
+_SHA = re.compile(r"[0-9a-f]{7,40}")
+
+
+def validate_sha(sha: str) -> str:
+    if not _SHA.fullmatch(sha):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid commit id")
+    return sha
 
 
 def validate_page_path(path: str) -> str:
@@ -82,41 +92,84 @@ class GitRepo:
         return f.read_text() if f.is_file() else None
 
     async def write(self, path: str, content: str, author: Author, message: str) -> str:
+        """Write and commit one file. Returns the last commit touching `path` (unchanged content: no new commit)."""
         await self.ensure()
         f = self.root / path
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_text(content)
         await self._git("add", "--", path)
-        if not (await self._git("status", "--porcelain", "--", path)).strip():
-            return await self.head()
-        await self._git("commit", "-q", "-m", message, "--", path, author=author)
-        return await self.head()
+        if (await self._git("status", "--porcelain", "--", path)).strip():
+            await self._git("commit", "-q", "-m", message, "--", path, author=author)
+        return await self.last_commit(path) or await self.head()
 
     async def remove(self, path: str, author: Author, message: str) -> str:
         await self._git("rm", "-q", "--", path)
         await self._git("commit", "-q", "-m", message, author=author)
         return await self.head()
 
+    async def last_commit(self, path: str) -> str | None:
+        """The newest commit that touched `path`, or None. Used for optimistic concurrency (design 01 §H7)."""
+        await self.ensure()
+        return (await self._git("log", "-1", "--format=%H", "--", path)).strip() or None
+
+    async def reset_hard(self, sha: str) -> None:
+        if not _SHA.fullmatch(sha):
+            raise GitError(f"invalid commit id {sha!r}")
+        await self._git("reset", "-q", "--hard", sha)
+
+    async def list_markdown(self) -> list[str]:
+        if not (self.root / ".git").exists():
+            return []
+        return [p for p in (await self._git("ls-files", "--", "*.md")).splitlines() if p]
+
+    async def has_commit(self, sha: str) -> bool:
+        if not _SHA.fullmatch(sha) or not (self.root / ".git").exists():
+            return False
+        return (await self._git("cat-file", "-t", sha, check=False)).strip() == "commit"
+
+    async def file_at(self, sha: str, path: str) -> str | None:
+        """Content of `path` at commit `sha`, or None if it didn't exist there."""
+        if not _SHA.fullmatch(sha):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid commit id")
+        await self.ensure()
+        if not (await self._git("cat-file", "-t", sha, check=False)).strip():
+            return None  # unknown commit
+        if not (await self._git("ls-tree", "--name-only", sha, "--", path, check=False)).strip():
+            return None
+        return await self._git("show", f"{sha}:{path}")
+
     async def head(self) -> str:
         return (await self._git("rev-parse", "HEAD")).strip()
 
-    async def log(self, path: str | None = None, limit: int = 50, author: str | None = None) -> list[Commit]:
+    async def log(
+        self, path: str | None = None, limit: int = 50, author: str | None = None, until: str | None = None
+    ) -> list[Commit]:
+        """Commits newest first. No --follow: rename detection would attribute other similar pages' commits
+        to this one (review M16). Moves between repos are linked by the Moved-From trailer instead."""
         await self.ensure()
-        args = ["log", f"-n{limit}", "--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%s%x1e"]
+        args = [
+            "log",
+            f"-n{limit}",
+            "--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%(trailers:key=Moved-From,valueonly)%x1e",
+        ]
         if author:
             args.append(f"--author={author}")
+        if until:
+            if not _SHA.fullmatch(until):
+                raise GitError(f"invalid commit id {until!r}")
+            args.append(until)
         if path:
-            args += ["--follow", "--", path]
+            args += ["--", path]
         out = await self._git(*args)
         commits = []
         for rec in out.split("\x1e"):
             if rec.strip():
-                sha, name, email, date, msg = rec.strip().split("\x1f")
-                commits.append(Commit(sha, name, email, date, msg))
+                sha, name, email, date, msg, moved = rec.strip("\n").split("\x1f")
+                commits.append(Commit(sha, name, email, date, msg, moved.strip() or None))
         return commits
 
     async def show(self, sha: str, path: str | None = None) -> str:
-        if not re.fullmatch(r"[0-9a-f]{7,40}", sha):
+        if not _SHA.fullmatch(sha):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid commit id")
         args = ["show", "--format=%H%n%an <%ae>%n%aI%n%s%n", sha]
         if path:

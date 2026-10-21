@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type Commit, type Page, type PageSummary, type Visibility } from "../api";
+import { api, ApiError, type Commit, type Page, type PageSummary, type Visibility } from "../api";
 import { Empty, ErrorNote, Markdown, PageHeader, VisibilityBadge, formatDate } from "../components/ui";
 
 type LibrarianChange = { sha: string; date: string; message: string; diff: string };
@@ -106,6 +106,7 @@ function PageView({ id }: { id: number }) {
   const [draft, setDraft] = useState("");
   const [message, setMessage] = useState("");
   const [diffSha, setDiffSha] = useState<string | null>(null);
+  const [baseSha, setBaseSha] = useState("");
 
   const page = useQuery({ queryKey: ["wiki", id], queryFn: () => api<Page>(`/api/wiki/pages/${id}`) });
   const history = useQuery({
@@ -131,13 +132,36 @@ function PageView({ id }: { id: number }) {
 
   const save = useMutation({
     mutationFn: () =>
-      api<Page>(`/api/wiki/pages/${id}`, { method: "PUT", json: { content: draft, message: message || undefined } }),
+      api<Page>(`/api/wiki/pages/${id}`, {
+        method: "PUT",
+        // The version the editor was opened on; the server refuses the save if the page changed since (409).
+        json: { content: draft, message: message || undefined, base_sha: baseSha },
+      }),
     onSuccess: () => {
       setMode("view");
       setMessage("");
       refresh();
     },
   });
+  const conflict = save.error instanceof ApiError && save.error.code === "wiki_conflict" ? save.error : null;
+  const [notice, setNotice] = useState<string | null>(null);
+
+  async function resolveConflict(keepCopy: boolean) {
+    if (keepCopy) {
+      try {
+        await navigator.clipboard.writeText(draft);
+        setNotice("Your text is on the clipboard. This is the current version of the page.");
+      } catch {
+        setNotice("Couldn't copy to the clipboard. Select and copy your version below, then reload.");
+        return;
+      }
+    } else {
+      setNotice(null);
+    }
+    save.reset();
+    setMode("view");
+    refresh();
+  }
   const publish = useMutation({
     mutationFn: (v: Visibility) => api<Page>(`/api/wiki/pages/${id}/visibility`, { method: "POST", json: { visibility: v } }),
     onSuccess: refresh,
@@ -162,6 +186,8 @@ function PageView({ id }: { id: number }) {
           <button
             onClick={() => {
               setDraft(p.content);
+              setBaseSha(p.head_sha ?? "");
+              setNotice(null);
               setMode("edit");
             }}
           >
@@ -185,7 +211,30 @@ function PageView({ id }: { id: number }) {
       <div className="muted small mono">
         {p.path} · updated {formatDate(p.updated_at)}
       </div>
-      <ErrorNote error={save.error || publish.error || remove.error || history.error || diff.error} />
+      <ErrorNote error={(conflict ? null : save.error) || publish.error || remove.error || history.error || diff.error} />
+      {notice && <div className="notice">{notice}</div>}
+      {conflict && (
+        <div className="conflict card" role="alertdialog" aria-label="Edit conflict">
+          <strong>This page changed since you opened it.</strong>
+          <p className="muted small">Someone (or the librarian) saved a newer version. Your edits were not saved.</p>
+          <div className="conflict-columns">
+            <div>
+              <div className="list-label">Current version</div>
+              <pre className="excerpt">{String((conflict.body as { current_content?: string } | null)?.current_content ?? "")}</pre>
+            </div>
+            <div>
+              <div className="list-label">Your version</div>
+              <pre className="excerpt">{draft}</pre>
+            </div>
+          </div>
+          <div className="actions">
+            <button className="primary" onClick={() => resolveConflict(true)}>
+              Copy my text and reload
+            </button>
+            <button onClick={() => resolveConflict(false)}>Discard my edits</button>
+          </div>
+        </div>
+      )}
       {mode === "view" && <Markdown>{p.content}</Markdown>}
       {mode === "edit" && (
         <>

@@ -83,7 +83,12 @@ async def test_wiki_lifecycle(client_for):
     assert await _titles(bob, "executor memory", "wiki") == []
 
     edited = await alice.put(
-        f"/api/wiki/pages/{pid}", json={"content": "# OOM runbook v2\n\nUse 8g executors.", "message": "bump memory"}
+        f"/api/wiki/pages/{pid}",
+        json={
+            "content": "# OOM runbook v2\n\nUse 8g executors.",
+            "message": "bump memory",
+            "base_sha": page["head_sha"],
+        },
     )
     assert edited.json()["title"] == "OOM runbook v2"
     history = (await alice.get(f"/api/wiki/pages/{pid}/history")).json()
@@ -99,7 +104,8 @@ async def test_wiki_lifecycle(client_for):
     assert seen.status_code == 200
     assert seen.json()["can_edit"] is False
     assert await _titles(bob, "executor", "wiki") == ["OOM runbook v2"]
-    assert (await bob.put(f"/api/wiki/pages/{pid}", json={"content": "vandalism"})).status_code == 403
+    vandal = {"content": "vandalism", "base_sha": seen.json()["head_sha"]}
+    assert (await bob.put(f"/api/wiki/pages/{pid}", json=vandal)).status_code == 403
     assert (await bob.delete(f"/api/wiki/pages/{pid}")).status_code == 403
 
     # Bob can't publish a page at a path the team wiki already uses.
@@ -126,8 +132,10 @@ async def test_admin_can_edit_public_pages(client_for):
     admin = await client_for("root", role="admin")
     pid = (await alice.post("/api/wiki/pages", json={"path": "team.md", "content": "# Team"})).json()["id"]
     assert (await admin.get(f"/api/wiki/pages/{pid}")).status_code == 404
-    await alice.post(f"/api/wiki/pages/{pid}/visibility", json={"visibility": "public"})
-    fixed = await admin.put(f"/api/wiki/pages/{pid}", json={"content": "# Team (fixed)"})
+    published = (await alice.post(f"/api/wiki/pages/{pid}/visibility", json={"visibility": "public"})).json()
+    fixed = await admin.put(
+        f"/api/wiki/pages/{pid}", json={"content": "# Team (fixed)", "base_sha": published["head_sha"]}
+    )
     assert fixed.status_code == 200
     history = (await admin.get(f"/api/wiki/pages/{pid}/history")).json()
     assert history[0]["author"] == "root"

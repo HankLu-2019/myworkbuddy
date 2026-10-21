@@ -6,10 +6,11 @@ from pydantic_ai import Agent
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.errors import AppError
 from app.knowledge import prompts
 from app.knowledge.episodes import EpisodeSummary, render_episode
 from app.knowledge.indexer import commit_before_network
-from app.knowledge.wiki import LIBRARIAN, find_page, read_page, save_page
+from app.knowledge.wiki import LIBRARIAN, find_page, read_page, repo_for, save_page
 from app.llm.models import get_chat_model
 from app.logs import log
 from app.models import Episode, LibrarianState, Project, User, WikiPage
@@ -60,19 +61,28 @@ async def update_user_wiki(db: AsyncSession, user: User) -> list[str]:
     updated = []
     for path, (page, items) in targets.items():
         current = read_page(page) if page else prompts.LIBRARIAN_NEW_PAGES[path]
+        # The version the LLM rewrites; if the user edits the page meanwhile, the save is refused (design 01 §H7).
+        base_sha = await repo_for(page.visibility, page.owner_id).last_commit(page.path) if page else None
         notes = "\n\n---\n\n".join(render_episode(s) for s in items[-MAX_EPISODES_PER_PAGE:])
         await commit_before_network(db)  # rule R1: no transaction open during the LLM call
         new = (await agent.run(f"Current page ({path}):\n\n{current}\n\nNew session summaries:\n\n{notes}")).output
         if new.strip() and new.strip() != current.strip():
-            await save_page(
-                db,
-                owner=user,
-                path=path,
-                content=new.strip() + "\n",
-                author=LIBRARIAN,
-                message=f"Librarian: update {path} from {len(items)} session(s)",
-                page=page,
-            )
+            try:
+                await save_page(
+                    db,
+                    owner=user,
+                    path=path,
+                    content=new.strip() + "\n",
+                    author=LIBRARIAN,
+                    message=f"Librarian: update {path} from {len(items)} session(s)",
+                    page=page,
+                    base_sha=base_sha,
+                )
+            except AppError as exc:
+                if exc.code != "wiki_conflict":
+                    raise
+                log.info("librarian.skipped_edited_page", user_id=user.id, path=path)
+                continue
             updated.append(path)
 
     if state is None:
