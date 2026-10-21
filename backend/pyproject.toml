@@ -15,6 +15,7 @@ dependencies = [
   "cryptography>=44",
   "structlog>=25",
   "httpx>=0.28",
+  "httpx2==2.15.1",  # pydantic-ai's HTTP client type; app/llm uses it directly
   "pydantic-ai-slim[openai]>=2.50",
   "procrastinate==3.10.0",  # exact: its schema lives in our migrations; upgrade per 06-operations §7
   "typer>=0.15",

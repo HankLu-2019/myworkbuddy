@@ -314,6 +314,7 @@ describe("settings and admin", () => {
           user_agent: "Mozilla/5.0 (Windows NT 10.0) Gecko/20100101 Firefox/131.0" },
       ],
       "POST /api/auth/sessions/sign-out-others": { signed_out: 1 },
+      "GET /api/usage": { user_id: 2, spend_usd: 12.5, budget_usd: 50, budget_reset_at: NOW, fetched_at: NOW },
       "PUT /api/secrets/gerrit_username": undefined,
       "DELETE /api/secrets/gitlab_token": undefined,
       "POST /api/auth/password": undefined,
@@ -323,6 +324,8 @@ describe("settings and admin", () => {
     fireEvent.click(screen.getAllByText("Save")[1]);
     fireEvent.click(screen.getAllByText("Clear")[0]);
     expect(screen.getByText("Can't be read any more. Enter it again.")).toBeInTheDocument();
+    expect(await screen.findByText(/USD 12.50 of USD 50.00 used/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Share of monthly AI budget used")).toHaveAttribute("value", "25");
     expect(await screen.findByText("Chrome on macOS")).toBeInTheDocument();
     expect(screen.getByText("Firefox on Windows")).toBeInTheDocument();
     expect(screen.getByText("This device")).toBeInTheDocument();
@@ -346,10 +349,21 @@ describe("settings and admin", () => {
       "POST /api/admin/users": { ...MEMBER, username: "bob", initial_password: "Abc23defGhk45mnP" },
       "POST /api/admin/users/2/reset-password": { ...MEMBER, initial_password: "Zz23defGhk45mnPq" },
       "PATCH /api/admin/users/2": MEMBER,
+      "GET /api/admin/usage": [
+        { user_id: 1, spend_usd: null, budget_usd: 50, budget_reset_at: null, fetched_at: null },
+        { user_id: 2, spend_usd: 3.2, budget_usd: 20, budget_reset_at: NOW, fetched_at: NOW },
+      ],
     });
     renderAt("/admin", <AdminPage />);
     expect(await screen.findByText("Alice")).toBeInTheDocument();
     expect(screen.getByText("Must change password")).toBeInTheDocument();
+    expect(await screen.findByText("USD 3.20")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Change budget for alice"));
+    fireEvent.change(screen.getByLabelText("Monthly budget for alice (USD)"), { target: { value: "75" } });
+    fireEvent.click(screen.getByText("Save"));
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ llm_budget_usd: "75" }),
+    );
     expect(screen.queryByLabelText("Initial password")).not.toBeInTheDocument(); // generated, not chosen
     fireEvent.change(screen.getByLabelText("Username"), { target: { value: "bob" } });
     fireEvent.click(screen.getByText("Add user"));
@@ -361,7 +375,7 @@ describe("settings and admin", () => {
     expect(await screen.findByLabelText("Password")).toHaveTextContent("Zz23defGhk45mnPq");
     fireEvent.click(screen.getByText("Disable"));
     fireEvent.change(screen.getByLabelText("Role of alice"), { target: { value: "admin" } });
-    await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(2));
+    await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(3));
     expect(calls.find((c) => c.method === "POST" && c.path === "/api/admin/users")?.body).toEqual({
       username: "bob", email: null, display_name: null, role: "member",
     });
@@ -371,6 +385,7 @@ describe("settings and admin", () => {
     const calls = mockApi({
       ...signedInAs(ADMIN),
       "GET /api/admin/users": [ADMIN, MEMBER],
+      "GET /api/admin/usage": [],
       "GET /api/admin/users/2/offboarding-preview": {
         transfer_to: 1, duplicate_projects: [7],
         transfer: { documents: 3, wiki_pages: 1, projects: 0, chat_sessions: 0, episodes: 0 },

@@ -24,7 +24,7 @@ from app.knowledge.chunking import ChunkIn, chunk_markdown
 from app.knowledge.indexer import commit_before_network, set_project_visibility, upsert_document
 from app.knowledge.ingest.code import extract_symbols, supported
 from app.knowledge.wiki import LIBRARIAN, find_page, save_page
-from app.llm.models import get_chat_model
+from app.llm import client as llm
 from app.logs import log
 from app.models import Document, Project, SystemState, User, WikiPage
 from app.secrets.service import get_secret
@@ -320,9 +320,9 @@ async def _write_project_card(
         f"Key files:\n{_key_file_bundle(checkout, files)}\n\n"
         f"Commits by this person ({owner.email or 'unknown email'}):\n{commits or '(none found)'}"
     )
-    agent = Agent(get_chat_model(), instructions=prompts.PROJECT_CARD.format(name=project.name))
     await commit_before_network(db)
-    card = (await agent.run(prompt)).output
+    agent = Agent(await llm.model_for(owner.id), instructions=prompts.PROJECT_CARD.format(name=project.name))
+    card = (await llm.run(agent, prompt, user_id=owner.id, purpose="project_card")).output
     page = await db.get(WikiPage, project.card_page_id) if project.card_page_id else None
     path = page.path if page else f"projects/{project.name}.md"
     if page is None and await find_page(db, owner.id, "private", path):
@@ -339,12 +339,12 @@ async def _write_project_card(
     project.card_page_id = page.id
 
 
-async def _summaries(path: str, symbols_text: str) -> dict[str, str]:
-    agent = Agent(
-        get_chat_model(get_settings().fast_model), output_type=dict[str, str], instructions=prompts.CODE_SUMMARY
-    )
+async def _summaries(owner_id: int, path: str, symbols_text: str) -> dict[str, str]:
     try:
-        return (await agent.run(f"File: {path}\n\n{symbols_text[:20000]}")).output
+        model = await llm.model_for(owner_id, "fast")
+        agent = Agent(model, output_type=dict[str, str], instructions=prompts.CODE_SUMMARY)
+        prompt = f"File: {path}\n\n{symbols_text[:20000]}"
+        return (await llm.run(agent, prompt, user_id=owner_id, purpose="code_summary")).output
     except Exception as exc:  # summaries are optional; indexing proceeds without them
         log.warning("ingest.summary_failed", path=path, error=str(exc))
         return {}
@@ -381,7 +381,9 @@ async def _index_code(
             return path, symbols, {}
         nonlocal summarised
         async with sem:
-            summaries = await _summaries(path, "\n\n".join(f"### {sym.name}\n{sym.code}" for sym in symbols))
+            summaries = await _summaries(
+                project.owner_id, path, "\n\n".join(f"### {sym.name}\n{sym.code}" for sym in symbols)
+            )
         summarised += 1
         await progress("Summarising files", summarised, to_summarise)
         return path, symbols, summaries

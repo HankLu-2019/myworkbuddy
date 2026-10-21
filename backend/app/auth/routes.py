@@ -39,6 +39,7 @@ class UserOut(BaseModel):
     is_active: bool
     must_change_password: bool = False
     last_login_at: datetime | None = None
+    llm_budget_usd: float | None = None  # None: the default MWB_DEFAULT_USER_BUDGET_USD applies
 
     @classmethod
     def of(cls, u: User) -> "UserOut":
@@ -51,6 +52,7 @@ class UserOut(BaseModel):
             is_active=u.is_active,
             must_change_password=bool(u.must_change_password),
             last_login_at=u.last_login_at,
+            llm_budget_usd=float(u.llm_budget_usd) if u.llm_budget_usd is not None else None,
         )
 
 

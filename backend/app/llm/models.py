@@ -1,10 +1,8 @@
+"""Test override for LLM models. Real models come from `app.llm.client.model_for` (rule R11)."""
+
 from collections.abc import Callable
 
 from pydantic_ai.models import Model
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.openai import OpenAIProvider
-
-from app.config import get_settings
 
 _override: Model | None = None
 # Tests install a wrapper that checks every model call (e.g. that no DB transaction is open, rule R1).
@@ -22,9 +20,5 @@ def set_model_override(model: Model | None) -> None:
     _override = _override_wrapper(model) if model is not None and _override_wrapper is not None else model
 
 
-def get_chat_model(alias: str | None = None) -> Model:
-    if _override is not None:
-        return _override
-    s = get_settings()
-    provider = OpenAIProvider(base_url=f"{s.gateway_url}/v1", api_key=s.gateway_key or "unused")
-    return OpenAIChatModel(alias or s.chat_model, provider=provider)
+def get_override() -> Model | None:
+    return _override

@@ -35,3 +35,13 @@ pipelines, backends, frontends, CI/CD (Jenkins, Spinnaker), Kubernetes and RAG s
 Use the search_knowledge tool whenever the question may relate to the user's projects, past sessions, decisions
 or documents. Cite sources inline as [1], [2] matching the numbers the tool returns. If the knowledge base has
 nothing relevant, say so and answer from general knowledge. Be direct and concise."""
+
+
+# Rule R6: every system prompt carries the untrusted-text notice (design 00 §5).
+from app.llm.untrusted import with_notice  # noqa: E402
+
+PROJECT_CARD = with_notice(PROJECT_CARD)
+CODE_SUMMARY = with_notice(CODE_SUMMARY)
+EPISODE = with_notice(EPISODE)
+LIBRARIAN = with_notice(LIBRARIAN)
+CHAT_SYSTEM = with_notice(CHAT_SYSTEM)

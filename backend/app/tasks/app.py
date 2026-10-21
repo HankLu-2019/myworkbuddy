@@ -1,9 +1,11 @@
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import procrastinate
 import structlog
 from procrastinate.exceptions import AlreadyEnqueued
+from sqlalchemy import func, update
 
 from app import maintenance
 from app.config import get_settings
@@ -14,8 +16,9 @@ from app.knowledge.indexer import embed_missing
 from app.knowledge.ingest.repos import ingest_project, remove_cache, sweep_orphan_caches
 from app.knowledge.librarian import update_user_wiki, user_tz, users_due
 from app.knowledge.reconcile import reconcile_wiki
+from app.llm import keys
 from app.logs import log, setup_logging
-from app.models import LibrarianRun, User
+from app.models import LibrarianRun, Message, User
 
 setup_logging(get_settings().log_level)
 
@@ -82,6 +85,7 @@ async def cleanup_user_files(user_id: int) -> None:
 
 
 async def defer_cleanup_after_offboarding(user_id: int, project_ids: list[int]) -> None:
+    await defer_once(delete_gateway_key, f"gateway-key-delete:{user_id}", user_id=user_id)
     await defer_once(cleanup_user_files, f"user-cleanup:{user_id}", lock=f"librarian:{user_id}", user_id=user_id)
     for pid in project_ids:
         await defer_once(cleanup_project_cache, f"cache-cleanup:{pid}", lock=project_lock(pid), project_id=pid)
@@ -97,7 +101,60 @@ async def repo_cache_sweep(timestamp: int) -> None:
         log.info("repo_cache.swept", projects=removed)
 
 
-@app.task(name="build_episode", retry=2)
+class NoRetryOnBudget(procrastinate.RetryStrategy):
+    """Retry like RetryStrategy, except when the user's AI budget is exhausted (design 01 §H12): retrying
+    can't succeed until the budget resets or an admin raises it."""
+
+    def get_retry_decision(self, *, exception: BaseException, job):  # type: ignore[override]
+        if getattr(exception, "code", None) == "budget_exceeded":
+            log.warning("task.budget_exceeded", task=job.task_name)
+            return None
+        return super().get_retry_decision(exception=exception, job=job)
+
+
+SETTLE_ATTEMPTS = 5
+
+
+@app.task(name="settle_costs")
+async def settle_costs(message_id: int, call_ids: list[str], attempt: int = 1) -> None:
+    """Add the cost of streamed LLM calls to a message once the gateway's spend log has them (LiteLLM writes
+    it in batches). Calls not logged yet are retried a minute later, up to SETTLE_ATTEMPTS times."""
+    found = Decimal(0)
+    missing = []
+    for call_id in call_ids:
+        cost = await keys.spend_for_call(call_id)
+        if cost is None:
+            missing.append(call_id)
+        else:
+            found += cost
+    if found:
+        async with get_sessionmaker()() as db:
+            await db.execute(
+                update(Message)
+                .where(Message.id == message_id)
+                .values(cost_usd=func.coalesce(Message.cost_usd, 0) + found)
+            )
+            await db.commit()
+    if missing and attempt < SETTLE_ATTEMPTS:
+        await defer_settle_costs(message_id, missing, delay=60, attempt=attempt + 1)
+    elif missing:
+        log.warning("llm.costs_unsettled", message_id=message_id, calls=len(missing))
+
+
+async def defer_settle_costs(message_id: int, call_ids: list[str], *, delay: int = 90, attempt: int = 1) -> None:
+    await settle_costs.configure(schedule_in={"seconds": delay}, lock=f"message-cost:{message_id}").defer_async(
+        message_id=message_id, call_ids=call_ids, attempt=attempt
+    )
+
+
+@app.task(name="delete_gateway_key", retry=procrastinate.RetryStrategy(max_attempts=5, exponential_wait=10))
+async def delete_gateway_key(user_id: int) -> None:
+    """After offboarding: delete the user's LiteLLM key by alias (no secret needed, the row is gone)."""
+    await keys.delete_key(user_id)
+    log.info("llm.key_deleted", user_id=user_id)
+
+
+@app.task(name="build_episode", retry=NoRetryOnBudget(max_attempts=2))
 async def build_episode_task(session_id: str) -> None:
     structlog.contextvars.bind_contextvars(task="build_episode", session_id=session_id)
     async with get_sessionmaker()() as db:

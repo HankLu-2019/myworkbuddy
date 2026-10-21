@@ -122,6 +122,17 @@ export interface User {
   /** Set for a one-time password: everything except changing it is refused (password_change_required). */
   must_change_password?: boolean;
   last_login_at?: string | null;
+  /** null: the default monthly budget applies. */
+  llm_budget_usd?: number | null;
+}
+
+/** AI spend this budget period (cached about 5 minutes by the API). spend_usd is null when the gateway can't say. */
+export interface Usage {
+  user_id: number;
+  spend_usd: number | null;
+  budget_usd: number;
+  budget_reset_at: string | null;
+  fetched_at: string | null;
 }
 
 /** Returned once when an admin creates a user or resets a password. */

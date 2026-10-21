@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.models import Model
 from sqlalchemy import select
 
 from app.db import get_sessionmaker
@@ -10,7 +11,7 @@ from app.knowledge import prompts
 from app.knowledge.acl import can_view
 from app.knowledge.search import hybrid_search
 from app.knowledge.wiki import find_page, read_page
-from app.llm.models import get_chat_model
+from app.llm.untrusted import wrap
 from app.models import ChatSession, Message, Project, User, WikiPage
 
 SCOPES: dict[str, list[str] | None] = {
@@ -41,7 +42,9 @@ async def _instructions(ctx: RunContext[ChatDeps]) -> str:
             project = await db.get(Project, ctx.deps.project_id)
             if project and can_view(project, ctx.deps.user):
                 card = await db.get(WikiPage, project.card_page_id) if project.card_page_id else None
-                if card and can_view(card, ctx.deps.user):
+                # Only the user's own card goes into the system prompt; someone else's is untrusted text (R6)
+                # and reaches the model through search, wrapped.
+                if card and card.owner_id == ctx.deps.user.id:
                     parts.append(f"## Project in focus: {project.name}\n{read_page(card)[:CONTEXT_PAGE_LIMIT]}")
     return "\n\n".join(parts)
 
@@ -73,11 +76,15 @@ async def search_knowledge(
                 "meta": h.meta,
             }
         )
-        results.append({"n": n, "title": h.title, "type": h.source_type, "excerpt": h.content[:1500]})
+        results.append({"n": n, "title": h.title, "type": h.source_type, **wrap(_source(h), h.content, max_chars=1500)})
     return results
 
 
-async def get_session(ctx: RunContext[ChatDeps], session_id: str) -> str:
+def _source(h) -> str:
+    return f"{h.source_type}:{h.visibility}/{h.document_id}"
+
+
+async def get_session(ctx: RunContext[ChatDeps], session_id: str) -> str | dict[str, Any]:
     """Read the full transcript of a past session (use when a session summary lacks detail).
 
     Args:
@@ -93,12 +100,13 @@ async def get_session(ctx: RunContext[ChatDeps], session_id: str) -> str:
             return "Session not found"
         messages = await db.scalars(select(Message).where(Message.session_id == sid).order_by(Message.id))
         text = "\n".join(f"{m.role.upper()}: {m.content}" for m in messages)
-    return text[:30000]
+    return wrap(f"session:{sid}", text, max_chars=30000)
 
 
-def build_agent() -> Agent[ChatDeps, str]:
+def build_agent(model: Model) -> Agent[ChatDeps, str]:
+    """`model` comes from app.llm.client.model_for(user_id) (rule R11)."""
     return Agent(
-        get_chat_model(),
+        model,
         deps_type=ChatDeps,
         instructions=_instructions,
         tools=[search_knowledge, get_session],

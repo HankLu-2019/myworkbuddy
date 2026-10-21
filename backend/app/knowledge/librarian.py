@@ -15,7 +15,7 @@ from app.knowledge.episodes import EpisodeSummary, render_episode
 from app.knowledge.indexer import commit_before_network
 from app.knowledge.librarian_guard import clean_output, rejection_reason, unified_diff
 from app.knowledge.wiki import LIBRARIAN, find_page, read_page, repo_for, save_page
-from app.llm.models import get_chat_model
+from app.llm import client as llm
 from app.logs import log
 from app.models import Episode, LibrarianRun, LibrarianState, Project, User, WikiPage
 
@@ -66,7 +66,8 @@ async def update_user_wiki(db: AsyncSession, user: User) -> list[str]:
             if card := cards.get(_key(repo)):
                 targets.setdefault(card.path, (card, []))[1].append(s)
 
-    agent = Agent(get_chat_model(), instructions=prompts.LIBRARIAN)
+    await commit_before_network(db)  # model_for may create the user's gateway key (rule R1)
+    agent = Agent(await llm.model_for(user.id), instructions=prompts.LIBRARIAN)
     updated: list[str] = []
     rejected: list[dict[str, str]] = []
     for path, (page, items) in targets.items():
@@ -114,7 +115,8 @@ async def _update_page(
         current = read_page(page) if page else prompts.LIBRARIAN_NEW_PAGES[path]
         base_sha = await repo_for(page.visibility, page.owner_id).last_commit(page.path) if page else None
         await commit_before_network(db)  # rule R1
-        raw = (await agent.run(f"Current page ({path}):\n\n{current}\n\nNew session summaries:\n\n{notes}")).output
+        prompt = f"Current page ({path}):\n\n{current}\n\nNew session summaries:\n\n{notes}"
+        raw = (await llm.run(agent, prompt, user_id=user.id, purpose="librarian_page")).output
         new = clean_output(raw)
         if not new.strip() or new.strip() == current.strip():
             return None

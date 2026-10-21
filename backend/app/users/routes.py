@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -10,6 +11,8 @@ from app.auth.routes import UserOut
 from app.auth.service import generate_password, hash_password, normalize_username, revoke_user_sessions
 from app.deps import DB, AdminAuth, client_ip
 from app.errors import AppError
+from app.llm import keys
+from app.logs import log
 from app.models import User
 from app.users.offboarding import offboard, plan
 
@@ -34,6 +37,7 @@ class UserUpdate(BaseModel):
     display_name: str | None = None
     role: Literal["admin", "member"] | None = None
     is_active: bool | None = None
+    llm_budget_usd: Decimal | None = Field(default=None, ge=0, le=100_000, decimal_places=2)
 
 
 class UserWithPassword(UserOut):
@@ -89,6 +93,7 @@ async def create_user(body: UserCreate, auth: AdminAuth, db: DB) -> UserWithPass
         raise HTTPException(status.HTTP_409_CONFLICT, "Username already exists") from None
     await audit(db, "user.create", user_id=auth.user.id, target_type="user", target_id=user.id)
     await db.commit()
+    await keys.create_for_new_user(user.id)  # after commit: a gateway call (rule R1); retried lazily on failure
     return UserWithPassword(**UserOut.of(user).model_dump(), initial_password=password)
 
 
@@ -102,8 +107,23 @@ async def update_user(user_id: int, body: UserUpdate, auth: AdminAuth, db: DB) -
         setattr(user, name, value)
     if body.is_active is False:
         await revoke_user_sessions(db, user.id)
-    await audit(db, "user.update", user_id=auth.user.id, target_type="user", target_id=user.id, detail=changes)
+    await audit(
+        db,
+        "user.update",
+        user_id=auth.user.id,
+        target_type="user",
+        target_id=user.id,
+        detail={k: str(v) if isinstance(v, Decimal) else v for k, v in changes.items()},
+    )
     await db.commit()
+    if "llm_budget_usd" in changes:
+        try:
+            await keys.update_budget(user.id)
+        except Exception as exc:
+            log.warning("llm.budget_update_failed", user_id=user.id, error=str(exc)[:300])
+            raise AppError(
+                502, "llm_unavailable", "The budget was saved but the AI gateway didn't accept it. Try again."
+            ) from None
     return UserOut.of(user)
 
 
@@ -145,7 +165,7 @@ async def delete_user(user_id: int, transfer_to: int, auth: AdminAuth, db: DB, r
             status.HTTP_409_CONFLICT, "conflict", "Some items could not be transferred; nothing changed"
         ) from exc
     await db.commit()
-    await defer_cleanup_after_offboarding(user_id, result.deleted_project_ids)
+    await defer_cleanup_after_offboarding(user_id, result.deleted_project_ids)  # files and the gateway key
     return OffboardingPreview(
         transfer_to=target.id,
         transfer=result.transfer,

@@ -1,6 +1,6 @@
 """Search quality (design 01 §H10): multilingual BM25, embedding provenance, reembed, poison chunks."""
 
-import httpx
+import httpx2 as httpx  # the embedder uses httpx2 (same API)
 import pytest
 from sqlalchemy import func, select, update
 from typer.testing import CliRunner
@@ -146,9 +146,8 @@ async def test_gateway_records_the_resolved_model_and_refuses_a_switch(monkeypat
             200, json={"model": next(models), "data": [{"index": i, "embedding": [1.0, 0.0]} for i in range(n)]}
         )
 
-    transport = httpx.MockTransport(handler)
-    real_client = httpx.AsyncClient
-    monkeypatch.setattr(embeddings.httpx, "AsyncClient", lambda **kw: real_client(transport=transport, **kw))
+    embeddings.set_transport(httpx.MockTransport(handler))
+    monkeypatch.setattr(embeddings, "_resolved", None)
     e = GatewayEmbedder()
     assert e.model_id == e._model  # configured alias until the first call
     assert await e.resolve_model() == "amazon.titan-embed-text-v2:0"
