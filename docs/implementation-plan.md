@@ -96,7 +96,7 @@ Design: [01-hardening.md](design/01-hardening.md) and, for H15–H16, [07-ux.md]
 - [x] **H13 Chat robustness** (01 §H13)
   - Acceptance: a second concurrent message to a session returns `409 session_busy`; the stream emits `: ping` during a slow model call (fake LLM delay); a mid-stream failure saves a `partial` message and the UI marks it; an immediate failure saves a `failed` message excluded from model history; error events carry codes and the UI shows a message per code.
 
-- [ ] **H14 Operations foundations** (01 §H14, 06)
+- [x] **H14 Operations foundations** (01 §H14, 06)
   - `/api/ready`; worker heartbeat and healthcheck; `backup` service; `deploy/restore.sh`; System page; log rotation; resource limits; graceful shutdown; `mwb backup record-drill`.
   - Acceptance: `/api/ready` returns 503 naming the failed check when the gateway or worker heartbeat is down; worker container becomes unhealthy when its heartbeat stops; backup produces a restic snapshot containing both dumps and `/data/wiki` (CI e2e with a local restic repo); `restore.sh` into a fresh compose project restores users, a wiki page and a stored token that still decrypts (CI e2e); System page shows each item in 01 §H14 (vitest + API tests).
 

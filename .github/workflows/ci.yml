@@ -47,7 +47,15 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen --group dev
       - run: git config --global user.email ci@example.com && git config --global user.name CI
+      - name: Backup tools (pg_dump 17, restic) for tests/test_ops.py
+        run: |
+          sudo apt-get install -y -qq postgresql-common > /dev/null
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y > /dev/null
+          sudo apt-get install -y -qq postgresql-client-17 restic > /dev/null
+          pg_dump --version && restic version
       - name: pytest
+        env:
+          MWB_REQUIRE_BACKUP_TOOLS: "1"  # fail rather than skip the backup round trip
         run: uv run --frozen pytest --cov=app --cov-report=term --cov-fail-under=80 -p no:cacheprovider > ../pytest.log 2>&1; status=$?; tail -n 80 ../pytest.log; exit $status
       - if: failure()
         working-directory: .
@@ -97,6 +105,58 @@ jobs:
           docker run --rm -e MWB_DATABASE_URL=postgresql://x@localhost/x -e MWB_SECRET_KEY=x -e MWB_HOSTNAME=https://mwb.example.com mwb-backend:prod python -c "import app.main" > images.log 2>&1 || { cat images.log; exit 1; }
       - if: failure()
         run: .github/scripts/annotate-tail.sh "images" images.log 80
+
+  # Backups and restores for real (design 01 §H14): seed data, back up to a local restic repository, restore
+  # into a second compose project, and check users, a wiki page and a stored token survived.
+  ops:
+    runs-on: ubuntu-24.04
+    needs: [images]
+    env:
+      MWB_E2E_ADMIN_PASSWORD: admin-password-1
+      COMPOSE: docker compose -f docker-compose.yml -f compose.ci.yml
+    steps:
+      - uses: actions/checkout@v5
+      - name: Write .env
+        run: |
+          cp .env.example .env
+          key=$(python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
+          sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=ci-postgres|; s|^MWB_SECRET_KEY=.*|MWB_SECRET_KEY=$key|; s|^MWB_COOKIE_SECURE=.*|MWB_COOKIE_SECURE=false|; s|^MWB_HOSTNAME=.*|MWB_HOSTNAME=http://localhost:8080|; s|^MWB_TLS_MODE=.*|MWB_TLS_MODE=none|; s|^LITELLM_MASTER_KEY=.*|LITELLM_MASTER_KEY=sk-ci|; s|^LITELLM_DB_PASSWORD=.*|LITELLM_DB_PASSWORD=ci-litellm|" .env
+          sed -i 's|^MWB_BACKUP_REPO=.*|MWB_BACKUP_REPO=/backup-local/repo|; s|^RESTIC_PASSWORD=.*|RESTIC_PASSWORD=ci-restic|' .env
+          grep -c '^MWB_BACKUP_REPO=/backup-local/repo' .env
+          mkdir -p backups && sudo chown 1000:1000 backups
+      - name: Start api and worker
+        run: $COMPOSE up -d --build --wait --wait-timeout 300 api worker > ops.log 2>&1 || { $COMPOSE logs --tail 40 migrate api worker >> ops.log 2>&1; cat ops.log; exit 1; }
+      - name: Seed data and check readiness
+        run: |
+          $COMPOSE exec -T -e MWB_ADMIN_PASSWORD=$MWB_E2E_ADMIN_PASSWORD api mwb create-admin --username admin >> ops.log 2>&1
+          $COMPOSE exec -T -e MWB_E2E_ADMIN_PASSWORD api python - < deploy/ci/seed.py | tee -a ops.log
+          $COMPOSE exec -T worker mwb worker-health | tee -a ops.log
+      - name: Back up and inspect the snapshot
+        run: |
+          $COMPOSE build backup >> ops.log 2>&1
+          $COMPOSE run --rm backup now 2>&1 | tee -a ops.log
+          $COMPOSE run --rm backup list latest > snapshot.txt 2>&1 || { cat snapshot.txt >> ops.log; exit 1; }
+          for f in mwb.dump litellm.dump data.tar; do grep -q "/$f$" snapshot.txt || { echo "snapshot lacks $f" | tee -a ops.log; cat snapshot.txt >> ops.log; exit 1; }; done
+      - name: Restore into a second stack (drill)
+        env:
+          COMPOSE_PROJECT_NAME: mwb-drill
+          MWB_EDGE_PREFIX: 172.31.0
+          MWB_COMPOSE_FILES: -f compose.ci.yml
+          MWB_RESTORE_SERVICES: api worker
+        run: deploy/restore.sh --snapshot latest 2>&1 | tee -a ops.log
+      - name: Check the restored data
+        env:
+          COMPOSE_PROJECT_NAME: mwb-drill
+          MWB_EDGE_PREFIX: 172.31.0
+        run: |
+          report=$($COMPOSE exec -T api mwb backup verify-restore)
+          echo "$report" | tee -a ops.log
+          python3 -c "import json,sys; r=json.loads(sys.argv[1]); assert r['users'] >= 2 and r['wiki_pages'] >= 1 and r['wiki_files_ok'] == r['wiki_pages'] and r['secrets'] >= 1 and r['secrets_readable'] == r['secrets'], r" "$report"
+          $COMPOSE exec -T api mwb backup record-drill --ok --note "CI drill" | tee -a ops.log
+      - if: failure()
+        run: |
+          { $COMPOSE logs --tail 30 backup api worker migrate; COMPOSE_PROJECT_NAME=mwb-drill MWB_EDGE_PREFIX=172.31.0 $COMPOSE logs --tail 30 api worker migrate; } >> ops.log 2>&1 || true
+          .github/scripts/annotate-tail.sh "ops" ops.log 120
 
   e2e:
     runs-on: ubuntu-24.04

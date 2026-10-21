@@ -10,6 +10,7 @@ import ImportsPage from "./pages/ImportsPage";
 import SettingsPage from "./pages/SettingsPage";
 import AdminPage from "./pages/AdminPage";
 import FirstPasswordPage from "./pages/FirstPasswordPage";
+import SystemPage from "./pages/SystemPage";
 
 const NAV = [
   { to: "/chat", label: "Chat" },
@@ -36,7 +37,14 @@ function Layout() {
           ))}
           <div className="nav-sep" />
           <NavLink to="/settings">Settings</NavLink>
-          {user.role === "admin" && <NavLink to="/admin">Users</NavLink>}
+          {user.role === "admin" && (
+            <>
+              <NavLink to="/admin" end>
+                Users
+              </NavLink>
+              <NavLink to="/admin/system">System</NavLink>
+            </>
+          )}
         </nav>
         <div className="sidebar-foot">
           <span className="who">{user.display_name || user.username}</span>
@@ -69,6 +77,7 @@ export default function App() {
         <Route path="/imports" element={<ImportsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/admin/system" element={<SystemPage />} />
         <Route path="*" element={<Navigate to="/chat" replace />} />
       </Route>
     </Routes>

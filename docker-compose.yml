@@ -1,5 +1,14 @@
 name: myworkbuddy
 
+# Every service: rotated JSON logs (design 01 §H14), so a chatty service can't fill the disk.
+# Resources: hard memory limits, and CPU as relative weights (cpu_shares) rather than caps, so the stack also
+# starts on a VM with fewer cores than the design assumes (a cap above the core count is refused by Docker).
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
 x-backend: &backend
   build:
     context: ./backend
@@ -12,11 +21,15 @@ x-backend: &backend
     MWB_GATEWAY_KEY: ${LITELLM_MASTER_KEY}
   volumes:
     - mwbdata:/data
+  logging: *logging
   restart: unless-stopped
 
 services:
   postgres:
     image: paradedb/paradedb:0.26.0-pg17
+    logging: *logging
+    mem_limit: 8g
+    cpu_shares: 4096
     environment:
       POSTGRES_USER: mwb
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -33,6 +46,9 @@ services:
   llm-gateway:
     image: ghcr.io/berriai/litellm:v1.103.5
     command: ["--config", "/app/config.yaml", "--port", "4000"]
+    logging: *logging
+    mem_limit: 2g
+    cpu_shares: 1024
     # Only what the gateway needs (rule R7: it never sees MWB_SECRET_KEYS or the app database password).
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
@@ -73,7 +89,9 @@ services:
   api:
     <<: *backend
     networks: [default, edge]
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=172.30.0.200"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=${MWB_EDGE_PREFIX:-172.30.0}.200"]
+    mem_limit: 2g
+    cpu_shares: 2048
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -92,7 +110,18 @@ services:
       # Background tasks run longer statements and need fewer connections than the API (design 01 §H6).
       MWB_DB_STATEMENT_TIMEOUT_MS: "300000"
       MWB_DB_POOL_SIZE: "6"
-    command: ["sh", "-c", "mwb check-config && { mwb wiki-reconcile || echo wiki-reconcile failed, continuing; } && exec procrastinate --app=app.tasks.app.app worker --concurrency=4"]
+    # `mwb worker` runs Procrastinate plus a heartbeat in the same process (design 01 §H14).
+    command: ["sh", "-c", "mwb check-config && { mwb wiki-reconcile || echo wiki-reconcile failed, continuing; } && exec mwb worker --concurrency=4"]
+    mem_limit: 3g
+    cpu_shares: 2048
+    # SIGTERM: running jobs finish (or reach a retry point) before the container stops.
+    stop_grace_period: 60s
+    healthcheck:
+      test: ["CMD", "mwb", "worker-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -105,19 +134,51 @@ services:
       target: prod
     image: myworkbuddy-web:latest
     networks: [edge]
+    logging: *logging
+    mem_limit: 256m
+    cpu_shares: 512
     restart: unless-stopped
+
+  # Nightly backups to restic (design 06 §5): `docker compose run --rm backup now` for one now.
+  backup:
+    <<: *backend
+    build:
+      context: ./backend
+      target: backup
+    image: myworkbuddy-backup:latest
+    command: ["daemon"]
+    environment:
+      <<: *backend-env
+      MWB_BACKUP_REPO: ${MWB_BACKUP_REPO:-}
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD:-}
+      # Credentials for an S3 repository; separate from the Bedrock AWS_* credentials.
+      AWS_ACCESS_KEY_ID: ${MWB_BACKUP_AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${MWB_BACKUP_AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ""
+    volumes:
+      - mwbdata:/data
+      # For a repository on this host or a mounted NAS path (MWB_BACKUP_REPO=/backup-local/<dir>).
+      - ${MWB_BACKUP_LOCAL_DIR:-./backups}:/backup-local
+    mem_limit: 1g
+    cpu_shares: 1024
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # The only published service: TLS, security headers, routing (deploy/caddy/Caddyfile).
   caddy:
     image: caddy:2-alpine
+    logging: *logging
+    mem_limit: 256m
+    cpu_shares: 512
     environment:
       MWB_HOSTNAME: ${MWB_HOSTNAME:?set MWB_HOSTNAME in .env}
       MWB_TLS_MODE: ${MWB_TLS_MODE:-files}
       # Strict CSP. Remote images are blocked here as a backstop to the Markdown renderer (H4).
       MWB_CSP: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
     ports:
-      - "443:443"
-      - "80:80"
+      - "${MWB_HTTPS_PORT:-443}:443"
+      - "${MWB_HTTP_PORT:-80}:80"
     volumes:
       - ./deploy/caddy:/etc/caddy:ro
       - ./deploy/tls:/tls:ro
@@ -125,7 +186,7 @@ services:
     networks:
       edge:
         # uvicorn trusts X-Forwarded-For only from this address (--forwarded-allow-ips).
-        ipv4_address: 172.30.0.200
+        ipv4_address: ${MWB_EDGE_PREFIX:-172.30.0}.200
     depends_on:
       api:
         condition: service_healthy
@@ -138,9 +199,10 @@ networks:
   edge:
     ipam:
       config:
-        - subnet: 172.30.0.0/24
+        # MWB_EDGE_PREFIX lets a second stack (a restore drill, 06 §6) run next to this one.
+        - subnet: ${MWB_EDGE_PREFIX:-172.30.0}.0/24
           # Automatic addresses come from the lower half, so Caddy's fixed .200 is never taken.
-          ip_range: 172.30.0.0/25
+          ip_range: ${MWB_EDGE_PREFIX:-172.30.0}.0/25
 
 volumes:
   pgdata:

@@ -9,6 +9,7 @@ import ProjectsPage from "./pages/ProjectsPage";
 import ImportsPage from "./pages/ImportsPage";
 import SettingsPage from "./pages/SettingsPage";
 import AdminPage from "./pages/AdminPage";
+import SystemPage, { bytes } from "./pages/SystemPage";
 import { ADMIN, MEMBER, mockApi, renderAt, signedInAs, sse } from "./test-utils";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -494,5 +495,59 @@ describe("settings and admin", () => {
     expect(calls.find((c) => c.path === "/api/auth/password")?.body).toEqual({
       current_password: "Abc23defGhk45mnP", new_password: "my-own-password",
     });
+  });
+});
+
+describe("system page", () => {
+  const SYSTEM = {
+    checks: { database: "ok", llm_gateway: "ok", worker: "worker: last heartbeat 300 s ago" },
+    alerts: ["worker: last heartbeat 300 s ago", "Last successful backup was 30 h ago"],
+    worker: { heartbeat: { at: NOW, host: "worker-1" }, age_s: 300 },
+    jobs: {
+      queues: [{ queue: "default", status: "todo", count: 3 }],
+      failed_24h: [{ id: 41, queue: "default", task: "ingest_project", attempts: 1, failed_at: NOW }],
+      periodic: [{ task: "librarian_tick", last_at: NOW }],
+    },
+    backup: { status: "ok", last_success_at: NOW, snapshot_id: "abcdef1234", sizes: { "mwb.dump": 2048 } },
+    backup_drill: { ok: true, at: NOW, note: "monthly" },
+    disk: { path: "/data", total_bytes: 100 * 1024 ** 3, free_bytes: 40 * 1024 ** 3, free_ratio: 0.4 },
+    disk_guard: { ok: true },
+    wiki_reconcile: { missing: [] },
+    embeddings: { failed: 1, sample: [{ chunk_id: 9, document_id: 3, error: "400 too long" }] },
+    llm_spend: { month_to_date_usd: 12.345, users_counted: 4, users_unknown: 1 },
+  };
+
+  it("shows each item and retries a failed job", async () => {
+    const calls = mockApi({
+      ...signedInAs(ADMIN),
+      "GET /api/admin/system": SYSTEM,
+      "POST /api/admin/system/jobs/41/retry": { retried: 41 },
+    });
+    renderAt("/admin/system", <SystemPage />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Last successful backup was 30 h ago");
+    expect(screen.getByText("worker: last heartbeat 300 s ago", { selector: "span" })).toBeInTheDocument();
+    expect(screen.getByText(/default: 3 waiting/)).toBeInTheDocument();
+    expect(screen.getByText("librarian_tick")).toBeInTheDocument();
+    expect(screen.getByText(/mwb.dump 2.0 KB/)).toBeInTheDocument();
+    expect(screen.getByText(/passed/)).toBeInTheDocument();
+    expect(screen.getByText(/40.0 GB free of 100.0 GB \(40 %\)/)).toBeInTheDocument();
+    expect(screen.getByText(/chunk 9 \(document 3\): 400 too long/)).toBeInTheDocument();
+    expect(screen.getByText(/USD 12.35 across 4 users/)).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Retry job 41"));
+    await waitFor(() => expect(calls.some((c) => c.path === "/api/admin/system/jobs/41/retry")).toBe(true));
+  });
+
+  it("says when backups aren't configured", async () => {
+    mockApi({ ...signedInAs(ADMIN), "GET /api/admin/system": { ...SYSTEM, alerts: [], backup: { status: "not_configured" }, backup_drill: null } });
+    renderAt("/admin/system", <SystemPage />);
+    expect(await screen.findByText(/Not configured. Set MWB_BACKUP_REPO/)).toBeInTheDocument();
+    expect(screen.getByText("Everything looks fine.")).toBeInTheDocument();
+    expect(screen.getByText("never recorded")).toBeInTheDocument();
+  });
+
+  it("formats sizes", () => {
+    expect(bytes(512)).toBe("512 B");
+    expect(bytes(1536)).toBe("1.5 KB");
+    expect(bytes(undefined)).toBe("—");
   });
 });

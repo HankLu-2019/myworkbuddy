@@ -10,3 +10,4 @@ frontend/coverage/
 e2e-results.json
 test-results/
 playwright-report/
+backups/

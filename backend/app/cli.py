@@ -10,10 +10,11 @@ from app.config import ensure_runtime_ok, get_settings
 from app.db import get_sessionmaker
 from app.models import User
 
-cli = typer.Typer(no_args_is_help=True)
+# Plain tracebacks: CLI output ends up in container logs and CI annotations, where boxed ones are unreadable.
+cli = typer.Typer(no_args_is_help=True, pretty_exceptions_enable=False)
 
 # Commands that must work before the configuration is complete.
-_NO_CONFIG_CHECK = {"generate-key", "check-config"}
+_NO_CONFIG_CHECK = {"generate-key", "check-config", "worker-health"}
 
 
 @cli.callback()
@@ -159,6 +160,152 @@ def reembed_cmd(dry_run: bool = typer.Option(False, "--dry-run", help="Report co
         typer.echo(f"other model {model}: {count} chunks")
     typer.echo(f"waiting for a vector: {report['missing']}; failed 5+ times: {report['failed']}")
     typer.echo(f"cleared: {report['cleared']}" + (" (dry run)" if dry_run else ""))
+
+
+@cli.command("worker")
+def worker_cmd(concurrency: int = typer.Option(4, "--concurrency")) -> None:
+    """Run the background worker with its heartbeat (design 01 §H14). SIGTERM finishes running jobs first."""
+    from app.ops.health import heartbeat_loop
+    from app.tasks.app import app as tasks_app
+
+    async def run() -> None:
+        async with tasks_app.open_async():
+            beat = asyncio.create_task(heartbeat_loop())
+            try:
+                await tasks_app.run_worker_async(concurrency=concurrency, install_signal_handlers=True)
+            finally:
+                beat.cancel()
+
+    asyncio.run(run())
+
+
+@cli.command("worker-health")
+def worker_health() -> None:
+    """Exit 1 if the worker's heartbeat is older than 3 minutes (the worker container's healthcheck)."""
+    from app.ops.health import HEALTHY_MAX_AGE, HEARTBEAT_KEY, get_states, heartbeat_age
+
+    try:
+        state = asyncio.run(get_states(HEARTBEAT_KEY)).get(HEARTBEAT_KEY)
+    except Exception as exc:
+        typer.echo(f"unhealthy: {type(exc).__name__}", err=True)
+        raise typer.Exit(1) from None
+    age = heartbeat_age(state)
+    if age is None or age > HEALTHY_MAX_AGE:
+        typer.echo(
+            f"unhealthy: heartbeat {'missing' if age is None else f'{int(age.total_seconds())} s old'}", err=True
+        )
+        raise typer.Exit(1)
+    typer.echo(f"healthy: heartbeat {int(age.total_seconds())} s old")
+
+
+@cli.command("reingest-all")
+def reingest_all() -> None:
+    """Queue a re-ingest of every project (after a restore: repo caches aren't backed up)."""
+    from app.models import Project
+    from app.tasks.app import app as tasks_app
+    from app.tasks.app import defer_ingest
+
+    async def run() -> int:
+        async with get_sessionmaker()() as db:
+            ids = list(await db.scalars(select(Project.id)))
+        async with tasks_app.open_async():
+            for pid in ids:
+                await defer_ingest(pid, force=True)
+        return len(ids)
+
+    typer.echo(f"queued {asyncio.run(run())} project(s)")
+
+
+backup_cli = typer.Typer(help="Backups and restores (design 06 §5, §6)")
+cli.add_typer(backup_cli, name="backup")
+
+
+@backup_cli.command("run")
+def backup_run() -> None:
+    """Back up now (also: `docker compose run --rm backup now`)."""
+    from app.ops.backup import run_backup
+
+    result = asyncio.run(run_backup())
+    typer.echo(
+        f"snapshot {result.snapshot_id}: {result.sizes}" + (f" (skipped {result.skipped})" if result.skipped else "")
+    )
+
+
+@backup_cli.command("daemon")
+def backup_daemon() -> None:
+    """Back up every night at MWB_BACKUP_TIME (the backup service's command)."""
+    from app.ops.backup import daemon
+
+    asyncio.run(daemon())
+
+
+@backup_cli.command("list")
+def backup_list(snapshot: str = typer.Argument("latest")) -> None:
+    """Files in a snapshot."""
+    from app.ops.backup import list_snapshot
+
+    for path in asyncio.run(list_snapshot(snapshot)):
+        typer.echo(path)
+
+
+@backup_cli.command("restore")
+def backup_restore(
+    snapshot: str = typer.Option("latest", "--snapshot"),
+    force: bool = typer.Option(False, "--force", help="Overwrite a database that already has users"),
+) -> None:
+    """Restore databases and /data (deploy/restore.sh runs this, then migrations and the rest)."""
+    from app.db_bootstrap import bootstrap
+    from app.ops.backup import restore
+
+    for line in bootstrap(get_settings().database_url, os.environ.get("LITELLM_DB_PASSWORD") or None):
+        typer.echo(line)
+    typer.echo(str(asyncio.run(restore(snapshot, force=force))))
+
+
+@backup_cli.command("verify-restore")
+def backup_verify() -> None:
+    """Counts that show a restore worked: users, wiki pages with their files, tokens that still decrypt."""
+    import json
+
+    from app.knowledge.wiki import read_page
+    from app.models import UserSecret, WikiPage
+    from app.secrets.service import readable
+
+    async def run() -> dict:
+        async with get_sessionmaker()() as db:
+            users = len(list(await db.scalars(select(User.id))))
+            pages = list(await db.scalars(select(WikiPage)))
+            secrets = list(await db.scalars(select(UserSecret)))
+        files_ok = sum(1 for page in pages if read_page(page))
+        good = sum(readable(s.ciphertext) for s in secrets)
+        return {
+            "users": users,
+            "wiki_pages": len(pages),
+            "wiki_files_ok": files_ok,
+            "secrets": len(secrets),
+            "secrets_readable": good,
+        }
+
+    report = asyncio.run(run())
+    typer.echo(json.dumps(report))
+    if (
+        not report["users"]
+        or report["wiki_files_ok"] < report["wiki_pages"]
+        or report["secrets_readable"] < report["secrets"]
+    ):
+        raise typer.Exit(1)
+
+
+@backup_cli.command("record-drill")
+def backup_record_drill(
+    ok: bool = typer.Option(..., "--ok/--failed", help="Did the restore drill succeed?"),
+    note: str = typer.Option("", "--note"),
+) -> None:
+    """Record a restore drill for the System page (design 06 §6)."""
+    from app.ops.backup import record_drill
+
+    asyncio.run(record_drill(ok, note))
+    typer.echo("recorded")
 
 
 llm_cli = typer.Typer(help="AI gateway: per-user keys (design 01 §H12)")
