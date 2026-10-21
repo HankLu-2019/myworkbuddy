@@ -69,7 +69,7 @@ async def build_episode(db: AsyncSession, session_id: uuid.UUID) -> Episode | No
     The caller commits the final write.
     """
     session = await db.get(ChatSession, session_id)
-    if session is None:
+    if session is None or session.source == "run":
         return None
     transcript, count = await _transcript(db, session_id)
     episode = await db.scalar(select(Episode).where(Episode.session_id == session_id))
@@ -123,6 +123,7 @@ async def sessions_needing_episodes(db: AsyncSession, limit: int = 50) -> list[u
         select(ChatSession.id)
         .outerjoin(Episode, Episode.session_id == ChatSession.id)
         .where(ChatSession.updated_at < cutoff, msg_count > 0)
+        .where(ChatSession.source != "run")  # run transcripts are reports, not conversations (02 §4)
         .where((Episode.id.is_(None)) | (Episode.message_count < msg_count))
         .order_by(ChatSession.updated_at)
         .limit(limit)

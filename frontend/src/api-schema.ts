@@ -692,6 +692,111 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run */
+        get: operations["get_run_api_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Schedules */
+        get: operations["list_schedules_api_schedules_get"];
+        put?: never;
+        /** Create Schedule */
+        post: operations["create_schedule_api_schedules_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schedules/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview Cron */
+        post: operations["preview_cron_api_schedules_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schedules/{schedule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Schedule */
+        get: operations["get_schedule_api_schedules__schedule_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Schedule */
+        delete: operations["delete_schedule_api_schedules__schedule_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Schedule */
+        patch: operations["update_schedule_api_schedules__schedule_id__patch"];
+        trace?: never;
+    };
+    "/api/schedules/{schedule_id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Now */
+        post: operations["run_now_api_schedules__schedule_id__run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schedules/{schedule_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Runs */
+        get: operations["list_runs_api_schedules__schedule_id__runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/usage": {
         parameters: {
             query?: never;
@@ -983,6 +1088,13 @@ export interface components {
             system: boolean;
             /** Tools */
             tools: string[];
+        };
+        /** AgentRef */
+        AgentRef: {
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
         };
         /** Body_import_claude_code_api_imports_claude_code_post */
         Body_import_claude_code_api_imports_claude_code_post: {
@@ -1452,6 +1564,24 @@ export interface components {
             /** New Password */
             new_password: string;
         };
+        /** PreviewIn */
+        PreviewIn: {
+            /** Cron */
+            cron: string;
+            /** Timezone */
+            timezone?: string | null;
+        };
+        /** PreviewOut */
+        PreviewOut: {
+            /** Description */
+            description: string | null;
+            /** Error */
+            error: string | null;
+            /** Next */
+            next: string[];
+            /** Valid */
+            valid: boolean;
+        };
         /**
          * ProfileIn
          * @description Settings → Profile (07-ux §4.12). Omitted fields stay as they are; an empty email clears it.
@@ -1628,6 +1758,279 @@ export interface components {
         RevertOut: {
             /** Reverted */
             reverted: string[];
+        };
+        /** RunDetail */
+        RunDetail: {
+            /** Agent */
+            agent: string;
+            /** Changed */
+            changed: boolean | null;
+            /** Cost Usd */
+            cost_usd: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Error */
+            error: string | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Fingerprints */
+            fingerprints: string[];
+            /** Finished At */
+            finished_at: string | null;
+            /** Headline */
+            headline: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inputs */
+            inputs: {
+                [key: string]: unknown;
+            };
+            /** Notified */
+            notified: boolean;
+            /** Prompt */
+            prompt: string;
+            /** Report */
+            report: {
+                [key: string]: unknown;
+            } | null;
+            /** Report Status */
+            report_status: ("ok" | "warning" | "alert") | null;
+            /** Schedule Id */
+            schedule_id: string | null;
+            /** Schedule Name */
+            schedule_name: string;
+            /**
+             * Scheduled For
+             * Format: date-time
+             */
+            scheduled_for: string;
+            /** Session Id */
+            session_id: string | null;
+            /** Started At */
+            started_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "timed_out" | "skipped" | "cancelled";
+            /** Tokens In */
+            tokens_in: number | null;
+            /** Tokens Out */
+            tokens_out: number | null;
+            /**
+             * Trigger
+             * @enum {string}
+             */
+            trigger: "schedule" | "manual";
+        };
+        /** RunOut */
+        RunOut: {
+            /** Agent */
+            agent: string;
+            /** Changed */
+            changed: boolean | null;
+            /** Cost Usd */
+            cost_usd: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Error */
+            error: string | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Headline */
+            headline: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Notified */
+            notified: boolean;
+            /** Report Status */
+            report_status: ("ok" | "warning" | "alert") | null;
+            /** Schedule Id */
+            schedule_id: string | null;
+            /** Schedule Name */
+            schedule_name: string;
+            /**
+             * Scheduled For
+             * Format: date-time
+             */
+            scheduled_for: string;
+            /** Started At */
+            started_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "timed_out" | "skipped" | "cancelled";
+            /**
+             * Trigger
+             * @enum {string}
+             */
+            trigger: "schedule" | "manual";
+        };
+        /** RunPage */
+        RunPage: {
+            /** Items */
+            items: components["schemas"]["RunOut"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /** RunStarted */
+        RunStarted: {
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+        };
+        /** ScheduleIn */
+        ScheduleIn: {
+            /**
+             * Agent
+             * @description Agent slug
+             */
+            agent: string;
+            /** Cron */
+            cron: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Inputs
+             * @default {}
+             */
+            inputs: {
+                [key: string]: unknown;
+            };
+            /**
+             * Max Runtime S
+             * @default 300
+             */
+            max_runtime_s: number;
+            /** Name */
+            name: string;
+            /**
+             * Notify Email
+             * @default true
+             */
+            notify_email: boolean;
+            /**
+             * Notify Mode
+             * @default on_change
+             * @enum {string}
+             */
+            notify_mode: "always" | "on_change" | "on_alert";
+            /**
+             * Prompt
+             * @default
+             */
+            prompt: string;
+            /**
+             * Timezone
+             * @description IANA name; default: yours
+             */
+            timezone?: string | null;
+        };
+        /** ScheduleOut */
+        ScheduleOut: {
+            agent: components["schemas"]["AgentRef"];
+            /** Consecutive Failures */
+            consecutive_failures: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Cron */
+            cron: string;
+            /** Description */
+            description: string;
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inputs */
+            inputs: {
+                [key: string]: unknown;
+            };
+            /** Last Run At */
+            last_run_at: string | null;
+            /** Last Status */
+            last_status: string | null;
+            /** Max Runtime S */
+            max_runtime_s: number;
+            /** Name */
+            name: string;
+            /** Next Run At */
+            next_run_at: string | null;
+            /** Notify Email */
+            notify_email: boolean;
+            /**
+             * Notify Mode
+             * @enum {string}
+             */
+            notify_mode: "always" | "on_change" | "on_alert";
+            /** Paused Reason */
+            paused_reason: string | null;
+            /** Prompt */
+            prompt: string;
+            /** Timezone */
+            timezone: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** SchedulePage */
+        SchedulePage: {
+            /** Items */
+            items: components["schemas"]["ScheduleOut"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /** ScheduleUpdate */
+        ScheduleUpdate: {
+            /** Agent */
+            agent?: string | null;
+            /** Cron */
+            cron?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Inputs */
+            inputs?: {
+                [key: string]: unknown;
+            } | null;
+            /** Max Runtime S */
+            max_runtime_s?: number | null;
+            /** Name */
+            name?: string | null;
+            /** Notify Email */
+            notify_email?: boolean | null;
+            /** Notify Mode */
+            notify_mode?: ("always" | "on_change" | "on_alert") | null;
+            /** Prompt */
+            prompt?: string | null;
+            /** Timezone */
+            timezone?: string | null;
         };
         /** SessionCreate */
         SessionCreate: {
@@ -3329,6 +3732,295 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_run_api_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_schedules_api_schedules_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchedulePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_schedule_api_schedules_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_cron_api_schedules_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_schedule_api_schedules__schedule_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_schedule_api_schedules__schedule_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_schedule_api_schedules__schedule_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_now_api_schedules__schedule_id__run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunStarted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_runs_api_schedules__schedule_id__runs_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

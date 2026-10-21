@@ -28,6 +28,8 @@ dependencies = [
   "email-validator>=2.2",
   "defusedxml>=0.7",
   "jsonschema>=4.23",
+  "cron-descriptor>=1.4",
+  "croniter>=2",
 ]
 
 [project.scripts]

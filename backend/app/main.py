@@ -19,6 +19,7 @@ from app.knowledge.routes import router as knowledge_router
 from app.llm.routes import router as usage_router
 from app.logs import log, setup_logging
 from app.ops.routes import router as ops_router
+from app.schedules.routes import router as schedules_router
 from app.tasks.app import app as tasks_app
 from app.users.routes import router as users_router
 
@@ -73,5 +74,6 @@ for r in (
     home_router,
     integrations_router,
     agents_router,
+    schedules_router,
 ):
     app.include_router(r)

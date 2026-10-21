@@ -286,6 +286,19 @@ If deferring fails after commit, the run stays `queued`; the tick also re-defers
 
 Manual run: `POST /api/schedules/{id}/run` creates a run with `trigger='manual'`, `scheduled_for=now()`, and always notifies in-app (never email).
 
+*Changed while building S4:*
+
+- **`schedules.paused_reason`** (new column) says why the system disabled a schedule (3 failures, budget, owner deactivated, timing no longer valid); the UI shows it. Re-enabling clears it and resets `consecutive_failures`.
+- **Cron evaluation** walks naive local times with croniter and converts each with `zoneinfo` (`app/schedules/cron.py`): a gap time is skipped, an overlap time fires at its first occurrence, and an hourly schedule therefore runs once in the repeated hour. Expressions that never fire (`0 8 31 2 *`) are refused. `cron-descriptor` uses the 24-hour format ("At 08:00, Monday through Friday").
+- **Validation** (`validate_schedule`, shared with S6) returns `validation_error` with a `field` (`name`, `agent`, `inputs.<path>`, `cron`, `timezone`, …); the per-user limit is `409 conflict` with `field: "enabled"`. Inputs are checked against the agent's JSON Schema and capped at 16 kB.
+- **`PATCH`** keeps `next_run_at` unless `cron`, `timezone` or `enabled` changed, so renaming doesn't move the next run.
+- **Skips:** a scheduled run is skipped if its schedule was paused or deleted, the agent was disabled or the owner deactivated; a manual run of a paused schedule still runs (the user asked for it). Deleting a schedule keeps its runs (`schedule_id` null); `config.schedule_id` tells a deleted schedule's run from a test run (`config.schedule_id` null), which never notifies.
+- **Interrupted runs:** the tick fails runs still `running` 10 minutes past their `max_runtime_s` with `error_code='interrupted'` (the worker died); they don't count towards the 3 failures.
+- **Notifications:** `recovered` means the previous run had verified fingerprints, this one has none, and its status is `ok`. Inbox kinds: `alert` (status warning/alert, severity from the status), `recovered`, `run` (`always` or a manual run with status ok), `system` (paused). Inbox bodies list verified findings only. Emails strip anything that looks like a URL from model-written text (`[link removed]`), so the run link is the only link.
+- **`outbound_emails` is created now** (migration 0009, §5 columns) so pauses and alerts queue their email in the same transaction; `send_emails`, retries, headers and the daily cap come with S5. `app.inbox.email.queue_email` skips users without an address or with email turned off.
+- **Run sessions** don't appear in `GET /api/chat/sessions` unless `source=run` is asked for, can't be posted to (409; investigate in a new chat), and are never summarised into episodes.
+- Lists use `app/pagination.py` (`{"items", "next_cursor"}`, newest first by `(created_at, id)`).
+
 ## 5. Inbox and email
 
 ```sql

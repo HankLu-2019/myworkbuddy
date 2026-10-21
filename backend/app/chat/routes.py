@@ -112,6 +112,8 @@ async def list_sessions(auth: CurrentAuth, db: DB, source: str | None = None, li
     q = select(ChatSession).where(ChatSession.owner_id == auth.user.id)
     if source:
         q = q.where(ChatSession.source == source)
+    else:
+        q = q.where(ChatSession.source != "run")  # run transcripts open from their run, not the chat list
     rows = await db.scalars(q.order_by(ChatSession.updated_at.desc()).limit(min(limit, 500)))
     return [_out(s) for s in rows]
 
@@ -458,6 +460,10 @@ async def _save_assistant(
 @router.post("/sessions/{session_id}/messages")
 async def post_message(session_id: uuid.UUID, body: MessageIn, auth: CurrentAuth, db: DB) -> StreamingResponse:
     session = await _owned(db, session_id, auth.user)
+    if session.source == "run":
+        raise AppError(
+            status.HTTP_409_CONFLICT, "conflict", "A run's transcript can't be continued. Investigate it in a new chat."
+        )
     # The request's session stays checked out while the reply streams; end its read transaction now so it isn't
     # "idle in transaction" for minutes (rule R1; the server ends such sessions after 60 s).
     await db.commit()

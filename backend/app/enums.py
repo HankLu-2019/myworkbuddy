@@ -113,6 +113,34 @@ class AgentModel(StrEnum):
     planner = "planner"
 
 
+class NotifyMode(StrEnum):
+    always = "always"
+    on_change = "on_change"
+    on_alert = "on_alert"
+
+
+class RunTrigger(StrEnum):
+    schedule = "schedule"
+    manual = "manual"  # also test runs of an unsaved schedule (schedule_id null, 02 §6)
+
+
+class RunStatus(StrEnum):
+    queued = "queued"
+    running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
+    timed_out = "timed_out"
+    skipped = "skipped"
+    cancelled = "cancelled"
+
+
+class EmailStatus(StrEnum):
+    pending = "pending"
+    sent = "sent"
+    failed = "failed"
+    suppressed = "suppressed"
+
+
 def check(column: str, enum: type[StrEnum]) -> str:
     """SQL for a CHECK constraint that keeps `column` within `enum`."""
     values = ", ".join(f"'{e.value}'" for e in enum)

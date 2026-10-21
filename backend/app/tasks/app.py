@@ -226,3 +226,43 @@ async def embed_missing_task(timestamp: int) -> None:
     async with get_sessionmaker()() as db:
         while await embed_missing(db):
             await db.commit()
+
+
+# ---------- schedules (design 02 §4) ----------
+
+
+def schedule_lock(schedule_id: uuid.UUID | None, run_id: uuid.UUID) -> str:
+    """Runs of one schedule never overlap; a run without a schedule (a test run) only locks itself."""
+    return f"schedule:{schedule_id}" if schedule_id else f"run:{run_id}"
+
+
+async def defer_run(run_id: uuid.UUID, schedule_id: uuid.UUID | None) -> bool:
+    return await defer_once(
+        run_schedule_task, f"run:{run_id}", lock=schedule_lock(schedule_id, run_id), run_id=str(run_id)
+    )
+
+
+@app.task(name="run_schedule", queue="llm", retry=False)
+async def run_schedule_task(run_id: str) -> None:
+    from app.schedules.service import execute_run
+
+    structlog.contextvars.bind_contextvars(task="run_schedule", run_id=run_id)
+    await execute_run(uuid.UUID(run_id))
+
+
+@app.periodic(cron="* * * * *")
+@app.task(name="schedule_tick", queueing_lock="schedule_tick")
+async def schedule_tick(timestamp: int) -> None:
+    from app.schedules.service import tick
+
+    result = await tick()
+    for run_id, schedule_id in result.created + result.requeue:
+        await defer_run(run_id, schedule_id)
+    if result.created or result.requeue or result.interrupted or result.disabled:
+        log.info(
+            "schedule_tick.done",
+            created=len(result.created),
+            requeued=len(result.requeue),
+            interrupted=result.interrupted,
+            disabled=result.disabled,
+        )

@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     allow_http_repos: bool = False
     # Integrations (design 02 §1): http:// base URLs only in dev and tests.
     allow_http_integrations: bool = False
+    # Schedules (design 02 §4).
+    schedule_min_interval_min: int = Field(15, ge=1)  # smallest gap between runs for members
+    schedule_min_interval_admin_min: int = Field(5, ge=1)
+    max_schedules_per_user: int = Field(20, ge=1)  # enabled schedules
     # Read once by migration 0006 to move Phase 1 tokens into integrations; not used at runtime.
     gitlab_url: str = ""
     gerrit_url: str = ""

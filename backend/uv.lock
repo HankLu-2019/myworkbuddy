@@ -231,6 +231,18 @@ wheels = [
 ]
 
 [[package]]
+name = "cron-descriptor"
+version = "2.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/41/6b/9ebac1857c0e90d5ba487090f4f9b23e8bf9adead62922550621de21cbf2/cron_descriptor-2.2.1.tar.gz", hash = "sha256:6759056f43b3cabca274b5df182bb63571f2f383bdd4d9d3ff4662c527430a65", size = 53562, upload-time = "2026-10-13T12:39:33.386Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/87/f8/c9c61b0fd465aaa2b2ac2f51c77dfe49e09dc6c907a8d476c4870b738f2a/cron_descriptor-2.2.1-py3-none-any.whl", hash = "sha256:23b42aca983841333aaf28095024e0457f005621d03e658edbd7316a5f2bbd42", size = 76628, upload-time = "2026-10-13T12:39:31.663Z" },
+]
+
+[[package]]
 name = "croniter"
 version = "6.2.4"
 source = { registry = "https://pypi.org/simple" }
@@ -621,6 +633,8 @@ dependencies = [
     { name = "alembic" },
     { name = "argon2-cffi" },
     { name = "asyncpg" },
+    { name = "cron-descriptor" },
+    { name = "croniter" },
     { name = "cryptography" },
     { name = "defusedxml" },
     { name = "email-validator" },
@@ -658,6 +672,8 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.15" },
     { name = "argon2-cffi", specifier = ">=25.1" },
     { name = "asyncpg", specifier = ">=0.30" },
+    { name = "cron-descriptor", specifier = ">=1.4" },
+    { name = "croniter", specifier = ">=2" },
     { name = "cryptography", specifier = ">=44" },
     { name = "defusedxml", specifier = ">=0.7" },
     { name = "email-validator", specifier = ">=2.2" },
