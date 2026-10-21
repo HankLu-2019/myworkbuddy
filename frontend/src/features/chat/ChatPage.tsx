@@ -5,6 +5,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, streamPost, type ChatMessage, type Citation, type Project, type Session } from "../../api";
 import { useAuth } from "../../auth";
 import { usePageTitle } from "../../app/pageTitle";
+import { draftKey, useDraft } from "../../app/drafts";
+import { CitationDrawer, citationHref } from "./CitationPreview";
 import {
   Button,
   ConfirmDialog,
@@ -19,19 +21,28 @@ import {
   useToast,
 } from "../../components/ui";
 
-export function citationHref(c: Citation): string {
-  if (c.source_ref.startsWith("wiki:")) return `/wiki/${c.source_ref.slice(5)}`;
-  if (c.source_ref.startsWith("session:")) return `/chat/${c.source_ref.slice(8)}`;
-  if (c.source_type === "upload") return "/sources/documents";
-  return "/sources/repos";
-}
+export { citationHref } from "./CitationPreview";
 
-function Citations({ items }: { items: Citation[] }) {
+const DESKTOP = "(min-width: 768px)";
+
+/** Citation chips: on desktop they open the source in a drawer beside the chat; on phones they navigate. */
+function Citations({ items, onOpen }: { items: Citation[]; onOpen: (c: Citation) => void }) {
   if (!items.length) return null;
   return (
     <div className="citations">
       {items.map((c) => (
-        <Link key={c.n} to={citationHref(c)} className="citation" title={c.source_ref}>
+        <Link
+          key={c.n}
+          to={citationHref(c)}
+          className="citation"
+          title={c.source_ref}
+          onClick={(e) => {
+            if (window.matchMedia?.(DESKTOP).matches && !e.metaKey && !e.ctrlKey) {
+              e.preventDefault();
+              onOpen(c);
+            }
+          }}
+        >
           <span className="cite-n">{c.n}</span>
           {c.title}
           <span className="cite-type">{SOURCE_LABELS[c.source_type] ?? c.source_type}</span>
@@ -85,7 +96,25 @@ export default function ChatPage() {
   const toast = useToast();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const qc = useQueryClient();
-  const [draft, setDraft] = useState("");
+  const [cited, setCited] = useState<Citation | null>(null);
+  const composer = useRef<HTMLTextAreaElement>(null);
+  const {
+    value: draft,
+    setValue: setDraft,
+    clear: clearDraft,
+    restored,
+    acknowledge,
+  } = useDraft(sessionId ? draftKey(user?.id, "chat", sessionId) : null);
+  // Once per session, even when StrictMode runs effects twice.
+  const announced = useRef<string | null>(null);
+  useEffect(() => {
+    if (restored && sessionId && announced.current !== sessionId) {
+      announced.current = sessionId;
+      toast({ title: "Restored your unsaved text" });
+      acknowledge();
+    }
+  }, [restored, sessionId, toast, acknowledge]);
+
   const [pending, setPending] = useState<Pending | null>(null);
   const [streaming, setStreaming] = useState(false);
   const stream = useRef<AbortController | null>(null);
@@ -106,6 +135,10 @@ export default function ChatPage() {
   });
 
   const isOwner = session.data?.owner_id === user?.id;
+  // A new or reopened session puts the cursor in the composer (07 §5.2), once the composer exists.
+  useEffect(() => {
+    if (sessionId && isOwner) composer.current?.focus();
+  }, [sessionId, isOwner]);
   usePageTitle({ label: "Chat", to: "/chat" }, sessionId ? session.data?.title : undefined);
 
   // Braces matter: newer browsers return a Promise from scrollIntoView, and an effect must return a cleanup function
@@ -165,7 +198,7 @@ export default function ChatPage() {
     e?.preventDefault();
     const content = (resend ?? draft).trim();
     if (!content || !sessionId || streaming) return;
-    if (resend === undefined) setDraft("");
+    if (resend === undefined) clearDraft();
     const controller = new AbortController();
     stream.current = controller;
     const state: Pending = { user: content, text: "", tools: [] };
@@ -289,9 +322,10 @@ export default function ChatPage() {
                   />
                   <VisibilityControl
                     visibility={visibility}
+                    item="chat"
+                    name={session.data?.title ?? "this chat"}
                     size="sm"
-                    pending={patch.isPending}
-                    onChange={(v) => patch.mutate({ visibility: v })}
+                    onChange={(v) => patch.mutateAsync({ visibility: v })}
                   />
                   <Button size="sm" onClick={() => summarize.mutate()} pending={summarize.isPending}>
                     {summarize.isSuccess ? "Summary queued" : "Save to memory"}
@@ -323,7 +357,7 @@ export default function ChatPage() {
                       Incomplete — the model call failed.
                     </div>
                   )}
-                  {m.role === "assistant" && <Citations items={m.citations} />}
+                  {m.role === "assistant" && <Citations items={m.citations} onOpen={setCited} />}
                   {m.role === "assistant" && (m.cost_usd ?? 0) > 0 && (
                     <div className="muted small" aria-label="Cost of this reply">
                       ${(m.cost_usd ?? 0) < 0.01 ? "<0.01" : (m.cost_usd ?? 0).toFixed(2)}
@@ -364,6 +398,7 @@ export default function ChatPage() {
             {isOwner && (
               <form className="composer" onSubmit={send}>
                 <TextArea
+                  ref={composer}
                   label="Message"
                   hideLabel
                   placeholder="Ask about a project, a past decision, an error… (Enter to send, Shift+Enter for a new line)"
@@ -377,6 +412,7 @@ export default function ChatPage() {
                 </Button>
               </form>
             )}
+            <CitationDrawer citation={cited} onClose={() => setCited(null)} />
             <ConfirmDialog
               open={confirmDelete}
               onOpenChange={setConfirmDelete}

@@ -123,9 +123,21 @@ export function Drawer({
   );
 }
 
-export function Popover({ trigger, children, label }: { trigger: ReactNode; children: ReactNode; label: string }) {
+export function Popover({
+  trigger,
+  children,
+  label,
+  open,
+  onOpenChange,
+}: {
+  trigger: ReactNode;
+  children: ReactNode;
+  label: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
   return (
-    <RadixPopover.Root>
+    <RadixPopover.Root open={open} onOpenChange={onOpenChange}>
       <RadixPopover.Trigger asChild>{trigger}</RadixPopover.Trigger>
       <RadixPopover.Portal>
         <RadixPopover.Content className="popover" aria-label={label} sideOffset={6} collisionPadding={8}>

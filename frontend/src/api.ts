@@ -34,6 +34,10 @@ export class ApiError extends Error {
     message: string,
     public code: ErrorCode | string = `http_${status}`,
     public body: unknown = null,
+    /** X-Request-ID of the failed request, shown as "ref" so an admin can find it in the logs. */
+    public requestId: string | null = null,
+    /** Seconds to wait, from Retry-After (rate_limited). */
+    public retryAfter: number | null = null,
   ) {
     super(message);
   }
@@ -64,7 +68,15 @@ async function send(path: string, { method = "GET", json, form, signal }: Option
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     const code = body && typeof body === "object" && "code" in body ? String((body as { code: unknown }).code) : undefined;
-    throw new ApiError(res.status, errorMessage(body, res.status), code, body);
+    const retry = Number(res.headers.get("Retry-After"));
+    throw new ApiError(
+      res.status,
+      errorMessage(body, res.status),
+      code,
+      body,
+      res.headers.get("X-Request-ID"),
+      Number.isFinite(retry) && retry > 0 ? retry : null,
+    );
   }
   return res;
 }
@@ -135,6 +147,12 @@ export type SecretStatus = Schemas["SecretStatus"];
 export type ImportResult = Schemas["ImportResult"];
 export type LibrarianRun = Schemas["LibrarianRunOut"];
 export type LibrarianChange = Schemas["LibrarianChangeOut"];
+export type ProjectDetail = Schemas["ProjectDetail"];
+export type Home = Schemas["HomeOut"];
+export type NeedsYou = Schemas["NeedsYou"];
+export type ActivityItem = Schemas["ActivityItem"];
+export type Activity = Schemas["ActivityOut"];
+export type Checklist = Schemas["Checklist"];
 
 /** Citations and tool calls are free-form JSON in the schema; this is what the chat stream and history carry. */
 export interface Citation {

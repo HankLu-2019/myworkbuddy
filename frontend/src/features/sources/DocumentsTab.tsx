@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileUp, RefreshCw, Trash2 } from "lucide-react";
+import { useAuth } from "../../auth";
 import { api, type DocumentItem, type Visibility } from "../../api";
 import {
   Button,
@@ -65,6 +66,7 @@ export default function DocumentsTab() {
     },
   });
 
+  const isAdmin = useAuth().user?.role === "admin";
   const columns: Column<DocumentItem>[] = [
     { key: "title", header: "Title", sortValue: (d) => d.title, cell: (d) => d.title },
     { key: "visibility", header: "Visibility", cell: (d) => <VisibilityBadge visibility={d.visibility} /> },
@@ -74,9 +76,27 @@ export default function DocumentsTab() {
       key: "actions",
       header: <span className="visually-hidden">Actions</span>,
       cell: (d) =>
-        d.mine && (
+        !d.mine ? (
+          isAdmin &&
+          d.visibility === "public" && (
+            <VisibilityControl
+              size="sm"
+              item="document"
+              name={d.title}
+              mine={false}
+              visibility={d.visibility}
+              onChange={(v) => visibility.mutateAsync({ id: d.id, v })}
+            />
+          )
+        ) : (
           <div className="row-actions">
-            <VisibilityControl size="sm" visibility={d.visibility} onChange={(v) => visibility.mutate({ id: d.id, v })} />
+            <VisibilityControl
+              size="sm"
+              item="document"
+              name={d.title}
+              visibility={d.visibility}
+              onChange={(v) => visibility.mutateAsync({ id: d.id, v })}
+            />
             <Button
               size="sm"
               icon={<RefreshCw size={14} aria-hidden />}

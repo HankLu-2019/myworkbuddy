@@ -1,6 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
+import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type SecretStatus, type SignIn, type Usage } from "../../api";
+import { api, type SecretStatus, type SignIn, type Usage, type User } from "../../api";
+import { readTheme, saveTheme, type Theme } from "../../app/theme";
 import { useAuth } from "../../auth";
 import { usePageTitle } from "../../app/pageTitle";
 import {
@@ -10,6 +13,10 @@ import {
   ConfirmDialog,
   DataTable,
   ErrorNote,
+  KeyValue,
+  LinkTabs,
+  RadioGroup,
+  formatUsd,
   PageHeader,
   SkeletonRows,
   StatusPill,
@@ -18,7 +25,22 @@ import {
   useToast,
 } from "../../components/ui";
 
-function SecretCard({ s }: { s: SecretStatus }) {
+/** Where to create each credential and what it needs (07 §4.12 Integrations). */
+const SECRET_HELP: Record<string, string> = {
+  gitlab_token: "GitLab → Preferences → Access tokens. Scopes: read_api and read_repository.",
+  gerrit_username: "Your Gerrit account name.",
+  gerrit_password: "Gerrit → Settings → HTTP Credentials → Generate new password.",
+  jira_token: "Jira → Profile → Personal Access Tokens. Used from Phase 3.",
+};
+
+function SecretCard({ s, focused }: { s: SecretStatus; focused?: boolean }) {
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (focused) {
+      input.current?.scrollIntoView({ block: "center" });
+      input.current?.focus();
+    }
+  }, [focused]);
   const qc = useQueryClient();
   const toast = useToast();
   const [value, setValue] = useState("");
@@ -29,6 +51,7 @@ function SecretCard({ s }: { s: SecretStatus }) {
     onSuccess: () => {
       setValue("");
       refresh();
+      qc.invalidateQueries({ queryKey: ["home"] });
       toast({ title: `${s.label} saved`, tone: "success" });
     },
   });
@@ -51,6 +74,7 @@ function SecretCard({ s }: { s: SecretStatus }) {
           }}
         >
           <TextField
+            ref={input}
             label={s.label}
             type={s.kind.endsWith("username") ? "text" : "password"}
             autoComplete="off"
@@ -58,11 +82,14 @@ function SecretCard({ s }: { s: SecretStatus }) {
             onChange={(e) => setValue(e.target.value)}
             placeholder={s.is_set ? "Replace…" : "Enter…"}
             hint={
-              s.status === "unreadable"
-                ? "Can't be read any more. Enter it again."
-                : s.is_set && s.updated_at
-                  ? `Saved ${formatDate(s.updated_at)}`
-                  : undefined
+              <>
+                {s.status === "unreadable"
+                  ? "Can't be read any more. Enter it again."
+                  : s.is_set && s.updated_at
+                    ? `Saved ${formatDate(s.updated_at)}. `
+                    : ""}
+                {s.status !== "unreadable" && SECRET_HELP[s.kind]}
+              </>
             }
           />
           <StatusPill status={status} />
@@ -211,18 +238,134 @@ function AiUsage() {
           )}
         </>
       )}
-      <p className="muted small">Updated every few minutes.</p>
+      {u.chat_usd_month != null && (
+        <KeyValue items={[["Chat replies this month", formatUsd(u.chat_usd_month)]]} />
+      )}
+      <p className="muted small">Updated every few minutes. Schedules and jobs are listed here once they exist.</p>
     </Card>
   );
 }
 
-export default function SettingsPage() {
-  const secrets = useQuery({ queryKey: ["secrets"], queryFn: () => api<SecretStatus[]>("/api/secrets") });
-  usePageTitle("Settings");
+const ZONES: string[] = (() => {
+  try {
+    return (Intl as unknown as { supportedValuesOf(k: string): string[] }).supportedValuesOf("timeZone");
+  } catch {
+    return [];
+  }
+})();
+
+function ProfileTab() {
+  const { user, updateUser } = useAuth();
+  const toast = useToast();
+  const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const [name, setName] = useState(user?.display_name ?? "");
+  const [email, setEmail] = useState(user?.email ?? "");
+  const [zone, setZone] = useState(user?.timezone ?? browserZone);
+  const [theme, setTheme] = useState<Theme>(readTheme);
+  const save = useMutation({
+    mutationFn: (body: Record<string, string>) => api<User>("/api/auth/me", { method: "PATCH", json: body }),
+    onSuccess: (u) => {
+      updateUser(u);
+      toast({ title: "Profile saved", tone: "success" });
+    },
+  });
+  const zoneValid = !ZONES.length || ZONES.includes(zone) || zone === "UTC";
   return (
-    <div className="page">
-      <PageHeader title="Settings" />
-      <h2>Access tokens</h2>
+    <div className="stack">
+      {user && !user.timezone_confirmed && (
+        <Banner tone="info">
+          Times are shown in {user.timezone}. Your browser is in {browserZone}.{" "}
+          <Button
+            size="sm"
+            variant="primary"
+            pending={save.isPending}
+            onClick={() => {
+              setZone(browserZone);
+              save.mutate({ timezone: browserZone });
+            }}
+          >
+            Use {browserZone}
+          </Button>{" "}
+          {browserZone !== user.timezone && (
+            <Button size="sm" onClick={() => save.mutate({ timezone: user.timezone ?? browserZone })}>
+              Keep {user.timezone}
+            </Button>
+          )}
+        </Banner>
+      )}
+      <Card
+        as="form"
+        className="stack narrow"
+        aria-label="Profile"
+        onSubmit={(e: FormEvent) => {
+          e.preventDefault();
+          if (zoneValid) save.mutate({ display_name: name, email, timezone: zone });
+        }}
+      >
+        <TextField label="Display name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
+        <TextField
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          hint="Used to find your commits in repositories."
+        />
+        <TextField
+          label="Timezone"
+          value={zone}
+          list="mwb-zones"
+          onChange={(e) => setZone(e.target.value)}
+          error={zoneValid ? null : "Pick a timezone from the list, e.g. Europe/Stockholm."}
+          hint="Dates, the librarian's nightly run and schedules use it."
+        />
+        <datalist id="mwb-zones">
+          {ZONES.map((z) => (
+            <option key={z} value={z} />
+          ))}
+        </datalist>
+        <ErrorNote error={save.error} />
+        <div>
+          <Button variant="primary" type="submit" pending={save.isPending}>
+            Save profile
+          </Button>
+        </div>
+      </Card>
+      <Card className="stack narrow">
+        <RadioGroup
+          legend="Theme"
+          value={theme}
+          options={[
+            ["system", "Same as my system"],
+            ["light", "Light"],
+            ["dark", "Dark"],
+          ]}
+          onChange={(t) => {
+            setTheme(t);
+            saveTheme(t);
+          }}
+        />
+        <p className="muted small">Kept in this browser.</p>
+      </Card>
+    </div>
+  );
+}
+
+function IntegrationsTab() {
+  const [params] = useSearchParams();
+  const focus = params.get("focus");
+  const back = params.get("back");
+  const secrets = useQuery({ queryKey: ["secrets"], queryFn: () => api<SecretStatus[]>("/api/secrets") });
+  const safeBack = back && back.startsWith("/") && !back.startsWith("//") ? back : null;
+  return (
+    <div className="stack">
+      {safeBack && (
+        <div>
+          <Link to={safeBack} className="btn btn-secondary">
+            <ArrowLeft size={16} aria-hidden />
+            <span className="btn-label">{safeBack.startsWith("/sources/repos") ? "Back to Add repository" : "Back"}</span>
+          </Link>
+        </div>
+      )}
       <p className="muted lede">
         Used to clone your repositories and, later, to push branches as you. Tokens are encrypted at rest and never
         shown again after saving.
@@ -230,14 +373,32 @@ export default function SettingsPage() {
       <ErrorNote error={secrets.error} />
       {secrets.isLoading && <SkeletonRows />}
       <ul className="stack plain-list" aria-label="Access tokens">
-        {secrets.data?.map((s) => <SecretCard key={s.kind} s={s} />)}
+        {secrets.data?.map((s) => <SecretCard key={s.kind} s={s} focused={s.kind === focus} />)}
       </ul>
-      <h2>AI usage</h2>
-      <AiUsage />
-      <h2>Sessions</h2>
-      <Sessions />
-      <h2>Password</h2>
-      <PasswordForm />
+    </div>
+  );
+}
+
+const TABS: Record<string, { label: string; element: () => ReactElement | null }> = {
+  profile: { label: "Profile", element: ProfileTab },
+  integrations: { label: "Integrations", element: IntegrationsTab },
+  usage: { label: "Usage", element: AiUsage },
+  sessions: { label: "Sessions", element: Sessions },
+  password: { label: "Password", element: PasswordForm },
+};
+
+/** Settings tabs (07 §4.12); each tab has its own URL. Notifications arrive with email in Phase 2. */
+export default function SettingsPage() {
+  const { tab = "" } = useParams();
+  const current = TABS[tab];
+  usePageTitle({ label: "Settings", to: "/settings/profile" }, current?.label);
+  if (!current) return <Navigate to="/settings/profile" replace />;
+  const Tab = current.element;
+  return (
+    <div className="page">
+      <PageHeader title="Settings" />
+      <LinkTabs label="Settings" tabs={Object.entries(TABS).map(([key, t]) => ({ to: `/settings/${key}`, label: t.label }))} />
+      <Tab />
     </div>
   );
 }

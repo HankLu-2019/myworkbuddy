@@ -39,7 +39,7 @@ describe("app shell", () => {
   it("shows login errors", async () => {
     mockApi({
       "GET /api/auth/me": new Response("{}", { status: 401 }),
-      "POST /api/auth/login": new Response(JSON.stringify({ detail: "Wrong username or password" }), { status: 401 }),
+      "POST /api/auth/login": new Response(JSON.stringify({ detail: "Wrong username or password", code: "invalid_credentials" }), { status: 401 }),
     });
     renderAt("/login", <App />);
     fireEvent.change(await screen.findByLabelText("Username"), { target: { value: "a" } });
@@ -215,7 +215,12 @@ describe("knowledge pages", () => {
     });
     renderAt("/sources/documents", <DocumentsPage />);
     expect(await screen.findByText("pm.md")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Share with team"));
+    fireEvent.click(screen.getByRole("button", { name: "Share with team" }));
+    const share = await screen.findByRole("dialog", { name: "Share pm.md with the team?" });
+    expect(share).toHaveTextContent("becomes searchable by everyone");
+    fireEvent.click(within(share).getByRole("button", { name: "Share with team" }));
+    await waitFor(() => expect(calls.some((c) => c.path === "/api/knowledge/documents/5/visibility")).toBe(true));
+    expect(await screen.findByRole("button", { name: "Undo" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     const confirm = await screen.findByRole("dialog", { name: "Delete pm.md?" });
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
@@ -260,6 +265,8 @@ describe("knowledge pages", () => {
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Share with team" }));
+    const share = await screen.findByRole("dialog", { name: "Share runbooks/oom.md with the team?" });
+    fireEvent.click(within(share).getByRole("button", { name: "Share with team" }));
     await waitFor(() => expect(calls.find((c) => c.path === "/api/wiki/pages/3/visibility")?.body).toEqual({ visibility: "public" }));
     fireEvent.click(await screen.findByText("History"));
     fireEvent.click(await screen.findByText("Create runbooks/oom.md"));
@@ -338,21 +345,43 @@ describe("knowledge pages", () => {
       "POST /api/projects/1/ingest": { queued: true },
       "POST /api/projects/1/visibility": {},
       "DELETE /api/projects/1": undefined,
+      "GET /api/secrets": [
+        { kind: "gitlab_token", label: "GitLab personal access token", is_set: true, status: "set", updated_at: NOW },
+        { kind: "gerrit_username", label: "Gerrit username", is_set: false, status: "not_set", updated_at: null },
+        { kind: "gerrit_password", label: "Gerrit HTTP password", is_set: false, status: "not_set", updated_at: null },
+      ],
     });
     renderAt("/sources/repos", <ProjectsPage />);
     expect(await screen.findByText("auth required")).toBeInTheDocument();
     expect(screen.getByText("Indexing code 40 of 120")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Repository URL"), { target: { value: "https://g/new.git" } });
-    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "gerrit" } });
-    fireEvent.click(screen.getByText("Add repository"));
-    expect(await screen.findByRole("status")).toHaveTextContent("Gerrit needs the /a/ prefix");
+    fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add repository" });
+    fireEvent.change(within(dialog).getByLabelText("Host"), { target: { value: "gerrit" } });
+    expect(await within(dialog).findByText(/You need a Gerrit username and HTTP password first/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: "Add token" })).toHaveAttribute(
+      "href",
+      "/settings/integrations?focus=gerrit_username&back=%2Fsources%2Frepos%3Fadd%3D1",
+    );
+    expect(within(dialog).getByRole("button", { name: "Add repository" })).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText("Host"), { target: { value: "gitlab" } });
+    fireEvent.change(within(dialog).getByLabelText("Repository URL"), { target: { value: "https://g/new.git" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add repository" }));
+    expect(await screen.findByText("Indexing started")).toBeInTheDocument();
+    expect(screen.getByText(/Gerrit needs the \/a\/ prefix/)).toBeInTheDocument();
     fireEvent.click(screen.getAllByText("Re-index")[0]);
     fireEvent.click(screen.getAllByText("Share code index")[0]);
+    const share = await screen.findByRole("dialog", { name: "Share etl with the team?" });
+    expect(share).toHaveTextContent("Your project card stays private");
+    fireEvent.click(within(share).getByRole("button", { name: "Share with team" }));
+    await waitFor(() => expect(calls.some((c) => c.path === "/api/projects/1/visibility")).toBe(true));
     fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
     const confirm = await screen.findByRole("dialog", { name: "Remove etl?" });
     fireEvent.click(within(confirm).getByRole("button", { name: "Remove repository" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
-    expect(calls.find((c) => c.method === "POST" && c.path === "/api/projects")?.body).toMatchObject({ host: "gerrit" });
+    expect(calls.find((c) => c.method === "POST" && c.path === "/api/projects")?.body).toMatchObject({
+      host: "gitlab",
+      repo_url: "https://g/new.git",
+    });
   });
 
   it("imports Claude Code transcripts", async () => {
@@ -387,26 +416,34 @@ describe("settings and admin", () => {
           user_agent: "Mozilla/5.0 (Windows NT 10.0) Gecko/20100101 Firefox/131.0" },
       ],
       "POST /api/auth/sessions/sign-out-others": { signed_out: 1 },
-      "GET /api/usage": { user_id: 2, spend_usd: 12.5, budget_usd: 50, budget_reset_at: NOW, fetched_at: NOW },
+      "GET /api/usage": { user_id: 2, spend_usd: 12.5, budget_usd: 50, budget_reset_at: NOW, fetched_at: NOW, chat_usd_month: 0.42 },
       "PUT /api/secrets/gerrit_username": undefined,
       "DELETE /api/secrets/gitlab_token": undefined,
       "POST /api/auth/password": undefined,
     });
-    renderAt("/settings", <SettingsPage />);
-    fireEvent.change(await screen.findByLabelText("Gerrit username"), { target: { value: "alice" } });
+    const { router } = renderAt("/settings/integrations?focus=gerrit_username", <SettingsPage />, "/settings/:tab");
+    const gerrit = await screen.findByLabelText("Gerrit username");
+    await waitFor(() => expect(gerrit).toHaveFocus());
+    expect(screen.getByText(/Scopes: read_api and read_repository/)).toBeInTheDocument();
+    fireEvent.change(gerrit, { target: { value: "alice" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Save" })[1]);
     fireEvent.click(screen.getAllByRole("button", { name: "Clear" })[0]);
     const clear = await screen.findByRole("dialog", { name: "Clear GitLab personal access token?" });
     fireEvent.click(within(clear).getByRole("button", { name: "Clear" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
     expect(screen.getByText("Can't be read any more. Enter it again.")).toBeInTheDocument();
+    await router.navigate("/settings/usage");
     expect(await screen.findByText(/USD 12.50 of USD 50.00 used/)).toBeInTheDocument();
+    expect(screen.getByText("$0.42")).toBeInTheDocument();
     expect(screen.getByLabelText("Share of monthly AI budget used")).toHaveAttribute("value", "25");
+    await router.navigate("/settings/sessions");
     expect(await screen.findByText("Chrome on macOS")).toBeInTheDocument();
     expect(screen.getByText("Firefox on Windows")).toBeInTheDocument();
     expect(screen.getByText("This device")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Sign out other sessions"));
     expect(await screen.findByText("Signed out 1 other session.")).toBeInTheDocument();
+    await router.navigate("/settings/password");
+    await screen.findByLabelText("Current password");
     expect(screen.getByText(/signs you out everywhere/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Current password"), { target: { value: "old-password" } });
     fireEvent.change(screen.getByLabelText("New password (10+ characters)"), { target: { value: "new-password-1" } });

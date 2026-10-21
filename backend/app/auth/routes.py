@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
@@ -42,6 +43,7 @@ class UserOut(BaseModel):
     last_login_at: datetime | None = None
     llm_budget_usd: float | None = None  # None: the default MWB_DEFAULT_USER_BUDGET_USD applies
     timezone: str | None = None
+    timezone_confirmed: bool = False
 
     @classmethod
     def of(cls, u: User) -> "UserOut":
@@ -56,12 +58,21 @@ class UserOut(BaseModel):
             last_login_at=u.last_login_at,
             llm_budget_usd=float(u.llm_budget_usd) if u.llm_budget_usd is not None else None,
             timezone=u.timezone,
+            timezone_confirmed=bool(u.timezone_confirmed),
         )
 
 
 class MeOut(BaseModel):
     user: UserOut
     csrf_token: str
+
+
+class ProfileIn(BaseModel):
+    """Settings → Profile (07-ux §4.12). Omitted fields stay as they are; an empty email clears it."""
+
+    display_name: str | None = Field(default=None, max_length=128)
+    email: str | None = Field(default=None, max_length=255, pattern=r"^$|^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    timezone: str | None = Field(default=None, max_length=64)
 
 
 class PasswordChangeIn(BaseModel):
@@ -113,6 +124,26 @@ async def logout(auth: CurrentAuth, response: Response, db: DB) -> None:
 @router.get("/me", response_model=MeOut)
 async def me(auth: CurrentAuth) -> MeOut:
     return MeOut(user=UserOut.of(auth.user), csrf_token=auth.session.csrf_token)
+
+
+@router.patch("/me", response_model=UserOut)
+async def update_profile(body: ProfileIn, auth: CurrentAuth, db: DB) -> UserOut:
+    user = auth.user
+    changed = body.model_dump(exclude_unset=True)
+    if "timezone" in changed:
+        try:
+            ZoneInfo(body.timezone or "")
+        except (ZoneInfoNotFoundError, ValueError):
+            raise AppError(422, "validation_error", f"Unknown time zone {body.timezone!r}") from None
+        user.timezone = body.timezone
+        user.timezone_confirmed = True
+    if "display_name" in changed:
+        user.display_name = (body.display_name or "").strip() or None
+    if "email" in changed:
+        user.email = (body.email or "").strip() or None
+    await audit(db, "profile.update", user_id=user.id, detail={"fields": sorted(changed)})
+    await db.commit()
+    return UserOut.of(user)
 
 
 @router.post("/password", status_code=204)

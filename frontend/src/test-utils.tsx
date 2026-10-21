@@ -1,7 +1,7 @@
 import { render } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactElement } from "react";
+import { StrictMode, type ReactElement } from "react";
 import { vi } from "vitest";
 import { AuthProvider } from "./auth";
 import { TitleProvider } from "./app/pageTitle";
@@ -42,21 +42,25 @@ export function sse(events: [string, unknown][]): Response {
 
 export function renderAt(path: string, element: ReactElement, routePath = "*") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={[path]}>
-        <AuthProvider>
-          <TitleProvider>
-            <ToastProvider>
-              <Routes>
-                <Route path={routePath} element={element} />
-              </Routes>
-            </ToastProvider>
-          </TitleProvider>
-        </AuthProvider>
-      </MemoryRouter>
-    </QueryClientProvider>,
+  const wrapped = (
+    <AuthProvider>
+      <TitleProvider>
+        <ToastProvider>{element}</ToastProvider>
+      </TitleProvider>
+    </AuthProvider>
   );
+  // Like main.tsx: a data router, so useBlocker works. Unmatched paths render the same element.
+  const routes = routePath === "*" ? [{ path: "*", element: wrapped }] : [{ path: routePath, element: wrapped }, { path: "*", element: wrapped }];
+  const router = createMemoryRouter(routes, { initialEntries: [path] });
+  // StrictMode like main.tsx, so effects that misbehave when run twice fail here first.
+  const result = render(
+    <StrictMode>
+      <QueryClientProvider client={qc}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </StrictMode>,
+  );
+  return { ...result, router };
 }
 
 export function signedInAs(user: typeof MEMBER | typeof ADMIN) {

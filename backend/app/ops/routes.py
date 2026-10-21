@@ -15,7 +15,7 @@ from app.db import get_sessionmaker
 from app.deps import DB, AdminAuth, client_ip
 from app.errors import AppError
 from app.knowledge.indexer import MAX_EMBED_ATTEMPTS
-from app.models import Chunk
+from app.models import AuditLog, Chunk, User
 from app.ops import backup, health
 
 router = APIRouter(prefix="/api", tags=["ops"])
@@ -136,6 +136,15 @@ async def system(auth: AdminAuth, db: DB) -> dict[str, Any]:
             .limit(20)
         )
     ]
+    audit_rows = [
+        {"at": at.isoformat(), "action": action, "user": username, "target": f"{tt}:{ti}" if tt else None}
+        for at, action, username, tt, ti in await db.execute(
+            select(AuditLog.at, AuditLog.action, User.username, AuditLog.target_type, AuditLog.target_id)
+            .outerjoin(User, User.id == AuditLog.user_id)
+            .order_by(AuditLog.id.desc())
+            .limit(25)
+        )
+    ]
     await db.commit()  # rule R1: the gateway checks below are network calls
     checks, spend = await asyncio.gather(health.readiness(), _spend())
     disk = _disk()
@@ -153,6 +162,7 @@ async def system(auth: AdminAuth, db: DB) -> dict[str, Any]:
         "wiki_reconcile": states.get("wiki_reconcile"),
         "embeddings": {"failed": stuck, "sample": stuck_sample},
         "llm_spend": spend,
+        "audit": audit_rows,
     }
 
 

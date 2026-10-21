@@ -29,9 +29,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   upload: "Document",
 };
 
-export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
+export { RelativeTime, displayTimezone, formatDate, formatElapsed, formatRelative, setDisplayTimezone } from "./Time";
 
 /** USD with two decimals, four below $0.01 (07 §6.10). */
 export function formatUsd(n: number): string {

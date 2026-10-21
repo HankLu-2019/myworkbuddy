@@ -86,21 +86,32 @@ describe("StatusPill", () => {
 });
 
 describe("visibility", () => {
-  it("names the state in words and flips it", () => {
+  it("names the state in words, asks before sharing and offers Undo", async () => {
     function Harness() {
       const [v, setV] = useState<"private" | "public">("private");
       return (
         <>
           <VisibilityBadge visibility={v} />
-          <VisibilityControl visibility={v} onChange={setV} shareLabel="Share code index" />
+          <VisibilityControl visibility={v} onChange={setV} item="repository" name="etl" shareLabel="Share code index" />
         </>
       );
     }
-    render(<Harness />);
+    render(
+      <ToastProvider>
+        <Harness />
+      </ToastProvider>,
+    );
     expect(screen.getByText("Private")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Share code index" }));
-    expect(screen.getByText("Team")).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "Share etl with the team?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Share with team" }));
+    expect(await screen.findByText("Team")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Make private" })).toBeInTheDocument();
+    // Undo puts it back without asking again.
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Private")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Share code index" }));
+    expect(screen.getByRole("dialog", { name: "Share etl with the team?" })).toBeInTheDocument();
   });
 });
 

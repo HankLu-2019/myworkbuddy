@@ -138,6 +138,20 @@ class GitRepo:
             return None
         return await self._git("show", f"{sha}:{path}")
 
+    async def changed_files(self, sha: str) -> list[str]:
+        """Paths the commit added, changed or removed (no rename detection, like log)."""
+        if not _SHA.fullmatch(sha):
+            raise GitError(f"invalid commit id {sha!r}")
+        out = await self._git("diff-tree", "--no-commit-id", "--name-only", "-r", "--no-renames", "--root", sha)
+        return [p for p in out.splitlines() if p]
+
+    async def parent(self, sha: str) -> str | None:
+        """The first parent of `sha`, or None for the root commit."""
+        if not _SHA.fullmatch(sha):
+            raise GitError(f"invalid commit id {sha!r}")
+        out = await self._git("rev-parse", "--verify", "-q", f"{sha}^", check=False)
+        return out.strip() or None
+
     async def head(self) -> str:
         return (await self._git("rev-parse", "HEAD")).strip()
 
