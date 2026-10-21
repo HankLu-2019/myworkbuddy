@@ -6,6 +6,7 @@ import typer
 from sqlalchemy import select
 
 from app.auth.service import hash_password, normalize_username
+from app.config import get_settings
 from app.db import get_sessionmaker
 from app.models import User
 
@@ -38,6 +39,18 @@ def generate_key() -> None:
     from cryptography.fernet import Fernet
 
     typer.echo(Fernet.generate_key().decode())
+
+
+@cli.command("db-bootstrap")
+def db_bootstrap() -> None:
+    """Idempotent database setup that can't live in Alembic (CREATE DATABASE can't run in a transaction).
+
+    Creates the extensions, and the LiteLLM role and database when LITELLM_DB_PASSWORD is set.
+    """
+    from app.db_bootstrap import bootstrap
+
+    for line in bootstrap(get_settings().database_url, os.environ.get("LITELLM_DB_PASSWORD") or None):
+        typer.echo(line)
 
 
 def main() -> None:

@@ -50,18 +50,18 @@ docker compose exec api mwb create-admin --username admin --email you@example.co
 
 Open http://localhost:8080, sign in as the admin, and create team members under **Users**. Each user should add their tokens under **Settings** before adding repositories under **Projects**.
 
-For a prod-like run without the dev override: `docker compose -f docker-compose.yml up -d --build`. Set `MWB_COOKIE_SECURE=true` when serving over HTTPS.
+For a prod-like run without the dev override: `docker compose -f docker-compose.yml up -d --build`. The one-shot `migrate` service runs `mwb db-bootstrap` and Alembic first; `api` and `worker` start after it exits successfully. Set `MWB_COOKIE_SECURE=true` when serving over HTTPS.
 
 Logs are structured JSON: `docker compose logs -f api worker`.
 
 ## Tests
 
 ```bash
-# Backend (uses a separate mwb_test database in the same Postgres; no LLM calls)
+# Backend (dev stack only: the dev image has the tests; uses a separate mwb_test database; no LLM calls)
 docker compose exec api sh -c "cd /app && pytest --cov=app"
 
 # Frontend
-docker run --rm -v "$PWD/frontend:/app" -w /app node:24-alpine npx vitest run --coverage
+docker run --rm -v "$PWD/frontend:/app" -w /app node:24-alpine sh -c "npm ci && npm run typecheck && npx vitest run --coverage"
 ```
 
 Current: 60 backend tests (83% coverage), 19 frontend tests (99% statement coverage).
