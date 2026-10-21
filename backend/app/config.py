@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     login_window_minutes: int = 15
     log_level: str = "INFO"
     repo_max_files: int = 300
+    ingest_max_summary_files: int = 150
+    db_pool_size: int = 10
+    db_statement_timeout_ms: int = 30_000
     repo_max_file_bytes: int = 200_000
     allow_http_repos: bool = False
 

@@ -15,7 +15,17 @@ class Base(DeclarativeBase):
 
 @lru_cache
 def get_engine() -> AsyncEngine:
-    return create_async_engine(get_settings().async_db_url, pool_pre_ping=True)
+    s = get_settings()
+    return create_async_engine(
+        s.async_db_url,
+        pool_pre_ping=True,
+        pool_size=s.db_pool_size,
+        max_overflow=5,
+        pool_timeout=10,
+        pool_recycle=1800,
+        # api keeps statements short; the worker sets MWB_DB_STATEMENT_TIMEOUT_MS higher (design 01 §H6).
+        connect_args={"server_settings": {"statement_timeout": str(s.db_statement_timeout_ms)}},
+    )
 
 
 @lru_cache

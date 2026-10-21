@@ -30,10 +30,11 @@ from app.auth.service import hash_password  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.db import get_engine, get_sessionmaker  # noqa: E402
 from app.llm.embeddings import HashEmbedder, set_embedder  # noqa: E402
-from app.llm.models import set_model_override  # noqa: E402
+from app.llm.models import set_model_override, set_override_wrapper  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import User  # noqa: E402
 from app.tasks.app import app as tasks_app  # noqa: E402
+from tests import txguard  # noqa: E402
 
 PASSWORD = "test-password-123"
 
@@ -51,6 +52,8 @@ def _recreate_database() -> None:
 @pytest.fixture(scope="session", autouse=True)
 def database() -> None:
     _recreate_database()
+    txguard.install(get_engine())
+    set_override_wrapper(txguard.guard_model)
     yield
     shutil.rmtree(_TMP, ignore_errors=True)
 
@@ -64,9 +67,11 @@ def task_queue() -> InMemoryConnector:
 
 @pytest.fixture(autouse=True)
 async def clean(task_queue: InMemoryConnector) -> AsyncIterator[None]:
-    set_embedder(HashEmbedder())
+    set_embedder(txguard.GuardedEmbedder(HashEmbedder()))
     set_model_override(TestModel(call_tools=[], custom_output_text="ok"))
+    txguard.reset()
     yield
+    violations = list(txguard.violations)
     set_model_override(None)
     set_embedder(None)
     task_queue.reset()
@@ -83,6 +88,8 @@ async def clean(task_queue: InMemoryConnector) -> AsyncIterator[None]:
         await conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
     shutil.rmtree(get_settings().data_dir / "wiki", ignore_errors=True)
     shutil.rmtree(get_settings().data_dir / "repos", ignore_errors=True)
+    # Rule R1: no LLM or embedding call may run while a DB transaction is open (design 01 §H6).
+    assert violations == [], violations
 
 
 @pytest.fixture

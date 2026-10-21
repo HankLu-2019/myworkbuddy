@@ -4,6 +4,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.knowledge.indexer import commit_before_network
 from app.llm.embeddings import get_embedder
 from app.logs import log
 from app.models import User
@@ -49,6 +50,7 @@ async def hybrid_search(
     query = query.strip()
     if not query:
         return []
+    await commit_before_network(db)  # rule R1: the query embedding is a network call
     try:
         [qvec] = await get_embedder().embed([query])
     except Exception as exc:  # embedding service down: keyword search still answers
