@@ -1,6 +1,8 @@
 name: myworkbuddy
 
 # Every service: rotated JSON logs (design 01 §H14), so a chatty service can't fill the disk.
+# Resources: hard memory limits, and CPU as relative weights (cpu_shares) rather than caps, so the stack also
+# starts on a VM with fewer cores than the design assumes (a cap above the core count is refused by Docker).
 x-logging: &logging
   driver: json-file
   options:
@@ -27,7 +29,7 @@ services:
     image: paradedb/paradedb:0.26.0-pg17
     logging: *logging
     mem_limit: 8g
-    cpus: 4
+    cpu_shares: 4096
     environment:
       POSTGRES_USER: mwb
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -46,7 +48,7 @@ services:
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     logging: *logging
     mem_limit: 2g
-    cpus: 1
+    cpu_shares: 1024
     # Only what the gateway needs (rule R7: it never sees MWB_SECRET_KEYS or the app database password).
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
@@ -89,7 +91,7 @@ services:
     networks: [default, edge]
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=${MWB_EDGE_PREFIX:-172.30.0}.200"]
     mem_limit: 2g
-    cpus: 2
+    cpu_shares: 2048
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -111,7 +113,7 @@ services:
     # `mwb worker` runs Procrastinate plus a heartbeat in the same process (design 01 §H14).
     command: ["sh", "-c", "mwb check-config && { mwb wiki-reconcile || echo wiki-reconcile failed, continuing; } && exec mwb worker --concurrency=4"]
     mem_limit: 3g
-    cpus: 2
+    cpu_shares: 2048
     # SIGTERM: running jobs finish (or reach a retry point) before the container stops.
     stop_grace_period: 60s
     healthcheck:
@@ -134,7 +136,7 @@ services:
     networks: [edge]
     logging: *logging
     mem_limit: 256m
-    cpus: 0.5
+    cpu_shares: 512
     restart: unless-stopped
 
   # Nightly backups to restic (design 06 §5): `docker compose run --rm backup now` for one now.
@@ -158,7 +160,7 @@ services:
       # For a repository on this host or a mounted NAS path (MWB_BACKUP_REPO=/backup-local/<dir>).
       - ${MWB_BACKUP_LOCAL_DIR:-./backups}:/backup-local
     mem_limit: 1g
-    cpus: 1
+    cpu_shares: 1024
     depends_on:
       postgres:
         condition: service_healthy
@@ -168,7 +170,7 @@ services:
     image: caddy:2-alpine
     logging: *logging
     mem_limit: 256m
-    cpus: 0.5
+    cpu_shares: 512
     environment:
       MWB_HOSTNAME: ${MWB_HOSTNAME:?set MWB_HOSTNAME in .env}
       MWB_TLS_MODE: ${MWB_TLS_MODE:-files}
