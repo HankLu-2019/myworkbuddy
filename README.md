@@ -2,12 +2,15 @@
 
 A self-hosted web workbench for a small engineering team, inspired by Tencent WorkBuddy. It remembers each person's work (repos, stack, features, past sessions), searches that knowledge with vector + BM25 search, and is designed to grow into scheduled DevOps checks and gated Jira → plan → sandbox → merge-request automation.
 
-- Design proposal and decisions: [docs/proposal.html](docs/proposal.html)
-- Implementation plan (phases 0–5): [docs/implementation-plan.md](docs/implementation-plan.md)
+- Implementation plan with acceptance criteria: [docs/implementation-plan.md](docs/implementation-plan.md)
+- Detailed design (architecture, rules, every phase, security, operations): [docs/design/](docs/design/00-architecture.md)
+- Design review of 2026-10-21: [docs/review/](docs/review/2026-10-21-design-review.md)
+- Original proposal (v0.1, superseded where the design docs differ): [docs/proposal.html](docs/proposal.html)
+- Rules for Claude Code when implementing: [CLAUDE.md](CLAUDE.md)
 
 ## Status
 
-**Phase 0 (foundation) and Phase 1 (knowledge & memory) are implemented.** Phases 2–5 (schedules and connectors, Jira plans, sandboxed execution, polish) are planned but not started.
+**Phase 0 (foundation) and Phase 1 (knowledge & memory) are implemented. Phase H (hardening for production) is next**; the review found defects that must be fixed before production use (no TLS, no backups, Markdown image exfiltration, wiki git/DB drift). Phases 2–4 (schedules and connectors, Jira plans, sandboxed execution) are designed in detail and not started.
 
 What works:
 

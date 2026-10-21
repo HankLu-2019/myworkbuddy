@@ -1,154 +1,171 @@
-# MyWorkBuddy: Implementation Plan (Phase 0 + Phase 1)
+# MyWorkBuddy: implementation plan
 
-## Context
-The user wants a self-hosted, team-ready web workbench inspired by Tencent WorkBuddy. It should remember each person's work (repos, stack, features, sessions), search that knowledge with vectors + BM25, run scheduled DevOps/data checks, and turn approved Jira plans into sandboxed coding jobs that push branches for review. The decisions were settled in the proposal (https://claude.ai/artifact/XDvnZiN27JWTTj15iGAd98) and in the user's answers.
+Last revised 2026-10-21 after the [design review](review/2026-10-21-design-review.md). Supersedes the Phase 0/1 plan of 2026-10-20.
 
-**Knowledge visibility (user correction):** every user has their own knowledge. Everything is **private by default**. Only items explicitly marked **public** become team-wide. This applies to wiki pages, documents, ingested repos/project cards and episodes.
+## Status
 
-This plan covers **Phase 0 (foundation)** and **Phase 1 (knowledge & memory)** in detail. Phases 2–5 are outlined and each gets its own plan cycle.
+| Phase | Status |
+|---|---|
+| 0 Foundation | Done (commit `e45c666`) |
+| 1 Knowledge & memory | Done (commit `e45c666`) |
+| **H Hardening** | **Next.** Fixes review findings and adds production foundations |
+| 2 Schedules & connectors | Designed: [02](design/02-schedules-connectors.md) |
+| 3 Plans | Designed: [03](design/03-plans.md) |
+| 4 Execution | Designed: [04](design/04-execution.md) |
+| 5 Polish | Backlog below |
 
-Assumptions (the user did not answer these; change before approving if they are wrong):
-- Git pushes use **per-user tokens** (GitLab PAT, Gerrit HTTP password), stored encrypted.
-- Jira is a self-hosted Atlassian Jira (REST API v2 + personal access token). Test env uses the `atlassian/jira-software` image with a trial license.
-- Roles: `admin` (manages users, can unpublish public content) and `member`.
+Read [`design/00-architecture.md`](design/00-architecture.md) before any task. Its engineering rules R1–R15 apply to every task, and `CLAUDE.md` repeats them.
 
-The repo `/home/lv/source/2026/myworkbuddy` is empty (greenfield).
+## How to work through this plan
 
-## Repository layout
-```
-myworkbuddy/
-  docker-compose.yml          # postgres, llm-gateway, api, worker, web, mailpit
-  compose.override.yml        # dev: source mounts, hot reload (uvicorn --reload, vite)
-  compose.testenv.yml         # later: jira, gerrit, gitlab-ce (profile "testenv")
-  .env.example
-  gateway/litellm.yaml        # model aliases: chat, planner, embed
-  backend/
-    pyproject.toml, uv.lock, Dockerfile, alembic/
-    app/
-      main.py, config.py, logging.py, db.py, deps.py
-      auth/      (models, passwords, sessions, csrf, routes, cli)
-      users/     (admin routes)
-      secrets/   (Fernet-encrypted per-user secrets)
-      chat/      (sessions, messages, tool_calls, agent, SSE routes)
-      llm/       (gateway client, embeddings)
-      knowledge/ (documents, chunks, acl, search, wiki, ingest/, episodes, librarian)
-      tasks/     (procrastinate app + task registrations)
-      audit/
-    tests/
-  frontend/
-    package.json, vite.config.ts, Dockerfile
-    src/ (api client, auth, pages: Login, Chat, Knowledge, WikiPage, Ingest, Admin, Settings)
-```
+For each task, in order:
 
-## Phase 0: Foundation
+1. Read the task's design section. If the design is wrong or incomplete, **change the design doc first** in the same PR, and say why.
+2. Implement. Write the acceptance criteria as tests first where practical.
+3. Run `/code-review`, fix findings, run the full test suite, `/code-review` again.
+4. Open a PR. CI (after H2) must be green. One task per PR unless a task says otherwise.
+5. Tick the task here in the same PR.
 
-1. **Compose stack.** Services:
-   - `postgres`: `paradedb/paradedb` image, which includes pgvector + pg_search. Volume `pgdata`.
-   - `llm-gateway`: LiteLLM proxy. Aliases `chat` and `planner` map to Bedrock Claude models, set from env. Alias `embed` maps to `amazon.titan-embed-text-v2:0` (1024-d). An optional OpenAI-compatible alias also comes from env.
-   - `api`: FastAPI on uvicorn.
-   - `worker`: same image, runs `procrastinate worker`.
-   - `web`: Vite dev server; nginx static build in prod.
-   - `mailpit`: dev SMTP capture.
-   Healthchecks on everything. `api` runs `alembic upgrade head` on start.
-2. **Backend base.** Python 3.12, uv, FastAPI, SQLAlchemy 2 async + asyncpg, Pydantic v2 settings, structlog JSON logs carrying `request_id`, `user_id`, `session_id`, `run_id`.
-3. **Schema (Alembic 0001).** Tables:
-   - `users` (username, password_hash, role, email, is_active)
-   - `auth_sessions` (token_hash, user_id, expires_at, csrf_token)
-   - `audit_log`
-   - `user_secrets` (user_id, kind, ciphertext)
-   - `sessions` (owner_id, title, source, visibility, created/closed_at)
-   - `messages` (session_id, role, content JSONB, model, tokens_in/out, cost)
-   - `tool_calls`
-   - `artifacts` (key, mime, size, preview)
-4. **Auth.**
-   - Passwords hashed with argon2id (`argon2-cffi`).
-   - Random session token in an httpOnly, Secure, SameSite=Lax cookie; only its hash is stored.
-   - CSRF header on every unsafe method, checked against `auth_sessions.csrf_token`.
-   - Login rate limit per username+IP, kept in a Postgres table.
-   - `mwb create-admin` CLI. Admin pages to create, disable and reset users.
-5. **Secrets.** Per-user secrets (GitLab PAT, Gerrit password, Jira PAT, SMTP override) are Fernet-encrypted with `MWB_SECRET_KEY` from env. They are write-only in the API and never returned or logged.
-6. **Chat.**
-   - Pydantic AI agent pointed at the gateway (OpenAI-compatible provider, base_url = gateway).
-   - `POST /api/chat/sessions/{id}/messages` streams over SSE and persists messages and tool calls as they happen.
-   - Session list, rename and delete. Token and cost recorded per message.
-7. **Frontend.** Vite + React + TS, TanStack Query, React Router, shadcn/ui. Login page, app shell, Chat page with streaming markdown (rendered with `react-markdown` without raw HTML), Admin users page, Settings page for personal tokens.
-8. **Audit.** Every login, secret change, publish/unpublish and tool call writes an `audit_log` row.
+**Definition of done (every task):**
 
-## Phase 1: Knowledge & memory
+- All acceptance criteria are automated tests (unless marked *manual*), and they pass in CI.
+- Backend coverage ≥ 80 % overall; new modules ≥ 85 %.
+- New endpoints: auth test, CSRF test (unsafe methods), ACL/leakage test (owned data), error-code test.
+- No rule R1–R15 broken without a written exception in the PR.
+- Migrations: upgrade tested from the previous migration with seeded data (`tests/test_migrations.py`).
+- Design docs, README and `.env.example` updated for anything user- or operator-visible.
 
-1. **Schema (Alembic 0002).**
-   - `documents`: owner_id, visibility (`private`|`public`), source_type (`upload`|`wiki`|`repo`|`episode`|`transcript`), source_ref, title, content_hash, published_by/at.
-   - `chunks`: document_id, owner_id, visibility (denormalized), content, metadata JSONB, `embedding vector(1024)`. HNSW index (cosine). pg_search `bm25` index on (id, content, owner_id, visibility) with `key_field='id'`.
-   - `wiki_pages`: owner_id, visibility, path, title, head_sha.
-   - `projects`: owner_id, visibility, name, repo_url, host (`gitlab`|`gerrit`), last_ingested_sha.
-   - `episodes`: session_id, owner_id, visibility, summary JSONB.
-2. **Access control.** One function, `knowledge/acl.py::visible_filter(user)`, returns `visibility = 'public' OR owner_id = :uid`. Every knowledge query (search, wiki, documents, projects, episodes) goes through it, and tests cover each endpoint for cross-user leakage. Publish/unpublish:
-   - Owners publish their own items. Admins can unpublish any item.
-   - Publishing updates `documents.visibility` and the chunks' denormalized copy in one transaction, and writes an audit row.
-3. **Embeddings.** `llm/embeddings.py` batches calls to the gateway `embed` alias (dims 1024, normalized), retries with backoff, and skips unchanged chunks by content_hash.
-4. **Hybrid search.** `knowledge/search.py`:
-   - Two candidate sets of 50 each: pgvector `<=>` and pg_search `@@@` with `paradedb.score`, both ACL-filtered inside the query.
-   - Combined with RRF (k=60) and returned with source citations.
-   - Exposed at `GET /api/knowledge/search?q=&scope=` and as the agent tool `search_knowledge`.
-5. **LLM wiki in git.**
-   - Bare-ish repos on a volume: `/data/wiki/users/<user_id>` (private) and `/data/wiki/public`. Driven by `git` subprocess with argv lists (no shell). Commits use the acting user as author.
-   - UI: page tree with Private/Public badges, markdown editor, history, diff.
-   - Publishing a page moves it to the public repo with a commit recording the publisher. Unpublishing moves it back.
-   - Each commit triggers a re-index task.
-6. **Ingestion (procrastinate tasks).**
-   - *Uploads:* md/txt/pdf (pypdf). Chunked by heading or ~800 tokens.
-   - *Repos:* the user adds a GitLab or Gerrit URL. The worker clones it shallowly with the user's token into a cache volume. It scans README, pyproject/uv.lock, go.mod, Dockerfiles, compose files, k8s/Helm, Jenkinsfile, .gitlab-ci.yml and Spinnaker JSON, plus `git log --author=<user email>`. The LLM writes a **project card** into the user's private wiki (`projects/<name>.md`).
-   - *Code chunks:* tree-sitter for Python and Go, one chunk per function or class, each with a one-line LLM summary. The summary and code are indexed. Re-ingest only when HEAD changes.
-   - *Claude Code transcripts:* upload JSONL files and normalize them into `sessions`/`messages` with `source='claude-code'`.
-7. **Episodes.** When a session closes, or in the nightly sweep, the LLM writes a structured summary: goal, decisions, repos/files, outcome, open items. It is stored private, embedded and indexed. Episodes inherit the session's visibility.
-8. **Librarian (nightly periodic task, 02:00).** For each user, it folds that day's episodes into the private wiki (`projects/*`, `decisions.md`, `me/how-i-work.md`) as one git commit. The UI shows a "Changed last night" diff. The librarian never writes to public pages.
-9. **Retrieval in chat.** At session start the agent context gets the user's `me/how-i-work.md` plus the project card for the project in focus (user-selected). The agent has tools `search_knowledge` and `get_session`. Answers render citation chips that link to the page or episode.
+**Release gate (end of each phase):**
 
-## Reuse decision (2026-10-20)
-Own core + reuse existing open-source parts:
-- **Connectors:** `sooperset/mcp-atlassian` (Jira Server/DC via PAT), `zereight/gitlab-mcp`, `containers/kubernetes-mcp-server`. Gerrit, Jenkins and Spinnaker get small custom MCP servers only if no good one exists.
-- **Execution:** OpenHands (`OpenHands/software-agent-sdk`, MIT) provides the Docker sandbox and the agent runtime, with Claude Code as the agent. It replaces most of the custom runner and sandbox work. The egress proxy, approval gates and the push orchestrator stay ours.
-- **Design references:** Open WebUI for access control and automations, and Paperclip for routines and skills. We study their code but don't fork either.
+1. CI green on `main`, including e2e smoke and (Phase 4) sandbox security tests.
+2. Deploy to the VM from the release tag following 06-operations §7 (*manual*).
+3. Run the phase's end-to-end checklist below against the deployed instance with real Bedrock (*manual*).
+4. Backup and restore drill on the new release (*manual*, 06-operations §6).
+5. Retrospective notes appended to this file.
 
-## Phases 2–5 (separate plans later)
-- **Phase 2, schedules & connectors.**
-  - Procrastinate periodic schedules per user; `schedules`/`runs` tables; `propose_schedule` chat tool with a confirm card.
-  - **Email notifications via SMTP** first.
-  - MCP registry with tiers. Read connectors for self-hosted Jira (REST v2 + PAT), GitLab, Gerrit, Jenkins and K8s (read-only kubeconfig).
-  - `compose.testenv.yml` with Jira, Gerrit (`gerritcodereview/gerrit`), GitLab CE and Mailpit.
-- **Phase 3, plans.** Jira board view, Planner agent, structured plan JSON rendered by the UI, approval gate, revisions.
-- **Phase 4, execution.**
-  - `runner` service (the only holder of the Docker socket), hardened sandbox, egress proxy allowlist, Claude Code headless pointed at the gateway with a per-job key.
-  - Verify loop and result page.
-  - Push gate, then the orchestrator pushes with the user's token: GitLab MR, or Gerrit `refs/for/<branch>`.
-- **Phase 5:** Slack/Teams notifications, reranker, cost dashboard, gVisor, RCA evaluation set.
+## Phase H — Hardening
 
-## Work order (tasks, implemented one by one)
-1. Compose + backend/frontend skeletons + logging
-2. Schema 0001 + auth + admin CLI + user admin
-3. Secrets
-4. Gateway config + chat agent + SSE + persistence
-5. Frontend login/chat/admin/settings
-6. Schema 0002 + ACL module
-7. Embeddings + hybrid search
-8. Wiki git service + UI
-9. Uploads + repo ingestion + code chunks
-10. Transcript import
-11. Episodes + librarian
-12. Chat retrieval + citations
+Design: [01-hardening.md](design/01-hardening.md). Order matters: H1 → H2 first; the rest in the listed order.
 
-After implementation, follow the user's cycle: `/code-review`, then tests (>70% coverage), then `/code-review` again, then Docker verify, then a retrospective.
+- [ ] **H1 Build, images, repo hygiene** (01 §H1)
+  - [x] TS error fixed; coverage and tsbuildinfo untracked *(done in the review PR)*
+  - [ ] Split tsconfig (app/test); `build` uses app config only
+  - [ ] Backend multi-stage Dockerfile (`prod` without dev deps or tests; `dev`)
+  - [ ] `migrate` one-shot service; `api` no longer migrates
+  - [ ] Images pinned by digest in compose
+  - Acceptance: `docker compose -f docker-compose.yml build` succeeds; prod backend image has no `pytest` (`docker run … python -c "import pytest"` fails); `api` starts only after `migrate` exits 0; a test-file type error does not break `npm run build` but does fail `npm run typecheck`.
 
-## Verification
-- **Tests** run in a `tests` compose service against the ParadeDB container:
-  - pytest + pytest-asyncio, using Pydantic AI `TestModel` and a fake embeddings client, so no Bedrock calls are made.
-  - Required: auth/CSRF/rate-limit tests, ACL leakage tests (user B never sees A's private docs, wiki, episodes or search hits, and does after publish), RRF ranking test, ingestion of a fixture repo, transcript parsing.
-  - Frontend: vitest for the API client and auth guard.
-  - Coverage target >70%.
-- **End to end:**
-  1. `docker compose up` and `docker compose exec api mwb create-admin`.
-  2. Create users A and B.
-  3. A uploads a doc and ingests a repo, searches, and sees cited hits. B searches the same terms and sees nothing. A publishes, B now sees it.
-  4. Chat with the knowledge base, using real Bedrock credentials in `.env`.
-  5. Trigger the librarian manually and check the wiki diff.
-  6. Check `docker compose logs api worker` for structured log lines with request and session IDs.
+- [ ] **H2 CI** (01 §H2)
+  - `.github/workflows/ci.yml` jobs: backend-lint, backend-test (ParadeDB service), frontend, images, e2e (fake LLM + Playwright smoke), migration-upgrade.
+  - `backend/tests/fakellm/` server; `compose.ci.yml`.
+  - Acceptance: all jobs green on the PR; introducing a deliberate type error, failing test, or broken Dockerfile in a scratch branch turns CI red (*manual once*); Playwright smoke covers the 5 flows in 01 §H2.
+
+- [ ] **H3 Edge: Caddy, TLS, headers, proxy trust** (01 §H3)
+  - Acceptance: only Caddy publishes ports; response headers include CSP, HSTS (prod), nosniff, Referrer-Policy, frame-ancestors none; a request to `api` with a forged `X-Forwarded-For` from any IP other than Caddy's is logged with the real peer IP; startup fails in `prod` when `MWB_COOKIE_SECURE=false`; SSE chat still streams through Caddy (e2e).
+
+- [ ] **H4 Safe Markdown** (01 §H4)
+  - Acceptance (vitest): `![x](https://evil.example/a.png?d=1)` renders no `<img>` and shows a text link with host `evil.example`; `[x](javascript:alert(1))` renders `href="#"`; relative and `data:image/png` images render; external links have `rel="noopener noreferrer nofollow"`; lint forbids `rehype-raw` and `dangerouslySetInnerHTML`.
+
+- [ ] **H5 Schema 0003, config validation, error format** (01 §H5)
+  - Acceptance: migration adds every column/constraint/table listed; inserting an invalid enum value fails at the DB; each config check in the table refuses startup with its message (unit tests on `Settings.validate()`); every error response matches `{"detail","code"}` (parametrised test over representative endpoints); `procrastinate` pinned exactly.
+
+- [ ] **H6 Transaction discipline** (01 §H6)
+  - Indexer split (`prepare_document` / `embed_prepared` / `write_document`), per-file ingest commits, episode re-check, pool and timeout settings.
+  - Acceptance: a test helper wraps the embedder and LLM test model to assert `session.in_transaction()` is false for every session open during their calls (applied to ingest, upload, wiki save, episode, librarian); a failure on file 3 of 5 keeps files 1, 2, 4, 5 indexed and marks the project `ready` with a warning; unchanged chunks reuse vectors (embedder called only for changed chunks); `idle_in_transaction_session_timeout` is set.
+
+- [ ] **H7 Wiki consistency** (01 §H7)
+  - Acceptance: concurrent edits with the same `base_sha` → one 200, one `409 wiki_conflict` with current content; a DB failure injected after the git commit leaves git HEAD unchanged (compensation); publish with an injected DB failure leaves the file in the private repo; reconcile fixes each of the four situations in its table (one test each); history after publish includes pre-publish commits for the owner only; UI conflict dialog (vitest).
+
+- [ ] **H8 Librarian guardrails, per-user time** (01 §H8)
+  - Acceptance: each rejection rule has a test (shrink, keep-block changed, headings lost, too large); a user edit between librarian read and write is preserved (conflict → retry → no overwrite); `librarian_tick` fires for a user at 02:00 in their timezone exactly once per local day, including across a DST change; `librarian_runs` rows record outcomes; wiki editor "Keep" button wraps the selection.
+
+- [ ] **H9 Ingestion robustness** (01 §H9)
+  - Acceptance: two `ingest_project` jobs for one project never overlap (procrastinate lock test); git token never appears in argv (assert on the subprocess call) and never in error messages; Gerrit URL without `/a/` is rewritten and reported; deleting a project removes its cache dir; ingest refuses to start below the disk threshold with a clear error; two uploads named `notes.md` create two documents and "Replace" keeps id and visibility; an oversize transcript returns `file_too_large` for that file only.
+
+- [ ] **H10 Search quality** (01 §H10)
+  - Migration 0004 (BM25 tokenizer); `embed_model` filtering; `mwb reembed`; poison-chunk handling.
+  - Acceptance: the four language tests in 01 §H10 pass; vectors with a different `embed_model` are ignored by search; `mwb reembed --dry-run` reports counts and changes nothing; a chunk that always fails embedding stops being retried after 5 attempts and doesn't block others.
+
+- [ ] **H11 Auth, sessions, secrets, offboarding** (01 §H11)
+  - Acceptance: each of the three rate-limit keys triggers 429 at its threshold; maintenance task deletes old login attempts, expired and idle sessions, old Procrastinate jobs and audit rows; idle timeout signs the user out; active sessions list and "sign out others" work; `MultiFernet` decrypts with an old key and `mwb rotate-secrets` re-encrypts; an undecryptable secret shows `unreadable` (not 500); offboarding transfers public items, deletes private ones, removes files and the LiteLLM key, and the preview counts match; CLI `reset-password`, `list-users` work.
+
+- [ ] **H12 LLM gateway: keys, budgets, cost** (01 §H12)
+  - LiteLLM database and init script; per-user keys; `app/llm/client.py`; cost capture; usage limits; budget error mapping; spend views; `mwb llm rotate-key`.
+  - Acceptance (against the fake LLM extended with `/key/*` endpoints and a cost header): creating a user creates a key with the configured budget; every LLM call in the codebase goes through `app/llm/client.py` (test greps for `OpenAIProvider(` outside it); assistant messages store `cost_usd`; a budget error yields `budget_exceeded` in chat and fails a background task without retry; usage limits per purpose are applied (unit test on `limits_for`); admin and self spend endpoints return cached values.
+
+- [ ] **H13 Chat robustness** (01 §H13)
+  - Acceptance: a second concurrent message to a session returns `409 session_busy`; the stream emits `: ping` during a slow model call (fake LLM delay); a mid-stream failure saves a `partial` message and the UI marks it; an immediate failure saves a `failed` message excluded from model history; error events carry codes and the UI shows a message per code.
+
+- [ ] **H14 Operations foundations** (01 §H14, 06)
+  - `/api/ready`; worker heartbeat and healthcheck; `backup` service; `deploy/restore.sh`; System page; log rotation; resource limits; graceful shutdown; `mwb backup record-drill`.
+  - Acceptance: `/api/ready` returns 503 naming the failed check when the gateway or worker heartbeat is down; worker container becomes unhealthy when its heartbeat stops; backup produces a restic snapshot containing both dumps and `/data/wiki` (CI e2e with a local restic repo); `restore.sh` into a fresh compose project restores users, a wiki page and a stored token that still decrypts (CI e2e); System page shows each item in 01 §H14 (vitest + API tests).
+
+**Phase H end-to-end checklist** (*manual*, on the VM with real Bedrock): HTTPS with the company certificate; log in; upload, search (English + Chinese), share; chat with citations and cost shown; ingest a real GitLab and a real Gerrit repo; librarian run produces a commit; budget display correct; backup and restore drill pass.
+
+## Phase 2 — Schedules & connectors
+
+Design: [02-schedules-connectors.md](design/02-schedules-connectors.md).
+
+- [ ] **S1 Integrations and credentials** (02 §1): migration 0005 with secret migration; admin CRUD; user credentials with verify; kubeconfig validation; repo URLs must match an integration host.
+  - Acceptance: migration moves existing tokens when integration URLs are configured; credential APIs are write-only; kubeconfig with `exec`, `auth-provider`, file paths or a non-allowed server is rejected with a specific message; `test` updates status and `last_error`; CA bundle is used for TLS (test with a self-signed server).
+- [ ] **S2 Connectors and tool registry** (02 §2): one module per kind; `ToolSpec` registry; `toolset_for`; untrusted wrapping; error codes; retries; size caps.
+  - Acceptance: recorded-fixture tests per connector (success, 401 → credential invalid + inbox item, 404, 429 then success, oversize, pagination cap); `k8s_get` refuses `secrets`; every tool with `untrusted_output` returns the envelope; `toolset_for` excludes tools without a verified credential and tools above the agent's tier.
+- [ ] **S3 Agents and run executor** (02 §3): `agents` table, seed loader, `RunReport`, fingerprint verification, shared `execute_agent_run()` used by schedules.
+  - Acceptance: seeds are idempotent and update prompts on change; invented fingerprints are marked unverified and excluded from change detection; server recomputes report status.
+- [ ] **S4 Schedules, tick and runs** (02 §4).
+  - Acceptance: two concurrent ticks create exactly one run per fire time; missed fires produce at most one catch-up run; DST spring-forward and fall-back tests in `Europe/Stockholm`; minimum interval and per-user limits enforced; notify-mode table covered case by case; 3 failures auto-disable with inbox + email; `budget_exceeded` disables immediately; queued runs older than 5 min are re-deferred without duplicates; run sessions are excluded from episodes.
+- [ ] **S5 Inbox and email** (02 §5).
+  - Acceptance: outbox send with retry/backoff against a fake SMTP server (aiosmtpd in tests); dedupe key prevents duplicates; daily cap suppresses and notifies once; email body contains no links except the MyWorkBuddy run URL; unread count endpoint.
+- [ ] **S6 Chat → schedule proposals** (02 §6).
+  - Acceptance: invalid proposals return the error to the model; the SSE `proposal` event renders a card; accept creates exactly the stored payload; expired or foreign proposals 404; the model has no path to create a schedule (toolset test).
+- [ ] **S7 Frontend** (02 §8): Inbox, Schedules, editor with inputs form and cron preview, Run detail, Settings → Integrations and Profile, Admin → Integrations, proposal card.
+  - Acceptance: vitest for each page's main states; Playwright: create a schedule from chat, run it manually, see the inbox item.
+- [ ] **S8 System tasks and agent prompts** (02 §3, §9): `projects_refresh`, `runs_retention`, prompts for the four agents with fingerprint conventions, eval fixtures (recorded tool outputs → expected fingerprints) run nightly against real Bedrock (not a CI gate).
+
+**Phase 2 end-to-end checklist** (*manual*): morning brief at 08:00 local arrives in inbox and email; k8s-health against a real read-only kubeconfig alerts on a crashlooping test pod, stays quiet on the next unchanged run, and sends "recovered" after the fix.
+
+## Phase 3 — Plans
+
+Design: [03-plans.md](design/03-plans.md).
+
+- [ ] **P1 Jira cache, work items, intake** (03 §2, §7).
+  - Acceptance: intake upserts issues and creates work items once; component/label → project matching; autoplan respects the daily limit; work items are owner-only (leakage tests).
+- [ ] **P2 PlanDoc and validation** (03 §3–4) incl. `approvals` table and its update trigger.
+  - Acceptance: one test per validation rule; canonical hashing is stable across key order; approvals cannot be updated.
+- [ ] **P3 Planner and repo read tools** (03 §5).
+  - Acceptance: repo tools refuse paths outside the checkout, symlinks, binaries, oversize files; planner toolset is read-only; invalid first draft triggers exactly one fix attempt; an injected Jira description asking for an unknown network host yields a validation error, not an approved host.
+- [ ] **P4 Approval flow and revisions** (03 §6).
+  - Acceptance: stale revision or hash → 409; missing acknowledgements → 422; user edits create new revisions that are not approved; reject resets the work item; field-level diff endpoint.
+- [ ] **P5 Board and plan UI** (03 §9).
+  - Acceptance: vitest for board columns, validation panel and acknowledgements, approve button disabled states; Playwright: draft (fake LLM) → revise → approve.
+
+**Phase 3 end-to-end checklist** (*manual*): a real ticket produces a plan whose file list matches the repo; revise once with feedback; approve.
+
+## Phase 4 — Execution
+
+Design: [04-execution.md](design/04-execution.md).
+
+- [ ] **X1 Sandbox image, networks, egress proxy, gVisor** (04 §1). Verify Claude Code flags and gateway env vars against the docs for the pinned CLI version and update 04 §4 if they differ.
+  - Acceptance: security tests 1–3 in 04 §9 pass in CI (runc) and on the VM (runsc, *manual*); agent preset smoke run against the fake LLM produces a file change.
+- [ ] **X2 Runner service** (04 §4).
+  - Acceptance: security tests 4, 5 and 9; unit tests for preset and limit validation; tar extraction rejects traversal and absolute symlinks.
+- [ ] **X3 Jobs model, state machine, events** (04 §2–3).
+  - Acceptance: every allowed transition works and every disallowed one is rejected; one active job per work item; events SSE replays from `after`.
+- [ ] **X4 Prepare, run, verify loop** (04 §5.1–5.4).
+  - Acceptance: job key created with the right budget and expiry and deleted at the end; clone sanitised (no remote, no hooks); retry loop stops at `max_attempts`; timeout and budget states (security tests 5–6); verification failures produce feedback files.
+- [ ] **X5 Checks and result page** (04 §5.4–5.5).
+  - Acceptance: each check in the table has a test; gitleaks blocks a planted key; result page renders diff, checks, logs (vitest); request changes and discard.
+- [ ] **X6 Push gate and orchestrator** (04 §5.6, §6).
+  - Acceptance: security tests 7–8; GitLab MR created once and updated on the next round; Gerrit Change-Id stable across rounds; Jira comment posted once with the real link; 401 marks the credential invalid.
+- [ ] **X7 Tracking, cleanup, orphans** (04 §6–7).
+  - Acceptance: merged/closed MRs update job and work item; volumes and keys removed per the cleanup table; runner refuses runs below the disk threshold.
+
+**Phase 4 end-to-end checklist** (*manual*, on the VM with gVisor): a real small ticket goes plan → job → review → push to a test repo on GitLab and on Gerrit; the security tests in 04 §9 are run on the VM.
+
+## Phase 5 — Backlog (prioritise after Phase 4)
+
+Slack/Teams notifications · user-defined agents and skills editor · admin-registered MCP servers (read tier by default, tool allowlist) · Spinnaker connector · reranker (Bedrock Cohere Rerank) · cost dashboard with trends · OIDC SSO · Sysbox opt-in for compose verification · RCA evaluation set · wiki export.
+
+## Retrospectives
+
+*(append after each phase)*
