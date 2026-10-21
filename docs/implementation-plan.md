@@ -63,7 +63,7 @@ Design: [01-hardening.md](design/01-hardening.md) and, for H15–H16, [07-ux.md]
 - [x] **H3 Edge: Caddy, TLS, headers, proxy trust** (01 §H3). Fonts are self-hosted (the CSP blocks Google Fonts). Watch: one CI run showed a shared document not appearing in a teammate's search; it did not reproduce in the next runs, and CI now logs search/share requests on failure. CSP comes from `MWB_CSP` (strict in compose; the dev override allows Vite's inline script and HMR websocket).
   - Acceptance: only Caddy publishes ports; response headers include CSP, HSTS (prod), nosniff, Referrer-Policy, frame-ancestors none; a request to `api` with a forged `X-Forwarded-For` from any IP other than Caddy's is logged with the real peer IP; startup fails in `prod` when `MWB_COOKIE_SECURE=false`; SSE chat still streams through Caddy (e2e).
 
-- [ ] **H4 Safe Markdown** (01 §H4)
+- [x] **H4 Safe Markdown** (01 §H4). Renderer in `components/markdown.tsx`; the "lint" rules are vitest source checks (no ESLint in the project yet; H15 can move them).
   - Acceptance (vitest): `![x](https://evil.example/a.png?d=1)` renders no `<img>` and shows a text link with host `evil.example`; `[x](javascript:alert(1))` renders `href="#"`; relative and `data:image/png` images render; external links have `rel="noopener noreferrer nofollow"`; lint forbids `rehype-raw` and `dangerouslySetInnerHTML`.
 
 - [ ] **H5 Schema 0003, config validation, error format** (01 §H5)
