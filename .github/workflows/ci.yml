@@ -218,12 +218,11 @@ jobs:
           # Missing visual baselines are written rather than failed here; the next step reports them.
           npx playwright test --update-snapshots=missing > ../e2e.log 2>&1; status=$?; cat ../e2e.log; exit $status
       - name: Visual baselines are committed
-        working-directory: frontend
         env:
           HEAD_REF: ${{ github.head_ref }}
           SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
         run: |
-          new=$(git status --porcelain --untracked-files=all -- e2e | grep -- '-snapshots/' | cut -c4- || true)
+          new=$(git status --porcelain --untracked-files=all -- frontend/e2e | grep -- '-snapshots/' | cut -c4- || true)
           [ -z "$new" ] && exit 0
           echo "$new"
           # Baselines must come from CI's Chromium (07 §8). Commit them to the PR branch for review, and fail this
