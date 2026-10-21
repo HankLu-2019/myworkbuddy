@@ -5,6 +5,8 @@ import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@ta
 import { ApiError } from "./api";
 import { AuthProvider } from "./auth";
 import App from "./App";
+import { TitleProvider } from "./app/pageTitle";
+import { ToastProvider, TooltipProvider } from "./components/ui";
 // Fonts are self-hosted: the CSP allows no third-party origins, and loading from Google would leak page views.
 // latin + latin-ext covers English, Swedish and Polish; Chinese falls back to system fonts.
 import "@fontsource/ibm-plex-sans/latin-400.css";
@@ -22,7 +24,7 @@ import "./styles.css";
 function onError(error: unknown) {
   // Session expired or revoked: reload into the login screen.
   if (error instanceof ApiError && error.status === 401 && location.pathname !== "/login") {
-    location.assign("/login");
+    location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`);
   }
 }
 
@@ -37,7 +39,13 @@ createRoot(document.getElementById("root")!).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthProvider>
-          <App />
+          <TitleProvider>
+            <TooltipProvider>
+              <ToastProvider>
+                <App />
+              </ToastProvider>
+            </TooltipProvider>
+          </TitleProvider>
         </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>

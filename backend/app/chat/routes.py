@@ -47,8 +47,8 @@ HISTORY_CHARS = 200_000
 class SessionOut(BaseModel):
     id: uuid.UUID
     title: str
-    source: str
-    visibility: str
+    source: Literal["chat", "claude-code", "run", "job"]
+    visibility: Literal["private", "public"]
     project_id: int | None
     owner_id: int
     created_at: datetime

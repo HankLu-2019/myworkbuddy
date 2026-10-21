@@ -1,3 +1,5 @@
+import type { components } from "./api-schema";
+
 let csrfToken = "";
 
 export function setCsrfToken(token: string) {
@@ -112,167 +114,42 @@ export function parseEvent(block: string): StreamEvent {
 
 // ---- types mirrored from the API ----
 
-export type Visibility = "private" | "public";
+/** Response and request shapes come from the backend's OpenAPI schema (src/api-schema.ts, `npm run api:types`). */
+type Schemas = components["schemas"];
 
-export interface User {
-  id: number;
-  username: string;
-  email: string | null;
-  display_name: string | null;
-  role: "admin" | "member";
-  is_active: boolean;
-  /** Set for a one-time password: everything except changing it is refused (password_change_required). */
-  must_change_password?: boolean;
-  last_login_at?: string | null;
-  /** null: the default monthly budget applies. */
-  llm_budget_usd?: number | null;
-}
-
-/** AI spend this budget period (cached about 5 minutes by the API). spend_usd is null when the gateway can't say. */
-export interface Usage {
-  user_id: number;
-  spend_usd: number | null;
-  budget_usd: number;
-  budget_reset_at: string | null;
-  fetched_at: string | null;
-}
-
+export type Visibility = Schemas["VisibilityIn"]["visibility"];
+export type User = Schemas["UserOut"];
+export type Usage = Schemas["UsageOut"];
 /** Returned once when an admin creates a user or resets a password. */
-export interface UserWithPassword extends User {
-  initial_password: string;
-}
+export type UserWithPassword = Schemas["UserWithPassword"];
+export type SignIn = Schemas["app__auth__routes__SessionOut"];
+export type OffboardingPreview = Schemas["OffboardingPreview"];
+export type Session = Schemas["app__chat__routes__SessionOut"];
+export type Hit = Schemas["HitOut"];
+export type DocumentItem = Schemas["DocumentOut"];
+export type PageSummary = Schemas["PageSummary"];
+export type Page = Schemas["PageOut"];
+export type Commit = Schemas["CommitOut"];
+export type Project = Schemas["ProjectOut"];
+export type SecretStatus = Schemas["SecretStatus"];
+export type ImportResult = Schemas["ImportResult"];
+export type LibrarianRun = Schemas["LibrarianRunOut"];
+export type LibrarianChange = Schemas["LibrarianChangeOut"];
 
-export interface SignIn {
-  id: number;
-  created_at: string;
-  last_seen_at: string;
-  expires_at: string;
-  ip: string | null;
-  user_agent: string | null;
-  current: boolean;
-}
-
-export interface OffboardingPreview {
-  transfer_to: number;
-  transfer: Record<string, number>;
-  delete: Record<string, number>;
-  duplicate_projects: number[];
-}
-
-export interface Session {
-  id: string;
-  title: string;
-  source: string;
-  visibility: Visibility;
-  project_id: number | null;
-  owner_id: number;
-  created_at: string;
-  updated_at: string;
-}
-
+/** Citations and tool calls are free-form JSON in the schema; this is what the chat stream and history carry. */
 export interface Citation {
   n: number;
   document_id: number;
   title: string;
-  source_type: string;
+  source_type: Hit["source_type"];
   source_ref: string;
   visibility: Visibility;
   meta: Record<string, unknown>;
 }
 
-export interface ChatMessage {
-  id: number;
-  role: "user" | "assistant";
-  content: string;
-  created_at: string;
+export type ToolActivity = { name: string; args: Record<string, unknown>; status?: string };
+
+export type ChatMessage = Omit<Schemas["MessageOut"], "citations" | "tools"> & {
   citations: Citation[];
-  tools: { name: string; args: Record<string, unknown>; status: string }[];
-  /** partial: the model failed after some text; failed: it failed before any (content is the error). */
-  status?: "complete" | "partial" | "failed";
-  error_code?: string | null;
-  cost_usd?: number | null;
-}
-
-export interface Hit {
-  document_id: number;
-  title: string;
-  source_type: string;
-  source_ref: string;
-  visibility: Visibility;
-  owner_id: number;
-  project_id: number | null;
-  excerpt: string;
-  meta: Record<string, unknown>;
-  score: number;
-}
-
-export interface DocumentItem {
-  id: number;
-  title: string;
-  source_type: string;
-  source_ref: string;
-  visibility: Visibility;
-  owner_id: number;
-  project_id: number | null;
-  chunks: number;
-  updated_at: string;
-  mine: boolean;
-}
-
-export interface PageSummary {
-  id: number;
-  path: string;
-  title: string;
-  visibility: Visibility;
-  owner_id: number;
-  updated_at: string;
-  mine: boolean;
-}
-
-export interface Page extends PageSummary {
-  content: string;
-  head_sha: string | null;
-  can_edit: boolean;
-}
-
-export interface Commit {
-  sha: string;
-  author: string;
-  date: string;
-  message: string;
-}
-
-export interface Project {
-  id: number;
-  name: string;
-  repo_url: string;
-  host: "gitlab" | "gerrit";
-  branch: string | null;
-  visibility: Visibility;
-  status: string;
-  error: string | null;
-  last_ingested_sha: string | null;
-  /** What the running ingest is doing, e.g. "Indexing code 40 of 120"; null unless status is running. */
-  progress: string | null;
-  owner_id: number;
-  updated_at: string;
-  mine: boolean;
-  /** Only on create: how the URL was adjusted (e.g. Gerrit /a/ prefix). */
-  notice?: string | null;
-}
-
-export interface SecretStatus {
-  kind: string;
-  label: string;
-  is_set: boolean;
-  status: "set" | "not_set" | "unreadable";
-  updated_at: string | null;
-}
-
-export interface ImportResult {
-  filename: string;
-  session_id: string | null;
-  title: string | null;
-  status: "imported" | "unchanged" | "failed";
-  error: string | null;
-}
+  tools: ToolActivity[];
+};

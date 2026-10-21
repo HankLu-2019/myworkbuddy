@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { vi } from "vitest";
 import { AuthProvider } from "./auth";
+import { TitleProvider } from "./app/pageTitle";
+import { ToastProvider } from "./components/ui";
 
 export type Handler = (init: RequestInit & { url: string }) => unknown;
 
@@ -44,9 +46,13 @@ export function renderAt(path: string, element: ReactElement, routePath = "*") {
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[path]}>
         <AuthProvider>
-          <Routes>
-            <Route path={routePath} element={element} />
-          </Routes>
+          <TitleProvider>
+            <ToastProvider>
+              <Routes>
+                <Route path={routePath} element={element} />
+              </Routes>
+            </ToastProvider>
+          </TitleProvider>
         </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>,

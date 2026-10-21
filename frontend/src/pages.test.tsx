@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import App from "./App";
-import ChatPage, { chatErrorText, citationHref } from "./pages/ChatPage";
-import SearchPage from "./pages/SearchPage";
-import DocumentsPage from "./pages/DocumentsPage";
-import WikiPage, { wrapInKeep } from "./pages/WikiPage";
-import ProjectsPage from "./pages/ProjectsPage";
-import ImportsPage from "./pages/ImportsPage";
-import SettingsPage from "./pages/SettingsPage";
-import AdminPage from "./pages/AdminPage";
-import SystemPage, { bytes } from "./pages/SystemPage";
+import ChatPage, { chatErrorText, citationHref } from "./features/chat/ChatPage";
+import SearchPage from "./features/search/SearchPage";
+import DocumentsPage from "./features/sources/DocumentsTab";
+import WikiPage, { wrapInKeep } from "./features/wiki/WikiPage";
+import ProjectsPage from "./features/sources/ReposTab";
+import ImportsPage from "./features/sources/ImportsTab";
+import SettingsPage from "./features/settings/SettingsPage";
+import AdminPage from "./features/admin/UsersPage";
+import SystemPage, { bytes } from "./features/admin/SystemPage";
 import { ADMIN, MEMBER, mockApi, renderAt, signedInAs, sse } from "./test-utils";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -63,8 +63,8 @@ describe("chat", () => {
     const base = { n: 1, document_id: 1, title: "t", visibility: "private" as const, meta: {} };
     expect(citationHref({ ...base, source_type: "wiki", source_ref: "wiki:7" })).toBe("/wiki/7");
     expect(citationHref({ ...base, source_type: "episode", source_ref: "session:abc" })).toBe("/chat/abc");
-    expect(citationHref({ ...base, source_type: "upload", source_ref: "upload:x" })).toBe("/documents");
-    expect(citationHref({ ...base, source_type: "code", source_ref: "1:a.py" })).toBe("/projects");
+    expect(citationHref({ ...base, source_type: "upload", source_ref: "upload:x" })).toBe("/sources/documents");
+    expect(citationHref({ ...base, source_type: "code", source_ref: "1:a.py" })).toBe("/sources/repos");
   });
 
   it("streams a reply and renders saved messages with citations", async () => {
@@ -213,14 +213,16 @@ describe("knowledge pages", () => {
       "POST /api/knowledge/documents": {},
       "PUT /api/knowledge/documents/5/file": {},
     });
-    const { container } = renderAt("/documents", <DocumentsPage />);
+    renderAt("/sources/documents", <DocumentsPage />);
     expect(await screen.findByText("pm.md")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Share with team"));
-    fireEvent.click(screen.getByText("Delete"));
-    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [new File(["# x"], "new.md")] } });
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const confirm = await screen.findByRole("dialog", { name: "Delete pm.md?" });
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+    fireEvent.click(within(confirm).getByRole("button", { name: "Delete document" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
+    fireEvent.change(screen.getByLabelText("Upload files"), { target: { files: [new File(["# x"], "new.md")] } });
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/api/knowledge/documents")).toBe(true));
-    expect(calls.some((c) => c.method === "DELETE")).toBe(true);
     // Replace uploads into the same document.
     fireEvent.click(screen.getByText("Replace file"));
     fireEvent.change(screen.getByLabelText("Replacement file"), { target: { files: [new File(["# v2"], "pm.md")] } });
@@ -257,7 +259,8 @@ describe("knowledge pages", () => {
         base_sha: "abc",
       }),
     );
-    fireEvent.click(screen.getByText("Publish to team"));
+    fireEvent.click(screen.getByRole("button", { name: "Share with team" }));
+    await waitFor(() => expect(calls.find((c) => c.path === "/api/wiki/pages/3/visibility")?.body).toEqual({ visibility: "public" }));
     fireEvent.click(await screen.findByText("History"));
     fireEvent.click(await screen.findByText("Create runbooks/oom.md"));
     expect(await screen.findByText("+Raise memory.")).toBeInTheDocument();
@@ -281,11 +284,11 @@ describe("knowledge pages", () => {
     fireEvent.click(await screen.findByText("Edit"));
     fireEvent.change(screen.getByLabelText("Page content"), { target: { value: "my draft" } });
     fireEvent.click(screen.getByText("Save"));
-    expect(await screen.findByRole("alertdialog", { name: "Edit conflict" })).toBeInTheDocument();
+    expect(await screen.findByRole("alert", { name: "Edit conflict" })).toBeInTheDocument();
     expect(screen.getByText(/someone else's text/)).toBeInTheDocument();
     expect(screen.getAllByText("my draft").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByText("Discard my edits"));
-    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("alert", { name: "Edit conflict" })).not.toBeInTheDocument());
   });
 
   it("wraps a selection in keep markers", () => {
@@ -336,7 +339,7 @@ describe("knowledge pages", () => {
       "POST /api/projects/1/visibility": {},
       "DELETE /api/projects/1": undefined,
     });
-    renderAt("/projects", <ProjectsPage />);
+    renderAt("/sources/repos", <ProjectsPage />);
     expect(await screen.findByText("auth required")).toBeInTheDocument();
     expect(screen.getByText("Indexing code 40 of 120")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Repository URL"), { target: { value: "https://g/new.git" } });
@@ -345,7 +348,9 @@ describe("knowledge pages", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Gerrit needs the /a/ prefix");
     fireEvent.click(screen.getAllByText("Re-index")[0]);
     fireEvent.click(screen.getAllByText("Share code index")[0]);
-    fireEvent.click(screen.getAllByText("Remove")[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+    const confirm = await screen.findByRole("dialog", { name: "Remove etl?" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Remove repository" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
     expect(calls.find((c) => c.method === "POST" && c.path === "/api/projects")?.body).toMatchObject({ host: "gerrit" });
   });
@@ -389,8 +394,11 @@ describe("settings and admin", () => {
     });
     renderAt("/settings", <SettingsPage />);
     fireEvent.change(await screen.findByLabelText("Gerrit username"), { target: { value: "alice" } });
-    fireEvent.click(screen.getAllByText("Save")[1]);
-    fireEvent.click(screen.getAllByText("Clear")[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Save" })[1]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Clear" })[0]);
+    const clear = await screen.findByRole("dialog", { name: "Clear GitLab personal access token?" });
+    fireEvent.click(within(clear).getByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
     expect(screen.getByText("Can't be read any more. Enter it again.")).toBeInTheDocument();
     expect(await screen.findByText(/USD 12.50 of USD 50.00 used/)).toBeInTheDocument();
     expect(screen.getByLabelText("Share of monthly AI budget used")).toHaveAttribute("value", "25");
@@ -402,7 +410,7 @@ describe("settings and admin", () => {
     expect(screen.getByText(/signs you out everywhere/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Current password"), { target: { value: "old-password" } });
     fireEvent.change(screen.getByLabelText("New password (10+ characters)"), { target: { value: "new-password-1" } });
-    fireEvent.click(screen.getByText("Change password"));
+    fireEvent.click(screen.getByRole("button", { name: "Change password" }));
     await waitFor(() => expect(calls.some((c) => c.path === "/api/auth/password")).toBe(true));
     expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ value: "alice" });
   });
@@ -439,8 +447,11 @@ describe("settings and admin", () => {
     fireEvent.click(screen.getByText("Copy"));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("Abc23defGhk45mnP"));
     fireEvent.click(screen.getByText("Done"));
-    fireEvent.click(screen.getAllByText("Reset password")[1]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Reset password" })[1]);
+    const confirmReset = await screen.findByRole("dialog", { name: "Reset the password for alice?" });
+    fireEvent.click(within(confirmReset).getByRole("button", { name: "Reset password" }));
     expect(await screen.findByLabelText("Password")).toHaveTextContent("Zz23defGhk45mnPq");
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
     fireEvent.click(screen.getByText("Disable"));
     fireEvent.change(screen.getByLabelText("Role of alice"), { target: { value: "admin" } });
     await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(3));
@@ -462,11 +473,11 @@ describe("settings and admin", () => {
       "DELETE /api/admin/users/2": { transfer_to: 1, transfer: {}, delete: {}, duplicate_projects: [] },
     });
     renderAt("/admin", <AdminPage />);
-    fireEvent.click(await screen.findByText("Delete"));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
     expect(await screen.findByText("Moves to the new owner: 3 documents, 1 wiki pages.")).toBeInTheDocument();
     expect(screen.getByText(/Deleted: 12 documents, 2 wiki pages, 1 repositories, 4 chats, 1 saved tokens, 2 sign-ins/)).toBeInTheDocument();
     expect(screen.getByText(/already added by the new owner/)).toBeInTheDocument();
-    const confirm = screen.getByText("Delete user");
+    const confirm = screen.getByRole("button", { name: "Delete user" });
     expect(confirm).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Type alice to confirm"), { target: { value: "alice" } });
     fireEvent.click(confirm);
@@ -491,7 +502,7 @@ describe("settings and admin", () => {
     expect(screen.getByText("The passwords don't match.")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Repeat new password"), { target: { value: "my-own-password" } });
     fireEvent.click(screen.getByText("Save and continue"));
-    expect(await screen.findByText("Search")).toBeInTheDocument();
+    expect((await screen.findAllByRole("link", { name: "Search" })).length).toBeGreaterThan(0);
     expect(calls.find((c) => c.path === "/api/auth/password")?.body).toEqual({
       current_password: "Abc23defGhk45mnP", new_password: "my-own-password",
     });
@@ -529,7 +540,7 @@ describe("system page", () => {
     expect(screen.getByText(/default: 3 waiting/)).toBeInTheDocument();
     expect(screen.getByText("librarian_tick")).toBeInTheDocument();
     expect(screen.getByText(/mwb.dump 2.0 KB/)).toBeInTheDocument();
-    expect(screen.getByText(/passed/)).toBeInTheDocument();
+    expect(screen.getByText("Passed")).toBeInTheDocument();
     expect(screen.getByText(/40.0 GB free of 100.0 GB \(40 %\)/)).toBeInTheDocument();
     expect(screen.getByText(/chunk 9 \(document 3\): 400 too long/)).toBeInTheDocument();
     expect(screen.getByText(/USD 12.35 across 4 users/)).toBeInTheDocument();
@@ -540,7 +551,8 @@ describe("system page", () => {
   it("says when backups aren't configured", async () => {
     mockApi({ ...signedInAs(ADMIN), "GET /api/admin/system": { ...SYSTEM, alerts: [], backup: { status: "not_configured" }, backup_drill: null } });
     renderAt("/admin/system", <SystemPage />);
-    expect(await screen.findByText(/Not configured. Set MWB_BACKUP_REPO/)).toBeInTheDocument();
+    expect(await screen.findByText("Not configured")).toBeInTheDocument();
+    expect(screen.getByText(/Set MWB_BACKUP_REPO and RESTIC_PASSWORD/)).toBeInTheDocument();
     expect(screen.getByText("Everything looks fine.")).toBeInTheDocument();
     expect(screen.getByText("never recorded")).toBeInTheDocument();
   });
