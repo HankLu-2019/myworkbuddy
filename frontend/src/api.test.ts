@@ -31,9 +31,9 @@ describe("api", () => {
     });
     await expect(api("/api/a")).rejects.toMatchObject({ status: 404, message: "Not found" });
     await expect(api("/api/b")).rejects.toMatchObject({ message: "too short; bad" });
-    const err = await api("/api/c").catch((e) => e);
+    const err: unknown = await api("/api/c").catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
-    expect(err.message).toBe("Request failed (500)");
+    expect((err as ApiError).message).toBe("Request failed (500)");
   });
 
   it("parses server-sent events across chunk boundaries", async () => {
