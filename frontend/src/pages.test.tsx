@@ -4,7 +4,7 @@ import App from "./App";
 import ChatPage, { citationHref } from "./pages/ChatPage";
 import SearchPage from "./pages/SearchPage";
 import DocumentsPage from "./pages/DocumentsPage";
-import WikiPage from "./pages/WikiPage";
+import WikiPage, { wrapInKeep } from "./pages/WikiPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import ImportsPage from "./pages/ImportsPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -170,10 +170,17 @@ describe("knowledge pages", () => {
     expect(await screen.findByText("Raise memory.")).toBeInTheDocument();
     expect(screen.getByText("team.md")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Edit"));
-    fireEvent.change(screen.getByLabelText("Page content"), { target: { value: "# New" } });
+    const editor = screen.getByLabelText<HTMLTextAreaElement>("Page content");
+    fireEvent.change(editor, { target: { value: "# New\nNever on Fridays" } });
+    editor.setSelectionRange(8, 8); // cursor on the second line
+    fireEvent.click(screen.getByText("Keep block"));
+    expect(editor.value).toBe("# New\n<!-- mwb:keep -->\nNever on Fridays\n<!-- /mwb:keep -->");
     fireEvent.click(screen.getByText("Save"));
     await waitFor(() =>
-      expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ content: "# New", base_sha: "abc" }),
+      expect(calls.find((c) => c.method === "PUT")?.body).toEqual({
+        content: "# New\n<!-- mwb:keep -->\nNever on Fridays\n<!-- /mwb:keep -->",
+        base_sha: "abc",
+      }),
     );
     fireEvent.click(screen.getByText("Publish to team"));
     fireEvent.click(await screen.findByText("History"));
@@ -206,11 +213,21 @@ describe("knowledge pages", () => {
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   });
 
+  it("wraps a selection in keep markers", () => {
+    expect(wrapInKeep("a\nbcd\ne", 2, 5)).toEqual({ text: "a\n<!-- mwb:keep -->\nbcd\n<!-- /mwb:keep -->\ne", cursor: 42 });
+    expect(wrapInKeep("only", 2, 2).text).toBe("<!-- mwb:keep -->\nonly\n<!-- /mwb:keep -->");
+  });
+
   it("shows librarian changes and creates pages", async () => {
     const calls = mockApi({
       ...signedInAs(MEMBER),
       "GET /api/wiki/pages": [],
       "GET /api/wiki/librarian/changes": [{ sha: "s", date: NOW, message: "Librarian: update decisions.md", diff: "+x" }],
+      "GET /api/wiki/librarian/runs": [
+        { id: 1, started_at: NOW, status: "partial", error: null,
+          pages_rejected: [{ path: "me/how-i-work.md", reason: "rewrite drops 3 of 5 headings", diff: "-## Tools" }] },
+        { id: 2, started_at: NOW, status: "failed", error: "gateway down", pages_rejected: [] },
+      ],
       "POST /api/wiki/librarian/run": { queued: true },
       "POST /api/wiki/pages": { id: 9 },
       "GET /api/wiki/pages/9": { id: 9, path: "a.md", title: "A", visibility: "private", owner_id: 2, updated_at: NOW,
@@ -218,6 +235,8 @@ describe("knowledge pages", () => {
     });
     renderAt("/wiki", <WikiPage />);
     expect(await screen.findByText("Librarian: update decisions.md")).toBeInTheDocument();
+    expect(await screen.findByText("Not applied: rewrite drops 3 of 5 headings")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("gateway down");
     fireEvent.click(screen.getByText("Update from recent sessions now"));
     expect(await screen.findByText("Queued")).toBeInTheDocument();
     fireEvent.click(screen.getByText("New page"));

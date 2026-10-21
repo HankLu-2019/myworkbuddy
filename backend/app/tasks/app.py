@@ -1,19 +1,20 @@
 import uuid
+from datetime import UTC, datetime
 
 import procrastinate
 import structlog
 from procrastinate.exceptions import AlreadyEnqueued
-from sqlalchemy import select
 
 from app.config import get_settings
 from app.db import get_sessionmaker
+from app.enums import LibrarianRunStatus
 from app.knowledge.episodes import build_episode, sessions_needing_episodes
 from app.knowledge.indexer import embed_missing
 from app.knowledge.ingest.repos import ingest_project
-from app.knowledge.librarian import update_user_wiki
+from app.knowledge.librarian import update_user_wiki, user_tz, users_due
 from app.knowledge.reconcile import reconcile_wiki
 from app.logs import log, setup_logging
-from app.models import User
+from app.models import LibrarianRun, User
 
 setup_logging(get_settings().log_level)
 
@@ -59,18 +60,41 @@ async def librarian_user_task(user_id: int) -> None:
     structlog.contextvars.bind_contextvars(task="librarian", user_id=user_id)
     async with get_sessionmaker()() as db:
         user = await db.get(User, user_id)
-        if user and user.is_active:
+        if user is None or not user.is_active:
+            return
+        tz = user_tz(user)  # read before a rollback expires the instance
+        try:
             await update_user_wiki(db, user)
             await db.commit()
+        except Exception as exc:
+            await db.rollback()
+            db.add(
+                LibrarianRun(
+                    user_id=user_id,
+                    finished_at=datetime.now(UTC),
+                    local_date=datetime.now(tz).date(),
+                    status=LibrarianRunStatus.failed,
+                    error=str(exc)[:2000],
+                )
+            )
+            await db.commit()
+            raise
 
 
-@app.periodic(cron="0 2 * * *")
-@app.task(name="librarian_nightly", queueing_lock="librarian_nightly")
-async def librarian_nightly(timestamp: int) -> None:
+def _now() -> datetime:  # patched in tests
+    return datetime.now(UTC)
+
+
+@app.periodic(cron="5 * * * *")
+@app.task(name="librarian_tick", queueing_lock="librarian_tick")
+async def librarian_tick(timestamp: int) -> None:
+    """Hourly: start each user's nightly librarian once their local time reaches 02:00 (design 01 §H8)."""
     async with get_sessionmaker()() as db:
-        user_ids = list(await db.scalars(select(User.id).where(User.is_active)))
+        user_ids = await users_due(db, _now())
     for uid in user_ids:
         await defer_once(librarian_user_task, f"librarian:{uid}", user_id=uid)
+    if user_ids:
+        log.info("librarian_tick.deferred", users=len(user_ids))
 
 
 @app.periodic(cron="30 3 * * *")

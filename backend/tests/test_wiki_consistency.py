@@ -180,9 +180,12 @@ async def test_librarian_does_not_overwrite_an_edit_made_during_its_run(client_f
         await db.commit()
     repo_dir = Path(get_settings().wiki_dir, "users", str(alice.user_id))
 
+    calls: list[str] = []
+
     def rewrite_while_user_edits(prompt: str) -> str:
-        # The user saves while the LLM is "thinking".
-        (repo_dir / "me/how-i-work.md").write_text("# How I work\n\nUser's own edit.")
+        # The user saves while the LLM is "thinking" -- on both attempts, so the librarian gives up (design 01 §H8).
+        calls.append(prompt)
+        (repo_dir / "me/how-i-work.md").write_text(f"# How I work\n\nUser's own edit {len(calls)}.")
         subprocess.run(
             ["git", "-c", "user.name=u", "-c", "user.email=u@x", "commit", "-qam", "user edit"],
             cwd=repo_dir,
@@ -196,5 +199,6 @@ async def test_librarian_does_not_overwrite_an_edit_made_during_its_run(client_f
         updated = await update_user_wiki(db, user)
         await db.commit()
     assert "me/how-i-work.md" not in updated
-    assert (repo_dir / "me/how-i-work.md").read_text() == "# How I work\n\nUser's own edit."
+    assert len(calls) == 2  # one retry after the first conflict, then skipped
+    assert (repo_dir / "me/how-i-work.md").read_text() == "# How I work\n\nUser's own edit 2."
     assert page["id"]
