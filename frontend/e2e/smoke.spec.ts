@@ -9,8 +9,19 @@ const BOB = `bob${run}`;
 const WORD = `zebracorn${run}`;
 const DOC = `notes-${run}.md`;
 
+let lastPage: Page | undefined;
+
+// On failure, print what the user was looking at; CI turns this into a check annotation.
+test.afterEach(async ({}, testInfo) => {
+  if (testInfo.status !== testInfo.expectedStatus && lastPage && !lastPage.isClosed()) {
+    const text = await lastPage.locator("body").innerText().catch(() => "(page text unavailable)");
+    console.log(`--- page at failure (${lastPage.url()}) ---\n${text.slice(0, 3000)}`);
+  }
+});
+
 async function signIn(browser: Browser, username: string, password = PASSWORD): Promise<Page> {
   const page = await (await browser.newContext()).newPage();
+  lastPage = page;
   await page.goto("/login");
   await page.getByLabel("Username").fill(username);
   await page.getByLabel("Password").fill(password);

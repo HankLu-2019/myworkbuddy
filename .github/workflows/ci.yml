@@ -118,6 +118,9 @@ jobs:
           awk '/POST \/api\/chat\/sessions\/.*\/messages/{f=1} f' all.log | grep -v -E '"GET /api/(chat|knowledge)' | head -40 > after-chat.log || true
           .github/scripts/annotate-tail.sh "after chat request" after-chat.log 40
           docker compose -f docker-compose.yml -f compose.ci.yml exec -T postgres psql -U mwb -d mwb -c "select pid, state, wait_event_type, wait_event, now()-xact_start as xact_age, left(query,120) from pg_stat_activity where datname='mwb' and pid <> pg_backend_pid()" > pg.log 2>&1 || true
+          docker compose -f docker-compose.yml -f compose.ci.yml exec -T postgres psql -U mwb -d mwb -c "select session_id, role, status, left(content,60) as content, created_at from messages order by id" >> pg.log 2>&1 || docker compose -f docker-compose.yml -f compose.ci.yml exec -T postgres psql -U mwb -d mwb -c "select session_id, role, left(content,60) as content, created_at from messages order by id" >> pg.log 2>&1 || true
+          docker compose -f docker-compose.yml -f compose.ci.yml logs --no-log-prefix llm-gateway | grep -v health | tail -20 > gateway.log 2>&1 || true
+          .github/scripts/annotate-tail.sh "gateway" gateway.log 20
           .github/scripts/annotate-tail.sh "pg_stat_activity" pg.log 40
           .github/scripts/annotate-tail.sh "tracebacks" tracebacks.log 80
           .github/scripts/annotate-tail.sh "stack" stack.log 60
