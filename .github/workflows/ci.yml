@@ -147,7 +147,7 @@ jobs:
       - if: failure()
         run: |
           docker compose -f docker-compose.yml -f compose.ci.yml logs --no-log-prefix api worker llm-gateway > all.log 2>&1
-          grep -E '"status": [345][0-9][0-9]|Traceback|"level": "(warning|error)"|git\.' all.log | grep -v '/api/auth/me' > services.log || true
+          grep -E '"status": [345][0-9][0-9]|Traceback|"level": "(warning|error)"|git\.|"path": "/api/knowledge/(search|documents/[0-9]+/visibility)"' all.log | grep -v '/api/auth/me' > services.log || true
           grep -A30 Traceback all.log > tracebacks.log || true
           grep -E 'chat\.|chat/completions' all.log | head -40 > after-chat.log || true
           .github/scripts/annotate-tail.sh "after chat request" after-chat.log 40
