@@ -151,6 +151,21 @@ def client_for(make_user: Callable) -> Callable:
 
 
 @pytest.fixture
+async def git_integrations() -> dict[str, int]:
+    """GitLab at gitlab.example.com and Gerrit at gerrit.example.com, for tests that add repositories (02 §1)."""
+    from app.models import Integration
+
+    async with get_sessionmaker()() as db:
+        rows = [
+            Integration(kind="gitlab", name="GitLab", base_url="https://gitlab.example.com"),
+            Integration(kind="gerrit", name="Gerrit", base_url="https://gerrit.example.com"),
+        ]
+        db.add_all(rows)
+        await db.commit()
+        return {r.kind: r.id for r in rows}
+
+
+@pytest.fixture
 async def anon() -> AsyncIterator[AsyncClient]:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c

@@ -150,7 +150,7 @@ async def test_checkout_failure_marks_project_failed(client_for, monkeypatch):
     assert project["status"] == "failed" and "auth required" in project["error"]
 
 
-async def test_project_api_and_visibility(client_for, task_queue):
+async def test_project_api_and_visibility(client_for, task_queue, git_integrations):
     alice = await client_for("alice")
     bob = await client_for("bob")
     bad = await alice.post("/api/projects", json={"repo_url": "file:///etc", "host": "gitlab"})

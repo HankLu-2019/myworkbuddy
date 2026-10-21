@@ -333,7 +333,7 @@ describe("Settings (07 §4.12)", () => {
   });
 
   it("offers the way back to Add repository", async () => {
-    mockApi({ ...signedInAs(MEMBER), "GET /api/secrets": [] });
+    mockApi({ ...signedInAs(MEMBER), "GET /api/integrations": [] });
     renderAt("/settings/integrations?back=%2Fsources%2Frepos%3Fadd%3D1", <SettingsPage />, "/settings/:tab");
     expect(await screen.findByRole("link", { name: "Back to Add repository" })).toHaveAttribute("href", "/sources/repos?add=1");
   });

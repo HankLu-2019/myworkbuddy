@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.db import get_sessionmaker
 from app.errors import AppError
+from app.integrations.service import get_credentials
 from app.knowledge import prompts
 from app.knowledge.acl import visible_filter
 from app.knowledge.chunking import ChunkIn, chunk_markdown
@@ -26,7 +27,7 @@ from app.knowledge.ingest.code import extract_symbols, supported
 from app.knowledge.wiki import LIBRARIAN, find_page, save_page
 from app.llm import client as llm
 from app.logs import log
-from app.models import Document, Project, SystemState, User, WikiPage
+from app.models import Document, Integration, Project, SystemState, User, WikiPage
 from app.secrets.service import get_secret
 
 KEY_FILES = [
@@ -92,18 +93,52 @@ def project_name(url: str) -> str:
     return Path(urlparse(url).path.rstrip("/")).name.removesuffix(".git") or "repo"
 
 
+async def _integration(db: AsyncSession, project: Project) -> Integration | None:
+    if project.integration_id is None:
+        return None
+    integration = await db.get(Integration, project.integration_id)
+    if integration is None or not integration.enabled:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"The {project.host} integration for {project.name} is disabled; ask an admin to enable it",
+        )
+    return integration
+
+
 async def _auth_header(db: AsyncSession, project: Project) -> str | None:
-    if project.host == "gitlab":
-        token = await get_secret(db, project.owner_id, "gitlab_token")
-        creds = f"oauth2:{token}" if token else None
+    """Basic auth for git over HTTPS from the owner's credentials for the project's integration (design 02 §1).
+    Projects the 0006 migration couldn't link to an integration still use the Phase 1 tokens."""
+    integration = await _integration(db, project)
+    if integration is not None:
+        creds = await get_credentials(db, project.owner_id, integration)
+        if project.host == "gitlab":
+            pair = ("oauth2", creds.get("token"))
+        else:
+            pair = (creds.get("username"), creds.get("password"))
+    elif project.host == "gitlab":
+        pair = ("oauth2", await get_secret(db, project.owner_id, "gitlab_token"))
     else:
-        user = await get_secret(db, project.owner_id, "gerrit_username")
-        password = await get_secret(db, project.owner_id, "gerrit_password")
-        creds = f"{user}:{password}" if user and password else None
-    return f"Authorization: Basic {base64.b64encode(creds.encode()).decode()}" if creds else None
+        pair = (
+            await get_secret(db, project.owner_id, "gerrit_username"),
+            await get_secret(db, project.owner_id, "gerrit_password"),
+        )
+    if not all(pair):
+        return None
+    return f"Authorization: Basic {base64.b64encode(f'{pair[0]}:{pair[1]}'.encode()).decode()}"
 
 
-def git_env(auth_header: str | None) -> dict[str, str]:
+def ca_file_for(integration: Integration | None) -> Path | None:
+    """The integration's CA bundle as a file for git's http.sslCAInfo (not secret: certificates only)."""
+    if integration is None or not integration.ca_bundle:
+        return None
+    path = get_settings().data_dir / "ca" / f"integration-{integration.id}.pem"
+    if not path.is_file() or path.read_text() != integration.ca_bundle:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(integration.ca_bundle)
+    return path
+
+
+def git_env(auth_header: str | None, ca_file: Path | None = None) -> dict[str, str]:
     """Environment for git subprocesses.
 
     The auth header goes in GIT_CONFIG_* (rule R7): never in argv (visible in `ps`) and never in .git/config.
@@ -114,8 +149,15 @@ def git_env(auth_header: str | None) -> dict[str, str]:
         if not k.startswith("GIT_CONFIG_") and k not in ("GIT_ASKPASS", "SSH_ASKPASS")
     }
     env |= {"GIT_TERMINAL_PROMPT": "0", "GIT_ALLOW_PROTOCOL": "https:http", "GIT_CONFIG_NOSYSTEM": "1"}
+    config = []
     if auth_header:
-        env |= {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.extraHeader", "GIT_CONFIG_VALUE_0": auth_header}
+        config.append(("http.extraHeader", auth_header))
+    if ca_file:
+        config.append(("http.sslCAInfo", str(ca_file)))
+    for i, (key, value) in enumerate(config):
+        env |= {f"GIT_CONFIG_KEY_{i}": key, f"GIT_CONFIG_VALUE_{i}": value}
+    if config:
+        env["GIT_CONFIG_COUNT"] = str(len(config))
     return env
 
 
@@ -125,12 +167,12 @@ def _redact(text: str, auth_header: str | None) -> str:
     return text
 
 
-async def run_git(*args: str, cwd: Path, auth_header: str | None = None) -> str:
+async def run_git(*args: str, cwd: Path, auth_header: str | None = None, ca_file: Path | None = None) -> str:
     proc = await asyncio.create_subprocess_exec(
         "git",
         *args,
         cwd=cwd,
-        env=git_env(auth_header),
+        env=git_env(auth_header, ca_file),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -253,19 +295,30 @@ async def sync_checkout(db: AsyncSession, project: Project) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     dest = cache_dir(project.id)
     header = await _auth_header(db, project)
+    ca = ca_file_for(await _integration(db, project))
     await check_disk_space(db)
     await commit_before_network(db)  # rule R1: git fetch/clone below talks to the remote
     if (dest / ".git").exists():
         ref = project.branch or "HEAD"
         await run_git("config", "core.symlinks", "false", cwd=dest)  # caches cloned before H9
-        await run_git("fetch", "-q", "--no-tags", f"--depth={CLONE_DEPTH}", "origin", ref, cwd=dest, auth_header=header)
+        await run_git(
+            "fetch",
+            "-q",
+            "--no-tags",
+            f"--depth={CLONE_DEPTH}",
+            "origin",
+            ref,
+            cwd=dest,
+            auth_header=header,
+            ca_file=ca,
+        )
         await run_git("reset", "-q", "--hard", "FETCH_HEAD", cwd=dest)
     else:
         # Symlinks are checked out as plain files holding the target path; _read() also refuses them.
         args = ["clone", "-q", "-c", "core.symlinks=false", "--no-tags", f"--depth={CLONE_DEPTH}", "--single-branch"]
         if project.branch:
             args += ["--branch", project.branch]
-        await run_git(*args, "--", project.repo_url, str(dest), cwd=root, auth_header=header)
+        await run_git(*args, "--", project.repo_url, str(dest), cwd=root, auth_header=header, ca_file=ca)
     return dest
 
 

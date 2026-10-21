@@ -132,10 +132,11 @@ def _psql(dbname: str, sql: str) -> list:
 
 
 @needs_tools
-async def test_backup_then_restore_round_trip(client_for, tmp_path, monkeypatch) -> None:
+async def test_backup_then_restore_round_trip(client_for, git_integrations, tmp_path, monkeypatch) -> None:
     s = get_settings()
     alice = await client_for("alice")
-    await alice.put("/api/secrets/gitlab_token", json={"value": "glpat-keep-me"})
+    gitlab = git_integrations["gitlab"]
+    await alice.put(f"/api/integrations/{gitlab}/credentials/token", json={"value": "glpat-keep-me"})
     page = (await alice.post("/api/wiki/pages", json={"path": "notes/restore.md", "content": "# Restore me"})).json()
     (s.data_dir / "repos" / "7").mkdir(parents=True, exist_ok=True)
     (s.data_dir / "repos" / "7" / "big.bin").write_bytes(b"x" * 1000)  # excluded: rebuilt by re-ingest
@@ -177,7 +178,7 @@ async def test_backup_then_restore_round_trip(client_for, tmp_path, monkeypatch)
     assert report["databases"] == ["mwb", "litellm"]
     assert _psql(target_db, "SELECT username FROM users") == [("alice",)]
     assert _psql(target_db, "SELECT path FROM wiki_pages") == [(page["path"],)]
-    assert _psql(target_db, "SELECT count(*) FROM user_secrets WHERE kind = 'gitlab_token'") == [(1,)]
+    assert _psql(target_db, "SELECT count(*) FROM user_credentials WHERE kind = 'token'") == [(1,)]
     assert _psql("litellm", "SELECT token FROM verification_token") == [("k1",)]
     assert (
         (target_data / "wiki" / "users" / str(alice.user_id) / "notes" / "restore.md")

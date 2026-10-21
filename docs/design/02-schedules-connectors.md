@@ -46,7 +46,16 @@ create table user_credentials (
 | `kubernetes` | `{"allowed_kinds": [...], "allowed_namespaces": [...] or null}` | `kubeconfig` | `GET /version`, then `SelfSubjectRulesReview` for each allowed namespace |
 | `feed` | `{"urls": ["https://..."]}` (admin allowlist of RSS/Atom feeds) | none | fetch first URL |
 
-**Migration 0005** creates both tables and migrates Phase 1 secrets: if `MWB_GITLAB_URL` / `MWB_GERRIT_URL` / `MWB_JIRA_URL` are set, it creates those integrations and moves each user's `gitlab_token`, `gerrit_username`/`gerrit_password`, `jira_token` rows into `user_credentials`. Otherwise the admin creates integrations in the UI and users re-enter tokens (the Settings page explains why). `projects` gains `integration_id` (nullable during migration, matched by URL host; not null for new projects). `user_secrets` keeps only system kinds (`gateway_key`).
+**Migration 0006** (0005 went to H16's `users.timezone_confirmed`) creates both tables and migrates Phase 1 secrets: if `MWB_GITLAB_URL` / `MWB_GERRIT_URL` / `MWB_JIRA_URL` are set, it creates those integrations and moves each user's `gitlab_token`, `gerrit_username`/`gerrit_password`, `jira_token` rows into `user_credentials` (ciphertext unchanged; status `unverified`). `projects` gains `integration_id` (`ON DELETE SET NULL`; matched by URL host; set for every new project). `user_secrets` keeps only system kinds (`gateway_key`).
+
+*Changed while building S1:*
+
+- **No re-entry when the URLs aren't set.** Tokens the migration can't move stay in `user_secrets` (expand step, rule R10). When an admin creates the first integration of a kind, it **adopts** them: moves them to credentials and links projects on its host (`app/integrations/service.py`). A later contract migration drops whatever is left. Projects without an integration keep cloning with their Phase 1 token until then.
+- **The Phase 1 `/api/secrets` API is removed**; Settings → Integrations uses `/api/integrations`. That and Admin → Integrations were brought forward from S7, so the app keeps working between S1 and S7.
+- **Verification:** a 401/403 marks every part of the integration's credential `invalid`; a timeout, refused connection or 5xx keeps the status and only records `last_error`, because an outage says nothing about the credential. Saving one part of a multi-part credential (Gerrit username and password) makes the others `unverified`.
+- **Admin edits:** changing `base_url` marks credentials `unverified` and deletes kubeconfigs, which name the old server. An integration with repositories can't be deleted (409: disable it instead). `MWB_ALLOW_HTTP_INTEGRATIONS` is refused when `MWB_ENV=prod`.
+- **Repositories:** `POST /api/projects` takes `integration_id` (or `host`, matched by URL host). The URL's host must be the integration's host. git gets the integration's CA bundle through `GIT_CONFIG_*` `http.sslCAInfo`, a certificate file under `/data/ca/` (not secret).
+- **Kubeconfig:** besides the refusals above, `insecure-skip-tls-verify`, `proxy-url`, impersonation (`as*`) and unknown fields are refused. Every user and cluster in the file is checked, not only the selected one.
 
 **Kubeconfig validation** (on upload, before storing):
 
@@ -332,7 +341,7 @@ All endpoints require auth; unsafe methods require CSRF; owned resources return 
 |---|---|
 | `GET /api/admin/integrations` · `POST` · `PATCH /{id}` · `DELETE /{id}` | Admin manages integrations (audit each) |
 | `GET /api/integrations` | Enabled integrations + the caller's credential status per kind |
-| `PUT /api/integrations/{id}/credentials/{kind}` · `DELETE` | Write-only credential (kubeconfig validated, §1) |
+| `PUT /api/integrations/{id}/credentials/{kind}` · `DELETE` | Write-only credential (kubeconfig validated, §1); 204, nothing echoed back |
 | `POST /api/integrations/{id}/test` | Verify the caller's credential; updates status |
 | `GET /api/agents` | Agents usable by the caller, with inputs schema |
 | `GET /api/schedules` · `POST` | List (cursor) / create |

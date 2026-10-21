@@ -10,6 +10,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     Numeric,
@@ -100,6 +101,37 @@ class UserSecret(Base):
     updated_at: Mapped[datetime] = _updated()
 
 
+class Integration(Base):
+    """One external system instance, configured by an admin (design 02 §1)."""
+
+    __tablename__ = "integrations"
+    id: Mapped[int] = mapped_column(Integer, Identity(always=True), primary_key=True)
+    kind: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text, unique=True)
+    base_url: Mapped[str] = mapped_column(Text)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    ca_bundle: Mapped[str | None] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = _updated()
+
+
+class UserCredential(Base):
+    """One user's secret for one integration; write-only through the API (design 02 §1)."""
+
+    __tablename__ = "user_credentials"
+    __table_args__ = (UniqueConstraint("user_id", "integration_id", "kind"),)
+    id: Mapped[int] = mapped_column(Integer, Identity(always=True), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    integration_id: Mapped[int] = mapped_column(ForeignKey("integrations.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(Text)
+    ciphertext: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="unverified", server_default="unverified")
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = _updated()
+
+
 class Project(Base):
     __tablename__ = "projects"
     __table_args__ = (UniqueConstraint("owner_id", "repo_url"),)
@@ -112,6 +144,8 @@ class Project(Base):
     branch: Mapped[str | None] = mapped_column(String(128))
     last_ingested_sha: Mapped[str | None] = mapped_column(String(64))
     card_page_id: Mapped[int | None] = mapped_column(Integer)
+    # The integration whose credentials clone it; null only for projects the 0006 migration couldn't match.
+    integration_id: Mapped[int | None] = mapped_column(ForeignKey("integrations.id", ondelete="SET NULL"), index=True)
     status: Mapped[str] = mapped_column(String(16), default="new")
     error: Mapped[str | None] = mapped_column(Text)
     progress: Mapped[str | None] = mapped_column(Text)

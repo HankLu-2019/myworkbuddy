@@ -99,3 +99,33 @@ def test_upgrade_step_by_step_with_data_and_models_match(scratch_db: Connection)
 
     diff = compare_metadata(MigrationContext.configure(scratch_db, opts={"include_object": _include}), Base.metadata)
     assert diff == [], f"models and migrations disagree: {diff}"
+
+
+def test_0006_moves_phase_1_tokens_when_urls_are_configured(scratch_db: Connection, monkeypatch) -> None:
+    """Design 02 §1: with MWB_GITLAB_URL set, tokens move to user_credentials and projects are linked."""
+    cfg = _config(scratch_db)
+    command.upgrade(cfg, "0005")
+    scratch_db.commit()
+    for stmt in [
+        "INSERT INTO users (id, username, password_hash, role, is_active) VALUES (1, 'seed', 'x', 'member', true)",
+        "INSERT INTO user_secrets (user_id, kind, ciphertext) VALUES (1, 'gitlab_token', 'cipher-g'), "
+        "(1, 'jira_token', 'cipher-j'), (1, 'gateway_key', 'cipher-k')",
+        "INSERT INTO projects (owner_id, visibility, name, repo_url, host, status) VALUES "
+        "(1, 'private', 'on', 'https://gitlab.corp.example/t/a.git', 'gitlab', 'ready'), "
+        "(1, 'private', 'off', 'https://elsewhere.example/t/b.git', 'gitlab', 'ready')",
+    ]:
+        scratch_db.execute(text(stmt))
+    scratch_db.commit()
+    monkeypatch.setenv("MWB_GITLAB_URL", "https://gitlab.corp.example/")
+    monkeypatch.delenv("MWB_JIRA_URL", raising=False)
+    monkeypatch.delenv("MWB_GERRIT_URL", raising=False)
+    command.upgrade(cfg, "0006")
+    scratch_db.commit()
+    [(gid, base)] = scratch_db.execute(text("SELECT id, base_url FROM integrations")).all()
+    assert base == "https://gitlab.corp.example"
+    creds = scratch_db.execute(text("SELECT integration_id, kind, ciphertext, status FROM user_credentials")).all()
+    assert creds == [(gid, "token", "cipher-g", "unverified")]  # same keys, so the ciphertext moves as is
+    left = sorted(k for (k,) in scratch_db.execute(text("SELECT kind FROM user_secrets")))
+    assert left == ["gateway_key", "jira_token"]  # no MWB_JIRA_URL: kept for adoption when Jira is added
+    linked = dict(scratch_db.execute(text("SELECT name, integration_id FROM projects")).all())
+    assert linked == {"on": gid, "off": None}

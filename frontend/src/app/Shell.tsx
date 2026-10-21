@@ -15,7 +15,7 @@ import {
   Shield,
   Users,
 } from "lucide-react";
-import { api, type Home as HomeData, type Project, type SecretStatus } from "../api";
+import { api, type Home as HomeData, type Integration, type Project } from "../api";
 import { ActivityIndicator } from "./ActivityIndicator";
 import { librarianUnseen } from "./seen";
 import { useAuth } from "../auth";
@@ -45,7 +45,11 @@ function useBadges(isAdmin: boolean, userId: number | undefined) {
     queryFn: () => api<Project[]>("/api/projects"),
     staleTime: 60_000,
   });
-  const secrets = useQuery({ queryKey: ["secrets"], queryFn: () => api<SecretStatus[]>("/api/secrets"), staleTime: 300_000 });
+  const integrations = useQuery({
+    queryKey: ["integrations"],
+    queryFn: () => api<Integration[]>("/api/integrations"),
+    staleTime: 300_000,
+  });
   const ready = useQuery({
     queryKey: ["ready"],
     queryFn: async () => {
@@ -60,7 +64,9 @@ function useBadges(isAdmin: boolean, userId: number | undefined) {
   return {
     librarianNew: librarianUnseen(userId, home.data?.librarian?.at),
     sourcesFailed: !!projects.data?.some((p) => p.mine && p.status === "failed"),
-    settingsUnreadable: !!secrets.data?.some((s) => s.status === "unreadable"),
+    settingsUnreadable: !!integrations.data?.some((i) =>
+      i.credentials.some((c) => c.status === "unreadable" || c.status === "invalid"),
+    ),
     systemFailing: isAdmin && ready.data === false,
   };
 }
@@ -125,7 +131,7 @@ export default function Shell() {
       to: "/settings",
       label: "Settings",
       icon: <Settings size={18} aria-hidden />,
-      badge: badges.settingsUnreadable ? <Dot label="A saved token needs re-entering" /> : undefined,
+      badge: badges.settingsUnreadable ? <Dot label="A credential needs your attention" /> : undefined,
     },
     ...(isAdmin
       ? [

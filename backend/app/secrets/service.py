@@ -20,6 +20,18 @@ def _fernet() -> MultiFernet:
     return MultiFernet([Fernet(k.encode()) for k in get_settings().fernet_keys])
 
 
+def encrypt(value: str) -> str:
+    return _fernet().encrypt(value.encode()).decode()
+
+
+def decrypt(ciphertext: str) -> str | None:
+    """The plaintext, or None when no configured key can read it."""
+    try:
+        return _fernet().decrypt(ciphertext.encode()).decode()
+    except InvalidToken:
+        return None
+
+
 async def set_secret(db: AsyncSession, user_id: int, kind: str, value: str) -> None:
     ciphertext = _fernet().encrypt(value.encode()).decode()
     row = await db.scalar(select(UserSecret).where(UserSecret.user_id == user_id, UserSecret.kind == kind))
@@ -57,12 +69,15 @@ async def rotate_secrets(db: AsyncSession) -> dict[str, int]:
 
     Rows no key can decrypt are left as they are and counted, so the user can re-enter them.
     """
+    from app.models import UserCredential
+
     f = _fernet()
     counts = {"rotated": 0, "unreadable": 0}
-    for row in await db.scalars(select(UserSecret).order_by(UserSecret.id).with_for_update()):
-        try:
-            row.ciphertext = f.rotate(row.ciphertext.encode()).decode()
-            counts["rotated"] += 1
-        except InvalidToken:
-            counts["unreadable"] += 1
+    for model in (UserSecret, UserCredential):
+        for row in await db.scalars(select(model).order_by(model.id).with_for_update()):
+            try:
+                row.ciphertext = f.rotate(row.ciphertext.encode()).decode()
+                counts["rotated"] += 1
+            except InvalidToken:
+                counts["unreadable"] += 1
     return counts

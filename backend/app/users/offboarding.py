@@ -27,6 +27,7 @@ from app.models import (
     Episode,
     Project,
     User,
+    UserCredential,
     UserSecret,
     WikiPage,
 )
@@ -102,7 +103,8 @@ async def plan(db: AsyncSession, user: User, new_owner: User) -> Plan:
         "chat_sessions": await _count(db, ChatSession, ChatSession.owner_id == uid) - p.transfer["chat_sessions"],
         "episodes": await _count(db, Episode, Episode.owner_id == uid) - p.transfer["episodes"],
         "artifacts": await _count(db, Artifact, Artifact.owner_id == uid),
-        "secrets": await _count(db, UserSecret, UserSecret.user_id == uid),
+        "secrets": await _count(db, UserSecret, UserSecret.user_id == uid)
+        + await _count(db, UserCredential, UserCredential.user_id == uid),
         "sign_ins": await _count(db, AuthSession, AuthSession.user_id == uid),
     }
     return p

@@ -21,6 +21,7 @@ const PAGES = [
   ["settings: password", "/settings/password"],
   ["librarian changes", "/wiki/changes"],
   ["users", "/admin"],
+  ["integrations", "/admin/integrations"],
   ["system", "/admin/system"],
   ["component gallery", "/dev/components"],
 ] as const;

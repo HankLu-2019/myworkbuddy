@@ -8,8 +8,8 @@ Last revised 2026-10-21 after the [design review](review/2026-10-21-design-revie
 |---|---|
 | 0 Foundation | Done (commit `e45c666`) |
 | 1 Knowledge & memory | Done (commit `e45c666`) |
-| **H Hardening** | **Next.** Fixes review findings and adds production foundations |
-| 2 Schedules & connectors | Designed: [02](design/02-schedules-connectors.md) |
+| H Hardening | Built (PRs #2–#17); the manual release gate on the VM is still to run |
+| **2 Schedules & connectors** | **In progress** ([02](design/02-schedules-connectors.md)): S1 done |
 | 3 Plans | Designed: [03](design/03-plans.md) |
 | 4 Execution | Designed: [04](design/04-execution.md) |
 | 5 Polish | Backlog below |
@@ -116,8 +116,9 @@ Design: [01-hardening.md](design/01-hardening.md) and, for H15–H16, [07-ux.md]
 
 Design: [02-schedules-connectors.md](design/02-schedules-connectors.md).
 
-- [ ] **S1 Integrations and credentials** (02 §1): migration 0005 with secret migration; admin CRUD; user credentials with verify; kubeconfig validation; repo URLs must match an integration host.
+- [x] **S1 Integrations and credentials** (02 §1): migration 0006 with secret migration; admin CRUD; user credentials with verify; kubeconfig validation; repo URLs must match an integration host.
   - Acceptance: migration moves existing tokens when integration URLs are configured; credential APIs are write-only; kubeconfig with `exec`, `auth-provider`, file paths or a non-allowed server is rejected with a specific message; `test` updates status and `last_error`; CA bundle is used for TLS (test with a self-signed server).
+  - Done with the changes recorded in 02 §1 ("Changed while building S1"): migration 0006, adoption of unmoved tokens, `/api/secrets` removed, and Settings → Integrations and Admin → Integrations brought forward from S7.
 - [ ] **S2 Connectors and tool registry** (02 §2): one module per kind; `ToolSpec` registry; `toolset_for`; untrusted wrapping; error codes; retries; size caps.
   - Acceptance: recorded-fixture tests per connector (success, 401 → credential invalid + inbox item, 404, 429 then success, oversize, pagination cap); `k8s_get` refuses `secrets`; every tool with `untrusted_output` returns the envelope; `toolset_for` excludes tools without a verified credential and tools above the agent's tier.
 - [ ] **S3 Agents and run executor** (02 §3): `agents` table, seed loader, `RunReport`, fingerprint verification, shared `execute_agent_run()` used by schedules.
@@ -128,7 +129,7 @@ Design: [02-schedules-connectors.md](design/02-schedules-connectors.md).
   - Acceptance: outbox send with retry/backoff against a fake SMTP server (aiosmtpd in tests); dedupe key prevents duplicates; daily cap suppresses and notifies once; email body contains no links except the MyWorkBuddy run URL; unread count endpoint.
 - [ ] **S6 Chat → schedule proposals** (02 §6).
   - Acceptance: invalid proposals return the error to the model; the SSE `proposal` event renders a card; accept creates exactly the stored payload; expired or foreign proposals 404; the model has no path to create a schedule (toolset test).
-- [ ] **S7 Frontend** (02 §8, 07 §4.2, §4.7, §4.8, §5.6, §5.7, §5.10): Inbox, Schedules, editor with presets, inputs form, cron preview and test run, Run result with "Investigate in chat", chat context attachments, Settings → Integrations, Admin → Integrations, proposal card, Home sections for alerts, paused schedules and invalid credentials.
+- [ ] **S7 Frontend** (02 §8, 07 §4.2, §4.7, §4.8, §5.6, §5.7, §5.10): Inbox, Schedules, editor with presets, inputs form, cron preview and test run, Run result with "Investigate in chat", chat context attachments, proposal card, Home sections for alerts and paused schedules (Settings → Integrations, Admin → Integrations and the invalid-credential Home card came with S1).
   - Acceptance: vitest for each page's states (loading, empty, error, populated); Playwright flows 07 §5.6 and §5.7 (email link → login → run → chat with context); axe clean on new pages.
 - [ ] **S8 System tasks and agent prompts** (02 §3, §9): `projects_refresh`, `runs_retention`, prompts for the four agents with fingerprint conventions, eval fixtures (recorded tool outputs → expected fingerprints) run nightly against real Bedrock (not a CI gate).
 

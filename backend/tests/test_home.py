@@ -9,9 +9,9 @@ from app.db import get_sessionmaker
 from app.knowledge.wiki import LIBRARIAN, find_page, read_page, repo_for, save_page
 from app.llm import keys
 from app.llm.routes import month_start
-from app.models import ChatSession, Document, LibrarianRun, Message, Project, User, UserSecret
+from app.models import ChatSession, Document, LibrarianRun, Message, Project, User, UserCredential
 from app.ops import health
-from app.secrets.service import set_secret
+from app.secrets.service import encrypt
 from tests.fakellm import server as fake
 
 
@@ -45,10 +45,15 @@ async def test_home_for_a_new_member_is_a_getting_started_checklist(client_for) 
     }  # fmt: skip
 
 
-async def test_checklist_ticks_as_the_member_works(client_for) -> None:
+async def test_checklist_ticks_as_the_member_works(client_for, git_integrations) -> None:
     alice = await client_for("alice")
     assert (await alice.patch("/api/auth/me", json={"timezone": "Asia/Shanghai"})).status_code == 200
-    await alice.put("/api/secrets/gitlab_token", json={"value": "glpat-x"})
+    await alice.put(f"/api/integrations/{git_integrations['gitlab']}/credentials/token", json={"value": "glpat-x"})
+    steps = {s["key"]: s["done"] for s in (await alice.get("/api/home")).json()["checklists"][0]["steps"]}
+    assert steps["tokens"] is False  # saved, but not tested yet (07 §5.1: "at least one credential verified")
+    async with get_sessionmaker()() as db:
+        await db.execute(update(UserCredential).where(UserCredential.user_id == alice.user_id).values(status="ok"))
+        await db.commit()
     await _project(alice.user_id, status="ready")
     async with get_sessionmaker()() as db:
         s = ChatSession(owner_id=alice.user_id, title="first", source="chat")
@@ -82,26 +87,44 @@ async def test_admin_also_gets_the_setup_checklist(client_for) -> None:
     assert steps["users"] and steps["budgets"]
 
 
-async def test_needs_you_lists_failed_ingests_unreadable_tokens_and_budget(client_for) -> None:
+async def test_needs_you_lists_failed_ingests_unreadable_tokens_and_budget(client_for, git_integrations) -> None:
     alice = await client_for("alice")
     bob = await client_for("bob")
     pid = await _project(alice.user_id, name="payments-api", status="failed", error="Authentication failed for x\nmore")
     await _project(bob.user_id, name="bobs", status="failed", error="nope")  # not Alice's
     async with get_sessionmaker()() as db:
-        db.add(UserSecret(user_id=alice.user_id, kind="jira_token", ciphertext="not-a-fernet-token"))
+        gerrit = git_integrations["gerrit"]
+        db.add(UserCredential(user_id=alice.user_id, integration_id=gerrit, kind="password", ciphertext="not-fernet"))
+        db.add(
+            UserCredential(
+                user_id=alice.user_id, integration_id=git_integrations["gitlab"], kind="token",
+                ciphertext=encrypt("glpat-x"), status="invalid", last_error="GitLab rejected the credential (401)",
+            )
+        )  # fmt: skip
         await db.commit()
     await keys.ensure_key(alice.user_id)
     _key_of(alice.user_id)["spend"] = 42.5  # of the default 50
     cards = (await alice.get("/api/home")).json()["needs_you"]
-    assert [c["kind"] for c in cards] == ["budget_warning", "ingest_failed", "credential_unreadable"]
-    budget, ingest, secret = cards
+    assert [c["kind"] for c in cards] == [
+        "budget_warning",
+        "ingest_failed",
+        "credential_unreadable",
+        "credential_invalid",
+    ]
+    budget, ingest, secret, invalid = cards
+    assert invalid["message"] == (
+        "Your GitLab personal access token was rejected (GitLab rejected the credential (401)). "
+        "Anything that needs GitLab fails until you update it."
+    )
+    assert invalid["href"] == f"/settings/integrations?focus={git_integrations['gitlab']}"
     assert (
         budget["message"] == "You've used 85% of this month's AI budget ($50.00)."
         and budget["href"] == "/settings/usage"
     )
     assert ingest["message"] == "Indexing payments-api failed: Authentication failed for x"
     assert ingest["href"] == f"/sources/repos/{pid}" and ingest["action"] == "Open repository"
-    assert secret["action"] == "Update token" and secret["href"] == "/settings/integrations?focus=jira_token"
+    assert secret["action"] == "Update token" and secret["href"] == f"/settings/integrations?focus={gerrit}"
+    assert secret["message"] == "Your Gerrit http password can't be read any more. Enter it again."
 
 
 async def test_budget_reached_card(client_for) -> None:
@@ -217,10 +240,13 @@ async def test_usage_includes_this_months_chat_spend(client_for) -> None:
 # ---------- repository detail ----------
 
 
-async def test_repository_detail_counts_and_fix_hints(client_for) -> None:
+async def test_repository_detail_counts_and_fix_hints(client_for, git_integrations) -> None:
     alice = await client_for("alice")
     bob = await client_for("bob")
-    pid = await _project(alice.user_id, name="payments-api", status="failed", error="fatal: Authentication failed")
+    gitlab = git_integrations["gitlab"]
+    pid = await _project(
+        alice.user_id, name="payments-api", status="failed", error="fatal: Authentication failed", integration_id=gitlab
+    )
     async with get_sessionmaker()() as db:
         for i, kind in enumerate(["code", "code", "repo_doc"]):
             db.add(
@@ -233,14 +259,12 @@ async def test_repository_detail_counts_and_fix_hints(client_for) -> None:
     d = (await alice.get(f"/api/projects/{pid}")).json()
     assert (d["files"], d["docs"], d["code_chunks"]) == (2, 1, 0)
     assert d["hint"]["action"] == "Add token"  # no GitLab token at all
-    async with get_sessionmaker()() as db:
-        await set_secret(db, alice.user_id, "gitlab_token", "glpat-x")
-        await db.commit()
+    await alice.put(f"/api/integrations/{gitlab}/credentials/token", json={"value": "glpat-x"})
     hint = (await alice.get(f"/api/projects/{pid}")).json()["hint"]
     assert hint == {
         "message": "Your GitLab token was rejected. Update it, then re-index.",
         "action": "Update token",
-        "href": "/settings/integrations?focus=gitlab_token",
+        "href": f"/settings/integrations?focus={gitlab}",
     }
     assert (await bob.get(f"/api/projects/{pid}")).json()["code"] == "not_found"  # private stays private
 

@@ -33,6 +33,8 @@ Then sign in at `https://$MWB_HOSTNAME`, create integrations (Phase 2+), create 
 |---|---|---|
 | `MWB_ENV` | `prod` | `dev` relaxes cookie/TLS checks |
 | `MWB_HOSTNAME` | — | e.g. `mwb.company.example` |
+| `MWB_ALLOW_HTTP_INTEGRATIONS` | `false` | `http://` integration URLs; dev and CI only, refused when `MWB_ENV=prod` |
+| `MWB_GITLAB_URL`, `MWB_GERRIT_URL`, `MWB_JIRA_URL` | — | Read once by migration 0006 when upgrading from Phase 1 (§7) |
 | `MWB_TLS_MODE` | `files` | `files` (uses `deploy/tls/cert.pem`, `key.pem`, mounted at `/tls`), `internal` (Caddy CA), or `none` (dev and CI only; refused when `MWB_ENV=prod`) |
 | `POSTGRES_PASSWORD`, `LITELLM_DB_PASSWORD` | — | |
 | `MWB_SECRET_KEYS` | — | Comma-separated Fernet keys, newest first |
@@ -126,6 +128,8 @@ Rollback: `git checkout <previous tag>` and `up -d` works only if the release no
 **Upgrading Procrastinate.** Read its release notes for new migration SQL files. Add an Alembic migration that executes those files in order (vendored into `backend/alembic/procrastinate/<version>/`), bump the exact pin, and run the CI `migration-upgrade` job.
 
 **Release with H10 (search quality).** After the upgrade, run `docker compose exec api mwb reembed --dry-run`, then `mwb reembed`. Vectors written before H10 are labelled with the configured alias instead of the resolved model, so search ignores them (keyword search still works) until the worker has re-embedded them. Migration 0004 rebuilds the BM25 index, which takes minutes for a team-sized index.
+
+**Release with S1 (integrations, Phase 2).** Before upgrading, set `MWB_GITLAB_URL`, `MWB_GERRIT_URL` and `MWB_JIRA_URL` (base URLs, e.g. `https://gitlab.company.example`) in `.env` for the systems your users saved tokens for. Migration 0006 then creates those integrations, moves each user's saved tokens to them and links repositories by host. Without them nothing is lost: the tokens move when you add the integration in Admin → Integrations. Afterwards, add any CA bundle the systems need in Admin → Integrations, and ask users to press Test in Settings → Integrations (moved tokens start as "Not tested").
 
 **Upgrading LiteLLM.** Bump the image tag, `up -d llm-gateway`, then run `mwb llm check`. It exercises `/key/generate`, `/key/list?key_alias=` and `/key/delete` with `key_aliases`, which `app/llm/keys.py` relies on. Check the release notes for changes to the budget error (`budget_exceeded`) and the `x-litellm-call-id` / `x-litellm-response-cost` headers.
 
