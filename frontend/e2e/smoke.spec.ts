@@ -105,7 +105,9 @@ test("4. wiki page create, edit, history and diff", async ({ browser }) => {
   await alice.getByRole("button", { name: "Edit" }).click();
   await alice.getByLabel("Page content").fill("# E2E page\n\nsecond version\n");
   await alice.getByRole("button", { name: "Save" }).click();
-  await expect(alice.getByText("second version")).toBeVisible();
+  // Wait for the save to finish (the editor closes); the text is visible inside the editor before that.
+  await expect(alice.getByLabel("Page content")).toBeHidden();
+  await expect(alice.locator(".md", { hasText: "second version" })).toBeVisible();
 
   await alice.getByRole("button", { name: "History" }).click();
   const commits = alice.locator("ul.commits li button");
