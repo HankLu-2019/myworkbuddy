@@ -77,10 +77,10 @@ services:
       retries: 20
     restart: unless-stopped
 
-  # One-shot: database bootstrap + Alembic. api and worker start only after it exits 0.
+  # One-shot: database bootstrap + Alembic + system agents. api and worker start only after it exits 0.
   migrate:
     <<: *backend
-    command: ["sh", "-c", "mwb db-bootstrap && alembic upgrade head"]
+    command: ["sh", "-c", "mwb db-bootstrap && alembic upgrade head && mwb sync-agents"]
     restart: "no"
     depends_on:
       postgres:

@@ -67,7 +67,7 @@ flowchart LR
 | `caddy` | H | TLS termination, security headers, routes `/api/*` to `api` and the rest to `web` | 443 (and 80 → redirect) |
 | `web` | 0 | nginx serving the built SPA | internal |
 | `api` | 0 | FastAPI: auth, REST, SSE | internal |
-| `migrate` | H | One-shot `alembic upgrade head`; `api` and workers wait for it to complete | — |
+| `migrate` | H | One-shot `mwb db-bootstrap`, `alembic upgrade head`, `mwb sync-agents` (system agents, 02 §3); `api` and workers wait for it to complete | — |
 | `worker` | 1 | Procrastinate worker for queues `default`, `ingest`, `llm` | — |
 | `worker-jobs` | 4 | Procrastinate worker for queue `jobs`, concurrency = `MWB_MAX_CONCURRENT_JOBS` | — |
 | `postgres` | 0 | ParadeDB (pgvector + pg_search). Databases: `mwb`, `litellm` | internal |

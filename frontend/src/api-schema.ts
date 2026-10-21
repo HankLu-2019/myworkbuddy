@@ -194,6 +194,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Agents */
+        get: operations["list_agents_api_agents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/login": {
         parameters: {
             query?: never;
@@ -938,6 +955,34 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** AgentOut */
+        AgentOut: {
+            /** Description */
+            description: string;
+            /** Id */
+            id: number;
+            /** Inputs Schema */
+            inputs_schema: {
+                [key: string]: unknown;
+            };
+            /** Integrations */
+            integrations: string[];
+            /** Missing */
+            missing: string[];
+            /**
+             * Model Alias
+             * @enum {string}
+             */
+            model_alias: "chat" | "fast" | "planner";
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /** System */
+            system: boolean;
+            /** Tools */
+            tools: string[];
         };
         /** Body_import_claude_code_api_imports_claude_code_post */
         Body_import_claude_code_api_imports_claude_code_post: {
@@ -2218,6 +2263,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_agents_api_agents_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentOut"][];
                 };
             };
         };

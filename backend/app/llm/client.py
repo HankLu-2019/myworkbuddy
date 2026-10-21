@@ -120,14 +120,17 @@ async def budget_error(user_id: int) -> AppError:
     )
 
 
-async def run(agent: Agent, prompt: str, *, user_id: int, purpose: Purpose, **kwargs: Any) -> Any:
+async def run(
+    agent: Agent, prompt: str, *, user_id: int, purpose: Purpose, timeout: float | None = None, **kwargs: Any
+) -> Any:
     """`agent.run` with the purpose's limits and timeout. Returns the result; `result.cost_usd` holds the cost.
 
-    Raises AppError(budget_exceeded) when the user's key is over budget, and TimeoutError on timeout.
+    `timeout` replaces the purpose's wall-clock timeout (a schedule's `max_runtime_s`); the request and token
+    limits stay. Raises AppError(budget_exceeded) when the user's key is over budget, and TimeoutError on timeout.
     """
     with usage.track() as u:
         try:
-            async with asyncio.timeout(timeout_for(purpose)):
+            async with asyncio.timeout(timeout if timeout is not None else timeout_for(purpose)):
                 result = await agent.run(prompt, usage_limits=limits_for(purpose), **kwargs)
         except ModelHTTPError as exc:
             if is_budget_error(exc):

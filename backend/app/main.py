@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request, Response
 from sqlalchemy import text
 
 from app import errors
+from app.agents.routes import router as agents_router
 from app.auth.routes import router as auth_router
 from app.chat.routes import router as chat_router
 from app.config import ensure_runtime_ok, get_settings
@@ -71,5 +72,6 @@ for r in (
     ops_router,
     home_router,
     integrations_router,
+    agents_router,
 ):
     app.include_router(r)

@@ -27,12 +27,17 @@ _current: ContextVar[Usage | None] = ContextVar("llm_usage", default=None)
 
 @contextmanager
 def track() -> Iterator[Usage]:
+    """Nested tracks also add to the enclosing one, so a caller sees the cost of a run that raised."""
     usage = Usage()
     token = _current.set(usage)
     try:
         yield usage
     finally:
         _current.reset(token)
+        if (outer := _current.get()) is not None:
+            outer.cost_usd += usage.cost_usd
+            outer.calls += usage.calls
+            outer.unpriced_call_ids.extend(usage.unpriced_call_ids)
 
 
 def record(headers: Mapping[str, str]) -> None:

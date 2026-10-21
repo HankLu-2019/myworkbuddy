@@ -149,6 +149,27 @@ class InboxItem(Base):
     created_at: Mapped[datetime] = _now()
 
 
+class Agent(Base):
+    """An agent definition (design 02 §3). Phase 2 has system agents only (`owner_id` null), synced from
+    app/agents/seed/*.md by `mwb sync-agents`."""
+
+    __tablename__ = "agents"
+    id: Mapped[int] = mapped_column(Integer, Identity(always=True), primary_key=True)
+    slug: Mapped[str] = mapped_column(Text, unique=True)
+    name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str] = mapped_column(Text)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    model_alias: Mapped[str] = mapped_column(Text)
+    system_prompt: Mapped[str] = mapped_column(Text)
+    tools: Mapped[list[str]] = mapped_column(ARRAY(Text))
+    max_tier: Mapped[str] = mapped_column(Text, default="read", server_default="read")
+    inputs_schema: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    report: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = _now()
+
+
 class Project(Base):
     __tablename__ = "projects"
     __table_args__ = (UniqueConstraint("owner_id", "repo_url"),)

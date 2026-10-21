@@ -169,3 +169,25 @@ async def git_integrations() -> dict[str, int]:
 async def anon() -> AsyncIterator[AsyncClient]:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         yield c
+
+
+@pytest.fixture
+def api():
+    """Connector HTTP replayed from recorded fixtures (tests/connector_fakes.py)."""
+    from app.connectors import base
+    from app.integrations import http
+    from tests.connector_fakes import Recorder
+
+    rec = Recorder()
+    http.set_transport(httpx2.MockTransport(rec))
+    waits: list[float] = []
+
+    async def no_wait(seconds: float) -> None:
+        waits.append(seconds)
+
+    original = base.sleep
+    base.sleep = no_wait
+    rec.waits = waits  # type: ignore[attr-defined]
+    yield rec
+    base.sleep = original
+    http.set_transport(None)
