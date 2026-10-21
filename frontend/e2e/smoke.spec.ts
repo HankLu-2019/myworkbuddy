@@ -56,8 +56,10 @@ test("2. uploads are private until shared", async ({ browser }) => {
   await search(bob, WORD);
   await expect(bob.getByText("No matches")).toBeVisible();
 
-  await row.getByRole("button", { name: "Share with team" }).click();
-  await expect(row.getByText("Team")).toBeVisible();
+  await alice.goto("/documents");
+  const shared = alice.getByRole("row", { name: new RegExp(DOC) });
+  await shared.getByRole("button", { name: "Share with team" }).click();
+  await expect(shared.getByText("Team")).toBeVisible();
   await search(bob, WORD);
   await expect(bob.getByRole("link", { name: DOC })).toBeVisible();
 });
