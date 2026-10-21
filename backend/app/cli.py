@@ -79,5 +79,26 @@ def wiki_reconcile(dry_run: bool = typer.Option(False, "--dry-run", help="Report
         typer.echo(f"{name}: {value}")
 
 
+@cli.command("reembed")
+def reembed_cmd(dry_run: bool = typer.Option(False, "--dry-run", help="Report counts only; change nothing")) -> None:
+    """Clear vectors made by another embedding model; the worker re-embeds them (design 01 §H10).
+
+    Run after changing MWB_EMBED_MODEL_ID or the gateway's embedding route. Until refilled, those chunks are
+    found by keyword search only.
+    """
+    from app.knowledge.indexer import reembed
+
+    async def run() -> dict:
+        async with get_sessionmaker()() as db:
+            return await reembed(db, dry_run=dry_run)
+
+    report = asyncio.run(run())
+    typer.echo(f"current model: {report['current_model']}")
+    for model, count in sorted(report["other_models"].items()):
+        typer.echo(f"other model {model}: {count} chunks")
+    typer.echo(f"waiting for a vector: {report['missing']}; failed 5+ times: {report['failed']}")
+    typer.echo(f"cleared: {report['cleared']}" + (" (dry run)" if dry_run else ""))
+
+
 def main() -> None:
     cli()

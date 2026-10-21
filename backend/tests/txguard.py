@@ -46,6 +46,10 @@ class GuardedEmbedder:
     def __init__(self, inner: Any) -> None:
         self.inner = inner
 
+    @property
+    def model_id(self) -> str:
+        return getattr(self.inner, "model_id", "hash-1024")
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
         check("embedding")
         return await self.inner.embed(texts)

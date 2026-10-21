@@ -82,7 +82,7 @@ Design: [01-hardening.md](design/01-hardening.md) and, for H15–H16, [07-ux.md]
 - [x] **H9 Ingestion robustness** (01 §H9)
   - Acceptance: two `ingest_project` jobs for one project never overlap (procrastinate lock test); git token never appears in argv (assert on the subprocess call) and never in error messages; Gerrit URL without `/a/` is rewritten and reported; deleting a project removes its cache dir; ingest refuses to start below the disk threshold with a clear error; two uploads named `notes.md` create two documents and "Replace" keeps id and visibility; an oversize transcript returns `file_too_large` for that file only.
 
-- [ ] **H10 Search quality** (01 §H10)
+- [x] **H10 Search quality** (01 §H10)
   - Migration 0004 (BM25 tokenizer); `embed_model` filtering; `mwb reembed`; poison-chunk handling.
   - Acceptance: the four language tests in 01 §H10 pass; vectors with a different `embed_model` are ignored by search; `mwb reembed --dry-run` reports counts and changes nothing; a chunk that always fails embedding stops being retried after 5 attempts and doesn't block others.
 

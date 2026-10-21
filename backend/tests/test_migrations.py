@@ -92,6 +92,8 @@ def test_upgrade_step_by_step_with_data_and_models_match(scratch_db: Connection)
 
     for table, expected in CHECKS.items():
         assert scratch_db.execute(text(f"SELECT count(*) FROM {table}")).scalar() == expected, table
+    # The rebuilt BM25 index (0004) covers rows written before it.
+    assert scratch_db.execute(text("SELECT count(*) FROM chunks WHERE content ||| 'seed'")).scalar() == 1
 
     diff = compare_metadata(MigrationContext.configure(scratch_db, opts={"include_object": _include}), Base.metadata)
     assert diff == [], f"models and migrations disagree: {diff}"
