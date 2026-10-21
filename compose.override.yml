@@ -19,6 +19,10 @@ services:
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/app", "--proxy-headers", "--forwarded-allow-ips=${MWB_EDGE_PREFIX:-172.30.0}.200"]
     environment:
       MWB_ENV: dev
+      MWB_SMTP_HOST: mailpit
+      MWB_SMTP_PORT: "1025"
+      MWB_SMTP_STARTTLS: "false"
+      MWB_SMTP_FROM: MyWorkBuddy <mwb@localhost>
     volumes:
       - ./backend/app:/app/app
       - ./backend/alembic:/app/alembic
@@ -32,6 +36,10 @@ services:
     image: myworkbuddy-backend:dev
     environment:
       MWB_ENV: dev
+      MWB_SMTP_HOST: mailpit
+      MWB_SMTP_PORT: "1025"
+      MWB_SMTP_STARTTLS: "false"
+      MWB_SMTP_FROM: MyWorkBuddy <mwb@localhost>
     command: ["sh", "-c", "mwb check-config && { mwb wiki-reconcile || echo wiki-reconcile failed, continuing; } && exec watchfiles --filter python 'procrastinate --app=app.tasks.app.app worker --concurrency=4' /app/app"]
     volumes:
       - ./backend/app:/app/app

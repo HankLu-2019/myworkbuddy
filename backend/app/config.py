@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -56,6 +56,15 @@ class Settings(BaseSettings):
     schedule_min_interval_min: int = Field(15, ge=1)  # smallest gap between runs for members
     schedule_min_interval_admin_min: int = Field(5, ge=1)
     max_schedules_per_user: int = Field(20, ge=1)  # enabled schedules
+    # Email (design 02 §5). No MWB_SMTP_HOST: emails stay queued and the System page says why.
+    smtp_host: str = ""
+    smtp_port: int = Field(587, ge=1, le=65535)
+    smtp_user: str = ""
+    smtp_password: SecretStr = SecretStr("")
+    smtp_from: str = ""  # e.g. "MyWorkBuddy <mwb@example.com>"
+    smtp_starttls: bool = True
+    smtp_timeout_s: float = Field(30, gt=0)
+    max_emails_per_day: int = Field(30, ge=1)  # per user, in their timezone
     # Read once by migration 0006 to move Phase 1 tokens into integrations; not used at runtime.
     gitlab_url: str = ""
     gerrit_url: str = ""
@@ -73,6 +82,10 @@ class Settings(BaseSettings):
             problems.append("MWB_HOSTNAME must be an https:// URL")
         if self.tls_mode == "none":
             problems.append("MWB_TLS_MODE=none is only allowed with MWB_ENV=dev")
+        if self.smtp_user and not self.smtp_starttls:
+            problems.append(
+                "MWB_SMTP_STARTTLS must be true when MWB_SMTP_USER is set (the password would be sent in clear)"
+            )
         if self.allow_http_integrations:
             problems.append("MWB_ALLOW_HTTP_INTEGRATIONS would send users' credentials in clear text")
         if problems:
@@ -133,6 +146,12 @@ def runtime_problems(s: Settings) -> list[str]:
             f"MWB_EMBED_DIMS={s.embed_dims}, but the embedding dimension is fixed at {EMBED_DIMS} by the schema; "
             "changing it needs a migration"
         )
+    if s.smtp_host and "@" not in s.smtp_from:
+        problems.append(
+            "MWB_SMTP_FROM must be an address (e.g. MyWorkBuddy <mwb@example.com>) when MWB_SMTP_HOST is set"
+        )
+    if bool(s.smtp_user) != bool(s.smtp_password.get_secret_value()):
+        problems.append("Set both MWB_SMTP_USER and MWB_SMTP_PASSWORD, or neither")
     try:
         ZoneInfo(s.default_timezone)
     except (ZoneInfoNotFoundError, ValueError):

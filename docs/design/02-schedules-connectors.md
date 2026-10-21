@@ -335,7 +335,17 @@ create table outbound_emails (
 - **Email body is plain text**: headline, finding titles with severity, and a link to the run in MyWorkBuddy (`https://{MWB_HOSTNAME}/runs/<id>`). No LLM-generated HTML and no external links copied from findings. This avoids HTML injection and phishing-looking mail.
 - Sender: `send_emails` periodic every minute, queue `default`, `lock="send_emails"`, picks up to 50 `pending` rows with `next_attempt_at <= now()`, sends with `aiosmtplib` (STARTTLS, auth from `MWB_SMTP_*`). Backoff 1, 5, 15, 60, 240 min; after 6 attempts → `failed` and an inbox `system` item.
 - Daily cap per user `MWB_MAX_EMAILS_PER_DAY` (default 30); beyond it rows are `suppressed` and one inbox notice is created.
-- Headers: `Auto-Submitted: auto-generated`, `X-MWB-Run: <id>`, `List-Unsubscribe: <https://{host}/settings#notifications>`.
+- Headers: `Auto-Submitted: auto-generated`, `X-MWB-Run: <id>`, `List-Unsubscribe: <https://{host}/settings/notifications>`.
+
+*Changed while building S5:*
+
+- **Claim, send, record** (`app/inbox/sender.py`): a short transaction locks due rows (`FOR UPDATE SKIP LOCKED`), applies the cap and claims the rest (`attempts += 1`, `next_attempt_at` 10 minutes ahead as a lease, so a send interrupted by a crash is retried); SMTP runs with no transaction open (rule R1); each result is recorded in its own short transaction.
+- **Permanent refusals** (5xx, except 530/535 authentication errors, which are configuration) fail at once instead of retrying for 6 hours. Errors are stored as `SMTP <code>: <text>` or the exception's class name, never the settings.
+- **The daily cap is per local day** in the owner's timezone (rule R8), counting `sent` rows. The one notice per day is an inbox `system` item titled "Email paused for today" linking to `/inbox`. The failure notice links to Settings → Profile (the address is the usual cause) and carries no `run_id`, because the run may have been deleted.
+- **No `MWB_SMTP_HOST`:** rows stay `pending` and Admin → System alerts "N email(s) are waiting". The System page gains an `outbox` block (pending, sent/failed/suppressed in 24 h, recent failures) and an alert for failures. Dev compose points at mailpit.
+- **Config checks** (R14): `MWB_SMTP_FROM` must be an address when a host is set; user and password come together; in production a username requires STARTTLS. New `MWB_SMTP_TIMEOUT_S` (30) and `MWB_MAX_EMAILS_PER_DAY` (30).
+- **`PATCH /api/auth/me`** takes `email_notifications` (the API table's `PATCH /api/me` is this endpoint).
+- **Inbox API:** `GET /api/inbox?unread=&cursor=&limit=` (`{"items", "next_cursor"}`), `GET /unread-count` → `{"unread"}`, `POST /{id}/read` (idempotent; returns the item), `POST /read-all` → `{"marked"}`; each write is audited (R3).
 
 ## 6. Creating schedules from chat
 

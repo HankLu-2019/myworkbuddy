@@ -14,6 +14,7 @@ from app.chat.routes import router as chat_router
 from app.config import ensure_runtime_ok, get_settings
 from app.db import get_engine
 from app.home.routes import router as home_router
+from app.inbox.routes import router as inbox_router
 from app.integrations.routes import router as integrations_router
 from app.knowledge.routes import router as knowledge_router
 from app.llm.routes import router as usage_router
@@ -75,5 +76,6 @@ for r in (
     integrations_router,
     agents_router,
     schedules_router,
+    inbox_router,
 ):
     app.include_router(r)

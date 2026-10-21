@@ -457,6 +457,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/inbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Inbox */
+        get: operations["list_inbox_api_inbox_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inbox/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark All Read */
+        post: operations["mark_all_read_api_inbox_read_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inbox/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Unread Count */
+        get: operations["unread_count_api_inbox_unread_count_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inbox/{item_id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark Read */
+        post: operations["mark_read_api_inbox__item_id__read_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/integrations": {
         parameters: {
             query?: never;
@@ -1283,6 +1351,43 @@ export interface components {
             /** Title */
             title: string | null;
         };
+        /** InboxItemOut */
+        InboxItemOut: {
+            /** Body Md */
+            body_md: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "run" | "alert" | "recovered" | "system" | "credential" | "proposal";
+            /** Link */
+            link: string | null;
+            /** Read At */
+            read_at: string | null;
+            /** Run Id */
+            run_id: string | null;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "info" | "warning" | "alert";
+            /** Title */
+            title: string;
+        };
+        /** InboxPage */
+        InboxPage: {
+            /** Items */
+            items: components["schemas"]["InboxItemOut"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
         /** IntegrationCreate */
         IntegrationCreate: {
             /** Base Url */
@@ -1401,6 +1506,11 @@ export interface components {
             password: string;
             /** Username */
             username: string;
+        };
+        /** Marked */
+        Marked: {
+            /** Marked */
+            marked: number;
         };
         /** MeOut */
         MeOut: {
@@ -1591,6 +1701,8 @@ export interface components {
             display_name?: string | null;
             /** Email */
             email?: string | null;
+            /** Email Notifications */
+            email_notifications?: boolean | null;
             /** Timezone */
             timezone?: string | null;
         };
@@ -2060,6 +2172,11 @@ export interface components {
              */
             status: "not_set" | "unverified" | "ok" | "invalid" | "unreadable";
         };
+        /** UnreadCount */
+        UnreadCount: {
+            /** Unread */
+            unread: number;
+        };
         /** UsageOut */
         UsageOut: {
             /** Budget Reset At */
@@ -2096,6 +2213,11 @@ export interface components {
             display_name: string | null;
             /** Email */
             email: string | null;
+            /**
+             * Email Notifications
+             * @default true
+             */
+            email_notifications: boolean;
             /** Id */
             id: number;
             /** Is Active */
@@ -2146,6 +2268,11 @@ export interface components {
             display_name: string | null;
             /** Email */
             email: string | null;
+            /**
+             * Email Notifications
+             * @default true
+             */
+            email_notifications: boolean;
             /** Id */
             id: number;
             /** Initial Password */
@@ -3208,6 +3335,110 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImportResult"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_inbox_api_inbox_get: {
+        parameters: {
+            query?: {
+                unread?: boolean;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_all_read_api_inbox_read_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Marked"];
+                };
+            };
+        };
+    };
+    unread_count_api_inbox_unread_count_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnreadCount"];
+                };
+            };
+        };
+    };
+    mark_read_api_inbox__item_id__read_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxItemOut"];
                 };
             };
             /** @description Validation Error */

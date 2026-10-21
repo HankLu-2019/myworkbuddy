@@ -266,3 +266,12 @@ async def schedule_tick(timestamp: int) -> None:
             interrupted=result.interrupted,
             disabled=result.disabled,
         )
+
+
+@app.periodic(cron="* * * * *")
+@app.task(name="send_emails", queueing_lock="send_emails", lock="send_emails")
+async def send_emails(timestamp: int) -> None:
+    """The email outbox (design 02 §5)."""
+    from app.inbox.sender import send_pending
+
+    await send_pending()
