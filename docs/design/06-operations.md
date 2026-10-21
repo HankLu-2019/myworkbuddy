@@ -47,7 +47,8 @@ Then sign in at `https://$MWB_HOSTNAME`, create integrations (Phase 2+), create 
 | `MWB_SCHEDULE_MIN_INTERVAL_MIN` | `15` | Members |
 | `MWB_MAX_SCHEDULES_PER_USER` | `20` | |
 | `MWB_INGEST_MAX_SUMMARY_FILES` | `150` | Per ingest |
-| `MWB_REPO_CACHE_MAX_GB` | `50` | |
+| `MWB_REPO_CACHE_MAX_GB` | `50` | Ingest refuses to clone or fetch above this, or when `/data` has < 10 % free |
+| `MWB_TRANSCRIPT_MAX_MB` | `50` | Per imported Claude Code transcript |
 | `MWB_LIBRARIAN_LOCAL_HOUR` | `2` | User's local time |
 | `MWB_MAX_CONCURRENT_JOBS` | `2` | Phase 4 |
 | `MWB_SANDBOX_RUNTIME` | `runsc` | Phase 4 |

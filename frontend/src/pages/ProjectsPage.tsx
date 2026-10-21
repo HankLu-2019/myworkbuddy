@@ -8,6 +8,7 @@ export default function ProjectsPage() {
   const [repoUrl, setRepoUrl] = useState("");
   const [host, setHost] = useState<"gitlab" | "gerrit">("gitlab");
   const [branch, setBranch] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
 
   const projects = useQuery({
     queryKey: ["projects"],
@@ -20,9 +21,10 @@ export default function ProjectsPage() {
   const add = useMutation({
     mutationFn: () =>
       api<Project>("/api/projects", { method: "POST", json: { repo_url: repoUrl, host, branch: branch || null } }),
-    onSuccess: () => {
+    onSuccess: (p) => {
       setRepoUrl("");
       setBranch("");
+      setNotice(p.notice ?? null);
       refresh();
     },
   });
@@ -69,6 +71,11 @@ export default function ProjectsPage() {
           Add repository
         </button>
       </form>
+      {notice && (
+        <p className="notice" role="status">
+          {notice}
+        </p>
+      )}
       <ErrorNote error={add.error || ingest.error || visibility.error || remove.error || projects.error} />
       {projects.data && !projects.data.length && <Empty>No projects yet.</Empty>}
       {!!projects.data?.length && (
@@ -94,6 +101,7 @@ export default function ProjectsPage() {
                   </td>
                   <td>
                     <StatusPill status={p.status} />
+                    {p.status === "running" && p.progress && <div className="muted small">{p.progress}</div>}
                   </td>
                   <td>
                     <VisibilityBadge visibility={p.visibility} />

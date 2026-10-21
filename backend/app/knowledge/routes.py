@@ -7,7 +7,9 @@ from sqlalchemy import delete, func, select
 
 from app.audit.service import audit
 from app.chat.agent import SCOPES
+from app.config import get_settings
 from app.deps import DB, CurrentAuth
+from app.errors import DEFAULT_CODES, AppError
 from app.knowledge.acl import (
     Visibility,
     can_change_visibility,
@@ -19,7 +21,7 @@ from app.knowledge.acl import (
 from app.knowledge.gitrepo import validate_page_path, validate_sha
 from app.knowledge.indexer import set_project_visibility, set_visibility
 from app.knowledge.ingest.files import MAX_UPLOAD_BYTES, ingest_upload
-from app.knowledge.ingest.repos import list_projects, project_name, validate_repo_url
+from app.knowledge.ingest.repos import list_projects, normalize_repo_url, project_name
 from app.knowledge.ingest.transcripts import import_transcript
 from app.knowledge.search import hybrid_search
 from app.knowledge.wiki import (
@@ -37,7 +39,14 @@ from app.knowledge.wiki import (
 )
 from app.knowledge.wiki_writer import WikiWriter
 from app.models import Chunk, Document, LibrarianRun, Project, User, WikiPage
-from app.tasks.app import build_episode_task, defer_once, ingest_project_task, librarian_user_task
+from app.tasks.app import (
+    build_episode_task,
+    cleanup_project_cache,
+    defer_ingest,
+    defer_once,
+    librarian_user_task,
+    project_lock,
+)
 
 router = APIRouter(prefix="/api", tags=["knowledge"])
 
@@ -156,6 +165,18 @@ async def upload_document(auth: CurrentAuth, db: DB, file: UploadFile = File(...
     data = await file.read(MAX_UPLOAD_BYTES + 1)
     doc = await ingest_upload(db, auth.user.id, file.filename or "upload.txt", data)
     await audit(db, "document.upload", user_id=auth.user.id, target_type="document", target_id=doc.id)
+    await db.commit()
+    return (await _document_out(db, [doc], auth.user))[0]
+
+
+@router.put("/knowledge/documents/{doc_id}/file", response_model=DocumentOut)
+async def replace_document_file(doc_id: int, auth: CurrentAuth, db: DB, file: UploadFile = File(...)) -> DocumentOut:
+    """Replace an uploaded document's content; keeps its id, visibility and owner (design 01 §H9)."""
+    doc = await _upload_doc(db, doc_id, auth.user)
+    ensure_edit(doc, auth.user)
+    data = await file.read(MAX_UPLOAD_BYTES + 1)
+    doc = await ingest_upload(db, doc.owner_id, file.filename or doc.title, data, replace=doc)
+    await audit(db, "document.replace", user_id=auth.user.id, target_type="document", target_id=doc.id)
     await db.commit()
     return (await _document_out(db, [doc], auth.user))[0]
 
@@ -422,9 +443,11 @@ class ProjectOut(BaseModel):
     status: str
     error: str | None
     last_ingested_sha: str | None
+    progress: str | None
     owner_id: int
     updated_at: datetime
     mine: bool
+    notice: str | None = None  # set on create when the URL was adjusted (e.g. Gerrit /a/)
 
 
 class ProjectCreate(BaseModel):
@@ -445,6 +468,7 @@ def _project_out(p: Project, user: User) -> ProjectOut:
         status=p.status,
         error=p.error if p.owner_id == user.id else None,
         last_ingested_sha=p.last_ingested_sha,
+        progress=p.progress if p.status == "running" else None,
         owner_id=p.owner_id,
         updated_at=p.updated_at,
         mine=p.owner_id == user.id,
@@ -465,7 +489,7 @@ async def get_projects(auth: CurrentAuth, db: DB) -> list[ProjectOut]:
 
 @router.post("/projects", response_model=ProjectOut, status_code=201)
 async def add_project(body: ProjectCreate, auth: CurrentAuth, db: DB) -> ProjectOut:
-    url = validate_repo_url(body.repo_url)
+    url, notice = normalize_repo_url(body.repo_url, body.host)
     if await db.scalar(select(Project).where(Project.owner_id == auth.user.id, Project.repo_url == url)):
         raise HTTPException(status.HTTP_409_CONFLICT, "You already added this repository")
     project = Project(
@@ -480,14 +504,14 @@ async def add_project(body: ProjectCreate, auth: CurrentAuth, db: DB) -> Project
     await db.flush()
     await audit(db, "project.add", user_id=auth.user.id, target_type="project", target_id=project.id)
     await db.commit()
-    await defer_once(ingest_project_task, f"ingest:{project.id}", project_id=project.id)
-    return _project_out(project, auth.user)
+    await defer_ingest(project.id)
+    return _project_out(project, auth.user).model_copy(update={"notice": notice})
 
 
 @router.post("/projects/{project_id}/ingest", status_code=202)
 async def reingest(project_id: int, auth: CurrentAuth, db: DB, force: bool = False) -> dict[str, bool]:
     project = await _own_project(db, project_id, auth.user)
-    queued = await defer_once(ingest_project_task, f"ingest:{project.id}", project_id=project.id, force=force)
+    queued = await defer_ingest(project.id, force=force)
     if queued:
         project.status = "queued"
         await db.commit()
@@ -516,6 +540,10 @@ async def remove_project(project_id: int, auth: CurrentAuth, db: DB) -> None:
     await db.delete(project)
     await audit(db, "project.delete", user_id=auth.user.id, target_type="project", target_id=project_id)
     await db.commit()
+    # Under the project lock, so a running ingest finishes before its checkout is removed.
+    await defer_once(
+        cleanup_project_cache, f"cache-cleanup:{project_id}", lock=project_lock(project_id), project_id=project_id
+    )
 
 
 # ---------- imports ----------
@@ -527,6 +555,7 @@ class ImportResult(BaseModel):
     title: str | None
     status: Literal["imported", "unchanged", "failed"]
     error: str | None = None
+    code: str | None = None
 
 
 @router.post("/imports/claude-code", response_model=list[ImportResult])
@@ -535,7 +564,10 @@ async def import_claude_code(auth: CurrentAuth, db: DB, files: list[UploadFile] 
     for f in files[:200]:
         name = f.filename or "transcript.jsonl"
         try:
-            data = await f.read(50 * 1024 * 1024)
+            limit = get_settings().transcript_max_mb * 1024 * 1024
+            data = await f.read(limit + 1)
+            if len(data) > limit:
+                raise AppError(413, "file_too_large", f"Larger than {get_settings().transcript_max_mb} MB")
             session, changed = await import_transcript(db, auth.user.id, data)
             await db.commit()
             if changed:
@@ -550,8 +582,11 @@ async def import_claude_code(auth: CurrentAuth, db: DB, files: list[UploadFile] 
             )
         except HTTPException as exc:
             await db.rollback()
+            code = getattr(exc, "code", None) or DEFAULT_CODES.get(exc.status_code, "bad_request")
             results.append(
-                ImportResult(filename=name, session_id=None, title=None, status="failed", error=str(exc.detail))
+                ImportResult(
+                    filename=name, session_id=None, title=None, status="failed", error=str(exc.detail), code=code
+                )
             )
     await audit(
         db,

@@ -1,5 +1,6 @@
 import hashlib
 import io
+import uuid
 from pathlib import PurePath
 
 from fastapi import HTTPException, status
@@ -32,7 +33,13 @@ def parse_upload(filename: str, data: bytes) -> list[ChunkIn]:
     return chunk_markdown(text) if suffix in {".md", ".markdown"} else chunk_plain(text)
 
 
-async def ingest_upload(db: AsyncSession, owner_id: int, filename: str, data: bytes) -> Document:
+async def ingest_upload(
+    db: AsyncSession, owner_id: int, filename: str, data: bytes, replace: Document | None = None
+) -> Document:
+    """Index an uploaded file as a new document, or as new content for `replace` (same id, visibility, owner).
+
+    Every new upload gets its own `upload:<uuid>` ref, so two files with the same name stay two documents.
+    """
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "File is larger than 20 MB")
     chunks = parse_upload(filename, data)
@@ -41,9 +48,9 @@ async def ingest_upload(db: AsyncSession, owner_id: int, filename: str, data: by
     name = PurePath(filename).name
     return await upsert_document(
         db,
-        owner_id=owner_id,
+        owner_id=replace.owner_id if replace else owner_id,
         source_type="upload",
-        source_ref=f"upload:{name}",
+        source_ref=replace.source_ref if replace else f"upload:{uuid.uuid4()}",
         title=name,
         chunks=chunks,
         meta={"filename": name, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)},

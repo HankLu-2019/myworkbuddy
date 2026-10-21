@@ -10,7 +10,7 @@ from app.db import get_sessionmaker
 from app.enums import LibrarianRunStatus
 from app.knowledge.episodes import build_episode, sessions_needing_episodes
 from app.knowledge.indexer import embed_missing
-from app.knowledge.ingest.repos import ingest_project
+from app.knowledge.ingest.repos import ingest_project, remove_cache, sweep_orphan_caches
 from app.knowledge.librarian import update_user_wiki, user_tz, users_due
 from app.knowledge.reconcile import reconcile_wiki
 from app.logs import log, setup_logging
@@ -21,13 +21,29 @@ setup_logging(get_settings().log_level)
 app = procrastinate.App(connector=procrastinate.PsycopgConnector(conninfo=get_settings().database_url))
 
 
-async def defer_once(task: procrastinate.tasks.Task, lock: str, **kwargs: object) -> bool:
-    """Queue the task unless an identical one is already waiting. Returns whether it was queued."""
+async def defer_once(
+    task: procrastinate.tasks.Task, queueing_lock: str, *, lock: str | None = None, **kwargs: object
+) -> bool:
+    """Queue the task unless an identical one is already waiting. Returns whether it was queued.
+
+    `queueing_lock` only de-duplicates waiting jobs; `lock` (rule R4) keeps jobs for one entity from running at
+    the same time, e.g. a re-ingest queued while the previous ingest still runs waits for it.
+    """
     try:
-        await task.configure(queueing_lock=lock).defer_async(**kwargs)
+        await task.configure(queueing_lock=queueing_lock, lock=lock or queueing_lock).defer_async(**kwargs)
         return True
     except AlreadyEnqueued:
         return False
+
+
+def project_lock(project_id: int) -> str:
+    return f"project:{project_id}"
+
+
+async def defer_ingest(project_id: int, force: bool = False) -> bool:
+    return await defer_once(
+        ingest_project_task, f"ingest:{project_id}", lock=project_lock(project_id), project_id=project_id, force=force
+    )
 
 
 @app.task(name="ingest_project", retry=False)
@@ -35,6 +51,23 @@ async def ingest_project_task(project_id: int, force: bool = False) -> None:
     structlog.contextvars.bind_contextvars(task="ingest_project", project_id=project_id)
     async with get_sessionmaker()() as db:
         await ingest_project(db, project_id, force=force)
+
+
+@app.task(name="cleanup_project_cache")
+async def cleanup_project_cache(project_id: int) -> None:
+    """Remove a deleted project's checkout. Runs under the project lock, so never during its ingest."""
+    if remove_cache(project_id):
+        log.info("repo_cache.removed", project_id=project_id)
+
+
+@app.periodic(cron="40 4 * * 0")
+@app.task(name="repo_cache_sweep", queueing_lock="repo_cache_sweep")
+async def repo_cache_sweep(timestamp: int) -> None:
+    """Weekly: remove cache dirs that have no project row (design 01 §H9)."""
+    async with get_sessionmaker()() as db:
+        removed = await sweep_orphan_caches(db)
+    if removed:
+        log.info("repo_cache.swept", projects=removed)
 
 
 @app.task(name="build_episode", retry=2)

@@ -266,15 +266,15 @@ Users protect hand-written content with `<!-- mwb:keep -->` … `<!-- /mwb:keep 
 
 | Item | Design |
 |---|---|
-| Serialization | `ingest_project` task: `lock=f"project:{id}"` and `queueing_lock=f"ingest:{id}"`. |
-| Credentials | `run_git` passes the header through env: `GIT_CONFIG_COUNT=1`, `GIT_CONFIG_KEY_0=http.extraHeader`, `GIT_CONFIG_VALUE_0=<header>`; never argv. Same for the WikiWriter (no credentials there anyway). |
-| Gerrit URLs | For `host='gerrit'`, the validator requires the path to start with `/a/`, or rewrites `https://host/<project>` to `https://host/a/<project>` and tells the user. |
-| Cache lifecycle | Deleting a project defers `cleanup_project_cache(project_id)` which removes `/data/repos/<id>`. A weekly maintenance task removes cache dirs with no project row. |
-| Disk guard | Before cloning, if free space on `/data` < 10 % or the cache dir exceeds `MWB_REPO_CACHE_MAX_GB` (default 50), fail with a clear error and alert admins. |
-| Clone | Keep `--depth 300 --single-branch`; add `--no-tags` and `-c core.symlinks=false` on checkout (symlinks become plain files containing the target path, which `_read` already skips by size/kind). |
+| Serialization | `ingest_project` task: `lock=f"project:{id}"` and `queueing_lock=f"ingest:{id}"` (`defer_ingest()`). `cleanup_project_cache` uses the same `lock`, so it waits for a running ingest. `defer_once()` now always sets a `lock` (default: the queueing lock), so the librarian and episode tasks are serialised per entity too (rule R4). |
+| Credentials | `run_git` passes the header through env: `GIT_CONFIG_COUNT=1`, `GIT_CONFIG_KEY_0=http.extraHeader`, `GIT_CONFIG_VALUE_0=<header>`; never argv. Inherited `GIT_CONFIG_*` and askpass variables are dropped, `GIT_CONFIG_NOSYSTEM=1`. Errors redact both the header and its base64 value. The WikiWriter has no credentials. |
+| Gerrit URLs | For `host='gerrit'`, `normalize_repo_url()` rewrites `https://host/<project>` to `https://host/a/<project>`. `POST /api/projects` returns the explanation in `notice`, which the Projects page shows. De-duplication uses the rewritten URL. |
+| Cache lifecycle | Deleting a project defers `cleanup_project_cache(project_id)` which removes `/data/repos/<id>`. The weekly `repo_cache_sweep` (Sunday 04:40) removes numeric cache dirs with no project row. |
+| Disk guard | Before every clone or fetch, if free space on `/data` < 10 % or the cache dir exceeds `MWB_REPO_CACHE_MAX_GB` (default 50), fail with `507 disk_full` (project `failed`, error says an admin must free space). Every check writes `system_state['disk_guard']` (`ok`, `problem`, `free_ratio`, `cache_bytes`, `at`); the System page (H14) alerts admins when `ok` is false. |
+| Clone | Keep `--depth 300 --single-branch`; add `--no-tags` and `clone -c core.symlinks=false` (stored in the clone's config; caches cloned earlier get `git config core.symlinks false` before fetch). Symlinks become plain files containing the target path; `_read` still refuses symlinks and paths outside the checkout. |
 | Uploads | New uploads always create a new document (`upload:<uuid>`). The UI offers "Replace" on an existing document, which posts to `PUT /api/knowledge/documents/{id}/file` and keeps the id and visibility. |
-| Transcripts | Read up to limit + 1 byte; if over `MWB_TRANSCRIPT_MAX_MB` (default 50), that file's result is `failed` with `file_too_large`. |
-| Progress | Ingest updates `projects.progress` at each step (cloning, parsing, summarising N of M, indexing, writing card) in its own tiny transaction, at most once per 2 s. |
+| Transcripts | Read up to limit + 1 byte; if over `MWB_TRANSCRIPT_MAX_MB` (default 50), that file's result is `failed` with `code: file_too_large`. Every failed result now carries `code`. |
+| Progress | Ingest updates `projects.progress` ("Fetching the repository", "Reading files", "Summarising files N of M", "Indexing code N of M", "Writing the project card") in its own tiny transaction, at most once per 2 s per step, always on a step change or the final count. It is cleared when the ingest ends, and the API only returns it while `status='running'`. |
 | Re-ingest trigger | Unchanged (manual or HEAD change). Phase 2 adds a nightly `projects_refresh` that re-ingests projects whose remote HEAD moved (`git ls-remote`, no clone). |
 
 ## H10. Search quality

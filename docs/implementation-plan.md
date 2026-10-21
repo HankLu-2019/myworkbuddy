@@ -79,7 +79,7 @@ Design: [01-hardening.md](design/01-hardening.md) and, for H15–H16, [07-ux.md]
 - [x] **H8 Librarian guardrails, per-user time** (01 §H8)
   - Acceptance: each rejection rule has a test (shrink, keep-block changed, headings lost, too large); a user edit between librarian read and write is preserved (conflict → retry → no overwrite); `librarian_tick` fires for a user at 02:00 in their timezone exactly once per local day, including across a DST change; `librarian_runs` rows record outcomes; wiki editor "Keep" button wraps the selection.
 
-- [ ] **H9 Ingestion robustness** (01 §H9)
+- [x] **H9 Ingestion robustness** (01 §H9)
   - Acceptance: two `ingest_project` jobs for one project never overlap (procrastinate lock test); git token never appears in argv (assert on the subprocess call) and never in error messages; Gerrit URL without `/a/` is rewritten and reported; deleting a project removes its cache dir; ingest refuses to start below the disk threshold with a clear error; two uploads named `notes.md` create two documents and "Replace" keeps id and visibility; an oversize transcript returns `file_too_large` for that file only.
 
 - [ ] **H10 Search quality** (01 §H10)

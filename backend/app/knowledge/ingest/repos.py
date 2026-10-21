@@ -2,16 +2,22 @@ import asyncio
 import base64
 import fnmatch
 import os
+import shutil
+import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 from fastapi import HTTPException, status
 from pydantic_ai import Agent
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.db import get_sessionmaker
+from app.errors import AppError
 from app.knowledge import prompts
 from app.knowledge.acl import visible_filter
 from app.knowledge.chunking import ChunkIn, chunk_markdown
@@ -20,7 +26,7 @@ from app.knowledge.ingest.code import extract_symbols, supported
 from app.knowledge.wiki import LIBRARIAN, find_page, save_page
 from app.llm.models import get_chat_model
 from app.logs import log
-from app.models import Document, Project, User, WikiPage
+from app.models import Document, Project, SystemState, User, WikiPage
 from app.secrets.service import get_secret
 
 KEY_FILES = [
@@ -66,6 +72,22 @@ def validate_repo_url(url: str) -> str:
     return url.strip()
 
 
+def normalize_repo_url(url: str, host: str) -> tuple[str, str | None]:
+    """Validate, and for Gerrit make sure the URL uses the authenticated `/a/` prefix.
+
+    Gerrit serves anonymous git at `/<project>` and authenticated git at `/a/<project>`; HTTP credentials sent to
+    the anonymous path are ignored, so private projects fail with a confusing "not found". Returns (url, notice).
+    """
+    url = validate_repo_url(url)
+    if host != "gerrit":
+        return url, None
+    parsed = urlparse(url)
+    if parsed.path.startswith("/a/"):
+        return url, None
+    fixed = urlunparse(parsed._replace(path="/a/" + parsed.path.lstrip("/")))
+    return fixed, f"Changed the URL to {fixed}: Gerrit needs the /a/ prefix for authenticated access."
+
+
 def project_name(url: str) -> str:
     return Path(urlparse(url).path.rstrip("/")).name.removesuffix(".git") or "repo"
 
@@ -81,32 +103,166 @@ async def _auth_header(db: AsyncSession, project: Project) -> str | None:
     return f"Authorization: Basic {base64.b64encode(creds.encode()).decode()}" if creds else None
 
 
+def git_env(auth_header: str | None) -> dict[str, str]:
+    """Environment for git subprocesses.
+
+    The auth header goes in GIT_CONFIG_* (rule R7): never in argv (visible in `ps`) and never in .git/config.
+    """
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith("GIT_CONFIG_") and k not in ("GIT_ASKPASS", "SSH_ASKPASS")
+    }
+    env |= {"GIT_TERMINAL_PROMPT": "0", "GIT_ALLOW_PROTOCOL": "https:http", "GIT_CONFIG_NOSYSTEM": "1"}
+    if auth_header:
+        env |= {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.extraHeader", "GIT_CONFIG_VALUE_0": auth_header}
+    return env
+
+
+def _redact(text: str, auth_header: str | None) -> str:
+    if auth_header:
+        text = text.replace(auth_header, "***").replace(auth_header.rsplit(" ", 1)[-1], "***")
+    return text
+
+
 async def run_git(*args: str, cwd: Path, auth_header: str | None = None) -> str:
-    # The token goes in a per-command header so it is never written to .git/config.
-    pre = ["-c", f"http.extraHeader={auth_header}"] if auth_header else []
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ALLOW_PROTOCOL": "https:http"}
     proc = await asyncio.create_subprocess_exec(
-        "git", *pre, *args, cwd=cwd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        "git",
+        *args,
+        cwd=cwd,
+        env=git_env(auth_header),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
     out, err = await proc.communicate()
     if proc.returncode != 0:
-        msg = err.decode().strip().replace(auth_header or "\0", "***")
+        msg = _redact(err.decode(errors="replace").strip(), auth_header)
         raise RuntimeError(f"git {args[0]} failed: {msg[-400:]}")
     return out.decode(errors="replace")
+
+
+# ---------- repo cache: disk guard and cleanup ----------
+
+MIN_FREE_RATIO = 0.10
+
+
+def _dir_bytes(path: Path) -> int:
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+async def check_disk_space(db: AsyncSession) -> None:
+    """Refuse to clone or fetch when /data is nearly full or the repo cache is over its limit (design 01 §H9).
+
+    Records `system_state['disk_guard']` so the System page can alert admins.
+    """
+    s = get_settings()
+    root = s.repo_cache_dir
+    root.mkdir(parents=True, exist_ok=True)
+    usage = shutil.disk_usage(s.data_dir)
+    free_ratio = usage.free / usage.total if usage.total else 1.0
+    cache_bytes = await asyncio.to_thread(_dir_bytes, root)
+    limit = int(s.repo_cache_max_gb * 1024**3)
+    problem = None
+    if free_ratio < MIN_FREE_RATIO:
+        problem = f"Only {free_ratio:.0%} of the data disk is free (minimum {MIN_FREE_RATIO:.0%})"
+    elif cache_bytes > limit:
+        problem = f"The repository cache uses {cache_bytes / 1024**3:.1f} GB (limit {s.repo_cache_max_gb:g} GB)"
+    state = {
+        "ok": problem is None,
+        "problem": problem,
+        "free_ratio": round(free_ratio, 3),
+        "cache_bytes": cache_bytes,
+        "at": datetime.now(UTC).isoformat(),
+    }
+    await db.execute(
+        insert(SystemState)
+        .values(key="disk_guard", value=state)
+        .on_conflict_do_update(index_elements=["key"], set_={"value": state, "updated_at": datetime.now(UTC)})
+    )
+    if problem:
+        await db.commit()
+        log.error("ops.disk_guard", **state)
+        raise AppError(507, "disk_full", f"{problem}. An admin needs to free space before projects can be indexed.")
+
+
+def cache_dir(project_id: int) -> Path:
+    return get_settings().repo_cache_dir / str(project_id)
+
+
+def remove_cache(project_id: int) -> bool:
+    path = cache_dir(project_id)
+    if not path.exists():
+        return False
+    shutil.rmtree(path, ignore_errors=True)
+    return True
+
+
+async def sweep_orphan_caches(db: AsyncSession) -> list[int]:
+    """Remove cache dirs whose project row no longer exists (e.g. the cleanup task never ran)."""
+    root = get_settings().repo_cache_dir
+    if not root.exists():
+        return []
+    ids = {int(p.name) for p in root.iterdir() if p.is_dir() and p.name.isdigit()}
+    if not ids:
+        return []
+    existing = set(await db.scalars(select(Project.id).where(Project.id.in_(ids))))
+    removed = sorted(ids - existing)
+    for pid in removed:
+        remove_cache(pid)
+    return removed
+
+
+# ---------- progress ----------
+
+
+class Progress:
+    """Writes `projects.progress` in its own short transaction, at most every 2 s (plus on every step change)."""
+
+    INTERVAL = 2.0
+
+    def __init__(self, project_id: int) -> None:
+        self.project_id = project_id
+        self._step: str | None = None
+        self._last = 0.0
+
+    async def __call__(self, step: str, done: int | None = None, total: int | None = None) -> None:
+        now = time.monotonic()
+        if step == self._step and now - self._last < self.INTERVAL and done != total:
+            return
+        self._step, self._last = step, now
+        await self._write(f"{step} {done} of {total}" if total else step)
+
+    async def clear(self) -> None:
+        await self._write(None)
+
+    async def _write(self, text: str | None) -> None:
+        async with get_sessionmaker()() as db:
+            await db.execute(update(Project).where(Project.id == self.project_id).values(progress=text))
+            await db.commit()
 
 
 async def sync_checkout(db: AsyncSession, project: Project) -> Path:
     root = get_settings().repo_cache_dir
     root.mkdir(parents=True, exist_ok=True)
-    dest = root / str(project.id)
+    dest = cache_dir(project.id)
     header = await _auth_header(db, project)
+    await check_disk_space(db)
     await commit_before_network(db)  # rule R1: git fetch/clone below talks to the remote
     if (dest / ".git").exists():
         ref = project.branch or "HEAD"
-        await run_git("fetch", "-q", f"--depth={CLONE_DEPTH}", "origin", ref, cwd=dest, auth_header=header)
+        await run_git("config", "core.symlinks", "false", cwd=dest)  # caches cloned before H9
+        await run_git("fetch", "-q", "--no-tags", f"--depth={CLONE_DEPTH}", "origin", ref, cwd=dest, auth_header=header)
         await run_git("reset", "-q", "--hard", "FETCH_HEAD", cwd=dest)
     else:
-        args = ["clone", "-q", f"--depth={CLONE_DEPTH}", "--single-branch"]
+        # Symlinks are checked out as plain files holding the target path; _read() also refuses them.
+        args = ["clone", "-q", "-c", "core.symlinks=false", "--no-tags", f"--depth={CLONE_DEPTH}", "--single-branch"]
         if project.branch:
             args += ["--branch", project.branch]
         await run_git(*args, "--", project.repo_url, str(dest), cwd=root, auth_header=header)
@@ -203,26 +359,38 @@ class FileResults:
         return FileResults(self.seen | other.seen, self.failed + other.failed)
 
 
-async def _index_code(db: AsyncSession, project: Project, checkout: Path, files: list[str]) -> FileResults:
+async def _noop_progress(step: str, done: int | None = None, total: int | None = None) -> None:
+    return None
+
+
+async def _index_code(
+    db: AsyncSession, project: Project, checkout: Path, files: list[str], progress=_noop_progress
+) -> FileResults:
     """Parse and summarise every file with no transaction open, then write each file in its own commit."""
     s = get_settings()
     code_files = [p for p in files if supported(p)][: s.repo_max_files]
     summary_budget = s.ingest_max_summary_files
     sem = asyncio.Semaphore(4)
+    to_summarise = min(len(code_files), summary_budget)
+    summarised = 0
 
     async def prepare(index: int, path: str) -> tuple[str, list, dict[str, str]]:
         data = _read(checkout, path)
         symbols = extract_symbols(path, data) if data else []
         if not symbols or index >= summary_budget:
             return path, symbols, {}
+        nonlocal summarised
         async with sem:
             summaries = await _summaries(path, "\n\n".join(f"### {sym.name}\n{sym.code}" for sym in symbols))
+        summarised += 1
+        await progress("Summarising files", summarised, to_summarise)
         return path, symbols, summaries
 
     await commit_before_network(db)
     prepared = await asyncio.gather(*(prepare(i, p) for i, p in enumerate(code_files)))
     results = FileResults()
-    for path, symbols, summaries in prepared:
+    for n, (path, symbols, summaries) in enumerate(prepared, start=1):
+        await progress("Indexing code", n, len(prepared))
         if not symbols:
             continue
         chunks = [
@@ -300,18 +468,20 @@ async def ingest_project(db: AsyncSession, project_id: int, force: bool = False)
     if project is None:
         return
     owner = await db.get(User, project.owner_id)
-    project.status, project.error = "running", None
+    project.status, project.error, project.progress = "running", None, "Fetching the repository"
     await db.commit()
+    progress = Progress(project_id)
     try:
         checkout = await sync_checkout(db, project)
         head = (await run_git("rev-parse", "HEAD", cwd=checkout)).strip()
         if head == project.last_ingested_sha and not force:
             log.info("ingest.unchanged", project_id=project.id, sha=head)
-            project.status = "ready"
+            project.status, project.progress = "ready", None
             await db.commit()
             return
         files = _tracked_files(await run_git("ls-files", cwd=checkout))
-        results = (await _index_code(db, project, checkout, files)).merge(
+        await progress("Reading files")
+        results = (await _index_code(db, project, checkout, files, progress)).merge(
             await _index_docs(db, project, checkout, files)
         )
 
@@ -330,6 +500,7 @@ async def ingest_project(db: AsyncSession, project_id: int, force: bool = False)
         await db.refresh(project)
         await set_project_visibility(db, project, project.visibility, actor_id=project.owner_id)
         total = len(results.seen)
+        project.progress = None
         if results.failed and len(results.failed) > FAILED_FILES_LIMIT * max(total, 1):
             project.status = "failed"
             project.error = f"{len(results.failed)} of {total} files could not be indexed; first: {results.failed[0]}"
@@ -342,6 +513,7 @@ async def ingest_project(db: AsyncSession, project_id: int, force: bool = False)
         if project.status == "failed":
             return
         try:
+            await progress("Writing the project card")
             await _write_project_card(db, owner, project, checkout, files)
             await db.commit()
         except Exception as exc:  # the code index is still useful without the card
@@ -356,10 +528,13 @@ async def ingest_project(db: AsyncSession, project_id: int, force: bool = False)
         await db.rollback()
         project = await db.get(Project, project_id)
         if project is not None:
-            project.status, project.error = "failed", str(exc)[:2000]
+            message = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            project.status, project.error, project.progress = "failed", str(message)[:2000], None
             await db.commit()
         log.exception("ingest.failed", project_id=project_id)
         raise
+    finally:
+        await progress.clear()
 
 
 async def list_projects(db: AsyncSession, user: User) -> list[Project]:
