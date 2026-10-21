@@ -48,6 +48,14 @@ SEEDS["0008"] = [
     "INSERT INTO agents (slug, name, description, model_alias, system_prompt, tools) "
     "VALUES ('seed-agent', 'Seed', 'd', 'fast', 'p', ARRAY['jira_search'])",
 ]
+SEEDS["0009"] = [
+    "INSERT INTO schedules (id, owner_id, agent_id, name, cron, timezone) "
+    "SELECT '00000000-0000-0000-0000-0000000000aa', 1, id, 'seed', '0 8 * * *', 'UTC' FROM agents LIMIT 1",
+    "INSERT INTO runs (schedule_id, owner_id, agent_id, trigger, config, scheduled_for, status) "
+    "SELECT '00000000-0000-0000-0000-0000000000aa', 1, id, 'schedule', '{}', now(), 'queued' FROM agents LIMIT 1",
+    "INSERT INTO outbound_emails (owner_id, to_addr, subject, body_text, dedupe_key) "
+    "VALUES (1, 'a@example.com', 's', 'b', 'seed')",
+]
 SEEDS["0005"] = []  # 0005 adds a column with a default; the 0001 user must get it
 CHECKS = {
     "users": 1,
@@ -58,6 +66,9 @@ CHECKS = {
     "chunks": 1,
     "inbox_items": 1,
     "agents": 1,
+    "schedules": 1,
+    "runs": 1,
+    "outbound_emails": 1,
 }
 
 

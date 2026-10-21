@@ -145,6 +145,7 @@ class InboxItem(Base):
     title: Mapped[str] = mapped_column(Text)
     body_md: Mapped[str] = mapped_column(Text, default="", server_default="")
     link: Mapped[str | None] = mapped_column(Text)  # in-app path only, e.g. /settings/integrations?focus=3
+    run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("runs.id", ondelete="CASCADE"))
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _now()
 
@@ -168,6 +169,90 @@ class Agent(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = _now()
+
+
+class Schedule(Base):
+    """A recurring agent run (design 02 §4). `next_run_at` is null while disabled."""
+
+    __tablename__ = "schedules"
+    __table_args__ = (Index("schedules_due", "next_run_at", postgresql_where=text("enabled")),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"))
+    name: Mapped[str] = mapped_column(Text)  # CHECKs in migration 0009: name 1–120, prompt ≤ 4000, runtime 30–1800
+    prompt: Mapped[str] = mapped_column(Text, default="", server_default="")
+    inputs: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    cron: Mapped[str] = mapped_column(Text)
+    timezone: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    notify_mode: Mapped[str] = mapped_column(Text, default="on_change", server_default="on_change")
+    notify_email: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    max_runtime_s: Mapped[int] = mapped_column(Integer, default=300, server_default="300")
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_status: Mapped[str | None] = mapped_column(Text)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    paused_reason: Mapped[str | None] = mapped_column(Text)  # why the system disabled it (failures, budget)
+    created_from_session: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chat_sessions.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = _now()
+
+
+class Run(Base):
+    """One execution of an agent (design 02 §4). Private to its owner. `config` is the snapshot it runs with."""
+
+    __tablename__ = "runs"
+    __table_args__ = (
+        UniqueConstraint("schedule_id", "scheduled_for"),
+        Index("runs_owner_created", "owner_id", text("created_at DESC")),
+        Index("runs_schedule_created", "schedule_id", text("created_at DESC")),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    schedule_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("schedules.id", ondelete="SET NULL")
+    )
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id"))
+    trigger: Mapped[str] = mapped_column(Text)
+    config: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(Text)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chat_sessions.id", ondelete="SET NULL")
+    )
+    report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    fingerprints: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")
+    changed: Mapped[bool | None] = mapped_column(Boolean)
+    notified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    tokens_in: Mapped[int | None] = mapped_column(Integer)
+    tokens_out: Mapped[int | None] = mapped_column(Integer)
+    cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))
+    error_code: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _now()
+
+
+class OutboundEmail(Base):
+    """The email outbox (design 02 §5). S4 queues rows; the sender (`send_emails`) arrives with S5."""
+
+    __tablename__ = "outbound_emails"
+    __table_args__ = (Index("outbound_emails_due", "next_attempt_at", postgresql_where=text("status = 'pending'")),)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    to_addr: Mapped[str] = mapped_column(Text)
+    subject: Mapped[str] = mapped_column(Text)
+    body_text: Mapped[str] = mapped_column(Text)
+    dedupe_key: Mapped[str] = mapped_column(Text, unique=True)
+    status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = _now()
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _now()
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Project(Base):

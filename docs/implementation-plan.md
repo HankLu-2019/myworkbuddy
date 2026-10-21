@@ -125,8 +125,9 @@ Design: [02-schedules-connectors.md](design/02-schedules-connectors.md).
 - [x] **S3 Agents and run executor** (02 §3): `agents` table, seed loader, `RunReport`, fingerprint verification, shared `execute_agent_run()` used by schedules.
   - Acceptance: seeds are idempotent and update prompts on change; invented fingerprints are marked unverified and excluded from change detection; server recomputes report status.
   - Done with the changes recorded in 02 §3 ("Changed while building S3"): seeding by `mwb sync-agents` in the `migrate` service, the exact fingerprint check, `GET /api/agents` brought forward from S7, and first versions of the four prompts.
-- [ ] **S4 Schedules, tick and runs** (02 §4).
+- [x] **S4 Schedules, tick and runs** (02 §4).
   - Acceptance: two concurrent ticks create exactly one run per fire time; missed fires produce at most one catch-up run; DST spring-forward and fall-back tests in `Europe/Stockholm`; minimum interval and per-user limits enforced; notify-mode table covered case by case; 3 failures auto-disable with inbox + email; `budget_exceeded` disables immediately; queued runs older than 5 min are re-deferred without duplicates; run sessions are excluded from episodes.
+  - Done with the changes recorded in 02 §4 ("Changed while building S4"): `paused_reason`, the outbox table created early (sending is S5), interrupted-run cleanup, and run sessions kept out of the chat list.
 - [ ] **S5 Inbox and email** (02 §5).
   - Acceptance: outbox send with retry/backoff against a fake SMTP server (aiosmtpd in tests); dedupe key prevents duplicates; daily cap suppresses and notifies once; email body contains no links except the MyWorkBuddy run URL; unread count endpoint.
 - [ ] **S6 Chat → schedule proposals** (02 §6).
