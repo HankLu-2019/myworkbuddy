@@ -5,6 +5,7 @@ import procrastinate
 import structlog
 from procrastinate.exceptions import AlreadyEnqueued
 
+from app import maintenance
 from app.config import get_settings
 from app.db import get_sessionmaker
 from app.enums import LibrarianRunStatus
@@ -58,6 +59,32 @@ async def cleanup_project_cache(project_id: int) -> None:
     """Remove a deleted project's checkout. Runs under the project lock, so never during its ingest."""
     if remove_cache(project_id):
         log.info("repo_cache.removed", project_id=project_id)
+
+
+@app.periodic(cron="17 * * * *")
+@app.task(name="maintenance_hourly", queueing_lock="maintenance_hourly")
+async def maintenance_hourly(timestamp: int) -> dict[str, int]:
+    """Old login attempts, expired or idle sessions, finished jobs, old audit rows, /data/tmp (design 01 §H11)."""
+    counts = await maintenance.prune_database()
+    await app.job_manager.delete_old_jobs(
+        nb_hours=maintenance.JOBS_KEEP_HOURS, include_failed=True, include_cancelled=True, include_aborted=True
+    )
+    counts["tmp_entries"] = maintenance.prune_tmp()
+    log.info("maintenance.done", **counts)
+    return counts
+
+
+@app.task(name="cleanup_user_files")
+async def cleanup_user_files(user_id: int) -> None:
+    """After offboarding. Runs under the user's librarian lock, so never while their librarian writes."""
+    removed = maintenance.remove_user_files(user_id)
+    log.info("offboarding.files_removed", user_id=user_id, paths=removed)
+
+
+async def defer_cleanup_after_offboarding(user_id: int, project_ids: list[int]) -> None:
+    await defer_once(cleanup_user_files, f"user-cleanup:{user_id}", lock=f"librarian:{user_id}", user_id=user_id)
+    for pid in project_ids:
+        await defer_once(cleanup_project_cache, f"cache-cleanup:{pid}", lock=project_lock(pid), project_id=pid)
 
 
 @app.periodic(cron="40 4 * * 0")

@@ -1,6 +1,8 @@
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.audit.service import audit
 from app.auth.service import (
@@ -8,9 +10,11 @@ from app.auth.service import (
     create_session,
     hash_password,
     is_rate_limited,
+    login_keys,
     normalize_username,
     record_failed_login,
     revoke_user_sessions,
+    session_alive_after,
     verify_password,
 )
 from app.config import get_settings
@@ -33,11 +37,20 @@ class UserOut(BaseModel):
     display_name: str | None
     role: str
     is_active: bool
+    must_change_password: bool = False
+    last_login_at: datetime | None = None
 
     @classmethod
     def of(cls, u: User) -> "UserOut":
         return cls(
-            id=u.id, username=u.username, email=u.email, display_name=u.display_name, role=u.role, is_active=u.is_active
+            id=u.id,
+            username=u.username,
+            email=u.email,
+            display_name=u.display_name,
+            role=u.role,
+            is_active=u.is_active,
+            must_change_password=bool(u.must_change_password),
+            last_login_at=u.last_login_at,
         )
 
 
@@ -67,15 +80,16 @@ def _set_cookie(response: Response, token: str) -> None:
 @router.post("/login", response_model=MeOut)
 async def login(body: LoginIn, request: Request, response: Response, db: DB) -> MeOut:
     ip = client_ip(request)
-    key = f"{normalize_username(body.username)}|{ip}"
-    if await is_rate_limited(db, key):
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many failed attempts. Try again later.")
+    keys = login_keys(body.username, ip)
+    if await is_rate_limited(db, keys):
+        # Same answer for every limit, so it doesn't reveal which key tripped (design 01 §H11).
+        raise AppError(status.HTTP_429_TOO_MANY_REQUESTS, "rate_limited", "Too many attempts. Try again in 15 minutes.")
     user = await authenticate(db, body.username, body.password)
     if user is None:
         await audit(db, "login.failed", user_id=None, detail={"username": normalize_username(body.username)}, ip=ip)
-        await record_failed_login(db, key)
+        await record_failed_login(db, keys)
         raise AppError(status.HTTP_401_UNAUTHORIZED, "invalid_credentials", "Wrong username or password")
-    token, session = await create_session(db, user, key)
+    token, session = await create_session(db, user, keys, ip=ip, user_agent=request.headers.get("user-agent"))
     await audit(db, "login", user_id=user.id, ip=ip)
     await db.commit()
     _set_cookie(response, token)
@@ -101,11 +115,63 @@ async def change_password(body: PasswordChangeIn, auth: CurrentAuth, db: DB) -> 
     if not verify_password(auth.user.password_hash, body.current_password):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Current password is wrong")
     validate_password(body.new_password)
+    if verify_password(auth.user.password_hash, body.new_password):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Choose a password different from the current one")
     user = await db.get(User, auth.user.id)
+    forced = bool(user.must_change_password)
     user.password_hash = hash_password(body.new_password)
-    await revoke_user_sessions(db, user.id)
-    await audit(db, "password.change", user_id=user.id)
+    user.must_change_password = False
+    # A normal change signs out everywhere (07-ux §4 Settings). Replacing a one-time password keeps this
+    # sign-in, so a new user goes straight on to Getting started (07-ux §5).
+    await revoke_user_sessions(db, user.id, keep=auth.session.id if forced else None)
+    await audit(db, "password.change", user_id=user.id, detail={"initial": forced})
     await db.commit()
+
+
+class SessionOut(BaseModel):
+    id: int
+    created_at: datetime
+    last_seen_at: datetime
+    expires_at: datetime
+    ip: str | None
+    user_agent: str | None
+    current: bool
+
+
+@router.get("/sessions", response_model=list[SessionOut])
+async def list_sessions(auth: CurrentAuth, db: DB) -> list[SessionOut]:
+    """The caller's live sessions, most recently used first."""
+    now = datetime.now(UTC)
+    rows = await db.scalars(
+        select(AuthSession)
+        .where(
+            AuthSession.user_id == auth.user.id,
+            AuthSession.expires_at > now,
+            AuthSession.last_seen_at > session_alive_after(now),
+        )
+        .order_by(AuthSession.last_seen_at.desc())
+        .limit(100)
+    )
+    return [
+        SessionOut(
+            id=r.id,
+            created_at=r.created_at,
+            last_seen_at=r.last_seen_at,
+            expires_at=r.expires_at,
+            ip=r.ip,
+            user_agent=r.user_agent,
+            current=r.id == auth.session.id,
+        )
+        for r in rows
+    ]
+
+
+@router.post("/sessions/sign-out-others")
+async def sign_out_others(auth: CurrentAuth, db: DB) -> dict[str, int]:
+    removed = await revoke_user_sessions(db, auth.user.id, keep=auth.session.id)
+    await audit(db, "sessions.sign_out_others", user_id=auth.user.id, detail={"sessions": removed})
+    await db.commit()
+    return {"signed_out": removed}
 
 
 def validate_password(password: str) -> None:

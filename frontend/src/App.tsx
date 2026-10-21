@@ -9,6 +9,7 @@ import ProjectsPage from "./pages/ProjectsPage";
 import ImportsPage from "./pages/ImportsPage";
 import SettingsPage from "./pages/SettingsPage";
 import AdminPage from "./pages/AdminPage";
+import FirstPasswordPage from "./pages/FirstPasswordPage";
 
 const NAV = [
   { to: "/chat", label: "Chat" },
@@ -22,6 +23,7 @@ const NAV = [
 function Layout() {
   const { user, logout } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
+  if (user.must_change_password) return <FirstPasswordPage />;
   return (
     <div className="shell">
       <aside className="sidebar">

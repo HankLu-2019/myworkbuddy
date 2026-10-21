@@ -49,6 +49,63 @@ def create_admin(username: str = typer.Option("admin"), email: str | None = type
     asyncio.run(run())
 
 
+@cli.command("reset-password")
+def reset_password_cmd(username: str = typer.Option(..., "--username")) -> None:
+    """Give a user a new one-time password (printed once) and sign them out everywhere."""
+    from app.audit.service import audit
+    from app.auth.service import generate_password, revoke_user_sessions
+
+    async def run() -> str:
+        async with get_sessionmaker()() as db:
+            user = await db.scalar(select(User).where(User.username == normalize_username(username)))
+            if user is None:
+                typer.echo(f"No user {username}", err=True)
+                raise typer.Exit(1)
+            password = generate_password()
+            user.password_hash = hash_password(password)
+            user.must_change_password = True
+            user.is_active = True
+            await revoke_user_sessions(db, user.id)
+            await audit(
+                db, "user.reset_password", user_id=None, target_type="user", target_id=user.id, detail={"via": "cli"}
+            )
+            await db.commit()
+            return password
+
+    password = asyncio.run(run())
+    typer.echo(f"One-time password for {normalize_username(username)}: {password}")
+    typer.echo("They must change it at their next sign-in.")
+
+
+@cli.command("list-users")
+def list_users_cmd() -> None:
+    """Username, role, active, must change password, last sign-in."""
+
+    async def run() -> list[User]:
+        async with get_sessionmaker()() as db:
+            return list(await db.scalars(select(User).order_by(User.username)))
+
+    for u in asyncio.run(run()):
+        last = u.last_login_at.isoformat(timespec="minutes") if u.last_login_at else "never"
+        flags = ("active" if u.is_active else "disabled") + (", must change password" if u.must_change_password else "")
+        typer.echo(f"{u.username}\t{u.role}\t{flags}\tlast sign-in {last}")
+
+
+@cli.command("rotate-secrets")
+def rotate_secrets_cmd() -> None:
+    """Re-encrypt stored tokens with the first key in MWB_SECRET_KEYS (06-operations §8)."""
+    from app.secrets.service import rotate_secrets
+
+    async def run() -> dict[str, int]:
+        async with get_sessionmaker()() as db:
+            counts = await rotate_secrets(db)
+            await db.commit()
+            return counts
+
+    counts = asyncio.run(run())
+    typer.echo(f"rotated: {counts['rotated']}, unreadable (users must re-enter): {counts['unreadable']}")
+
+
 @cli.command("generate-key")
 def generate_key() -> None:
     """Print a new value for MWB_SECRET_KEY."""

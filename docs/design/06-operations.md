@@ -42,6 +42,7 @@ Then sign in at `https://$MWB_HOSTNAME`, create integrations (Phase 2+), create 
 | `MWB_DEFAULT_USER_BUDGET_USD` | `50` | Monthly, per user |
 | `MWB_JOB_BUDGET_USD` | `10` | Per coding job |
 | `MWB_SESSION_TTL_HOURS` / `MWB_SESSION_IDLE_HOURS` | `72` / `12` | |
+| `MWB_LOGIN_MAX_ATTEMPTS` / `_IP` / `_USER`, `MWB_LOGIN_WINDOW_MINUTES` | `5` / `30` / `20`, `15` | Failed sign-ins per username+IP, per IP, per username |
 | `MWB_SMTP_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_FROM`, `_STARTTLS` | — / 587 / — / — / — / true | Phase 2 |
 | `MWB_MAX_EMAILS_PER_DAY` | `30` | Per user |
 | `MWB_SCHEDULE_MIN_INTERVAL_MIN` | `15` | Members |
@@ -117,7 +118,7 @@ Rollback: `git checkout <previous tag>` and `up -d` works only if the release no
 
 | Secret | Procedure |
 |---|---|
-| `MWB_SECRET_KEYS` | Generate a key, prepend it to the list, restart api/worker, run `mwb rotate-secrets`, then remove the old key from the list and restart. |
+| `MWB_SECRET_KEYS` | Generate a key (`mwb generate-key`), prepend it to the list, restart api/worker, run `docker compose exec api mwb rotate-secrets`, then remove the old key from the list and restart. If the command reports unreadable tokens, those users see "Can't be read any more" in Settings and must enter them again. |
 | `LITELLM_MASTER_KEY` | Change in `.env`, restart `llm-gateway`, `api`, `worker`. Virtual keys are unaffected. |
 | User virtual keys | `mwb llm rotate-key --user <name>` (creates a new key, deletes the old). |
 | `MWB_RUNNER_TOKEN` | Change in `.env`, restart `runner` and `worker-jobs`. |
@@ -126,8 +127,10 @@ Rollback: `git checkout <previous tag>` and `up -d` works only if the release no
 
 ## 9. User lifecycle
 
-- **Join**: admin creates the user (a LiteLLM key is created automatically); the user signs in, sets timezone, adds tokens under Settings → Integrations and tests them.
-- **Leave**: admin → Users → Delete, choosing who receives the user's public items (H11). Ask the user's manager whether anything private should be kept first; if so, copy `/data/wiki/users/<id>` (a plain git repo) somewhere safe before deleting.
+- **Join**: admin creates the user under Users → Add user (a LiteLLM key is created automatically, H12) and passes on the one-time password shown once. The user signs in, must choose their own password before anything else, sets their timezone, and adds tokens under Settings.
+- **Forgotten password**: admin → Users → Reset password (or `mwb reset-password --username <name>` if no admin can sign in). This signs the user out everywhere and shows a new one-time password.
+- **Lost device**: the user signs in elsewhere and uses Settings → Sessions → "Sign out other sessions"; an admin can also Disable the account, which ends all its sessions.
+- **Leave**: admin → Users → Delete, choosing the admin who receives the user's team items (H11). The dialog shows what moves and what is deleted; typing the username confirms. Ask the user's manager whether anything private should be kept first; if so, copy `/data/wiki/users/<id>` (a plain git repo) somewhere safe before deleting, because a background job removes it right after.
 
 ## 10. Troubleshooting
 

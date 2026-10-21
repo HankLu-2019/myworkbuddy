@@ -299,13 +299,21 @@ describe("knowledge pages", () => {
 });
 
 describe("settings and admin", () => {
-  it("saves tokens and changes the password", async () => {
+  it("saves tokens, lists sign-ins and changes the password", async () => {
     const calls = mockApi({
       ...signedInAs(MEMBER),
       "GET /api/secrets": [
-        { kind: "gitlab_token", label: "GitLab personal access token", is_set: true, updated_at: NOW },
-        { kind: "gerrit_username", label: "Gerrit username", is_set: false, updated_at: null },
+        { kind: "gitlab_token", label: "GitLab personal access token", is_set: true, status: "set", updated_at: NOW },
+        { kind: "gerrit_username", label: "Gerrit username", is_set: false, status: "not_set", updated_at: null },
+        { kind: "jira_token", label: "Jira personal access token", is_set: true, status: "unreadable", updated_at: NOW },
       ],
+      "GET /api/auth/sessions": [
+        { id: 1, created_at: NOW, last_seen_at: NOW, expires_at: NOW, ip: "10.0.0.1", current: true,
+          user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 Chrome/130.0 Safari/537.36" },
+        { id: 2, created_at: NOW, last_seen_at: NOW, expires_at: NOW, ip: "10.0.0.2", current: false,
+          user_agent: "Mozilla/5.0 (Windows NT 10.0) Gecko/20100101 Firefox/131.0" },
+      ],
+      "POST /api/auth/sessions/sign-out-others": { signed_out: 1 },
       "PUT /api/secrets/gerrit_username": undefined,
       "DELETE /api/secrets/gitlab_token": undefined,
       "POST /api/auth/password": undefined,
@@ -313,7 +321,14 @@ describe("settings and admin", () => {
     renderAt("/settings", <SettingsPage />);
     fireEvent.change(await screen.findByLabelText("Gerrit username"), { target: { value: "alice" } });
     fireEvent.click(screen.getAllByText("Save")[1]);
-    fireEvent.click(screen.getByText("Clear"));
+    fireEvent.click(screen.getAllByText("Clear")[0]);
+    expect(screen.getByText("Can't be read any more. Enter it again.")).toBeInTheDocument();
+    expect(await screen.findByText("Chrome on macOS")).toBeInTheDocument();
+    expect(screen.getByText("Firefox on Windows")).toBeInTheDocument();
+    expect(screen.getByText("This device")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Sign out other sessions"));
+    expect(await screen.findByText("Signed out 1 other session.")).toBeInTheDocument();
+    expect(screen.getByText(/signs you out everywhere/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Current password"), { target: { value: "old-password" } });
     fireEvent.change(screen.getByLabelText("New password (10+ characters)"), { target: { value: "new-password-1" } });
     fireEvent.click(screen.getByText("Change password"));
@@ -321,23 +336,81 @@ describe("settings and admin", () => {
     expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ value: "alice" });
   });
 
-  it("lets admins manage users", async () => {
-    vi.spyOn(window, "prompt").mockReturnValue("a-new-password");
+  it("adds users with a one-time password, resets and disables", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
     const calls = mockApi({
       ...signedInAs(ADMIN),
-      "GET /api/admin/users": [ADMIN, MEMBER],
-      "POST /api/admin/users": MEMBER,
+      "GET /api/admin/users": [ADMIN, { ...MEMBER, must_change_password: true, last_login_at: null }],
+      "POST /api/admin/users": { ...MEMBER, username: "bob", initial_password: "Abc23defGhk45mnP" },
+      "POST /api/admin/users/2/reset-password": { ...MEMBER, initial_password: "Zz23defGhk45mnPq" },
       "PATCH /api/admin/users/2": MEMBER,
     });
     renderAt("/admin", <AdminPage />);
     expect(await screen.findByText("Alice")).toBeInTheDocument();
+    expect(screen.getByText("Must change password")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Initial password")).not.toBeInTheDocument(); // generated, not chosen
     fireEvent.change(screen.getByLabelText("Username"), { target: { value: "bob" } });
-    fireEvent.change(screen.getByLabelText("Initial password"), { target: { value: "bob-password-1" } });
-    fireEvent.click(screen.getByText("Create user"));
-    fireEvent.click(screen.getByText("Disable"));
+    fireEvent.click(screen.getByText("Add user"));
+    expect(await screen.findByLabelText("Password")).toHaveTextContent("Abc23defGhk45mnP");
+    fireEvent.click(screen.getByText("Copy"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("Abc23defGhk45mnP"));
+    fireEvent.click(screen.getByText("Done"));
     fireEvent.click(screen.getAllByText("Reset password")[1]);
+    expect(await screen.findByLabelText("Password")).toHaveTextContent("Zz23defGhk45mnPq");
+    fireEvent.click(screen.getByText("Disable"));
     fireEvent.change(screen.getByLabelText("Role of alice"), { target: { value: "admin" } });
-    await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(3));
-    expect(calls.find((c) => c.method === "POST")?.body).toMatchObject({ username: "bob", email: null });
+    await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(2));
+    expect(calls.find((c) => c.method === "POST" && c.path === "/api/admin/users")?.body).toEqual({
+      username: "bob", email: null, display_name: null, role: "member",
+    });
+  });
+
+  it("offboards a user after showing what moves and what is deleted", async () => {
+    const calls = mockApi({
+      ...signedInAs(ADMIN),
+      "GET /api/admin/users": [ADMIN, MEMBER],
+      "GET /api/admin/users/2/offboarding-preview": {
+        transfer_to: 1, duplicate_projects: [7],
+        transfer: { documents: 3, wiki_pages: 1, projects: 0, chat_sessions: 0, episodes: 0 },
+        delete: { documents: 12, wiki_pages: 2, projects: 1, chat_sessions: 4, episodes: 0, artifacts: 0, secrets: 1, sign_ins: 2 },
+      },
+      "DELETE /api/admin/users/2": { transfer_to: 1, transfer: {}, delete: {}, duplicate_projects: [] },
+    });
+    renderAt("/admin", <AdminPage />);
+    fireEvent.click(await screen.findByText("Delete"));
+    expect(await screen.findByText("Moves to the new owner: 3 documents, 1 wiki pages.")).toBeInTheDocument();
+    expect(screen.getByText(/Deleted: 12 documents, 2 wiki pages, 1 repositories, 4 chats, 1 saved tokens, 2 sign-ins/)).toBeInTheDocument();
+    expect(screen.getByText(/already added by the new owner/)).toBeInTheDocument();
+    const confirm = screen.getByText("Delete user");
+    expect(confirm).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Type alice to confirm"), { target: { value: "alice" } });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
+    expect(calls.find((c) => c.path === "/api/admin/users/2/offboarding-preview")).toBeTruthy();
+  });
+
+  it("makes a user with a one-time password choose a new one first", async () => {
+    const calls = mockApi({
+      "GET /api/auth/me": { user: { ...MEMBER, must_change_password: true }, csrf_token: "csrf-1" },
+      "POST /api/auth/password": undefined,
+      "GET /api/chat/sessions": [],
+      "GET /api/chat/shared": [],
+      "GET /api/projects": [],
+    });
+    renderAt("/chat", <App />);
+    expect(await screen.findByText("Choose your password")).toBeInTheDocument();
+    expect(screen.queryByText("Search")).not.toBeInTheDocument(); // no navigation until it's changed
+    fireEvent.change(screen.getByLabelText("One-time password"), { target: { value: "Abc23defGhk45mnP" } });
+    fireEvent.change(screen.getByLabelText("New password (10+ characters)"), { target: { value: "my-own-password" } });
+    fireEvent.change(screen.getByLabelText("Repeat new password"), { target: { value: "my-own-passwor" } });
+    expect(screen.getByText("The passwords don't match.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Repeat new password"), { target: { value: "my-own-password" } });
+    fireEvent.click(screen.getByText("Save and continue"));
+    expect(await screen.findByText("Search")).toBeInTheDocument();
+    expect(calls.find((c) => c.path === "/api/auth/password")?.body).toEqual({
+      current_password: "Abc23defGhk45mnP", new_password: "my-own-password",
+    });
   });
 });
