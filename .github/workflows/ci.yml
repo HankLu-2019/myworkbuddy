@@ -112,7 +112,10 @@ jobs:
           npx playwright test > ../e2e.log 2>&1; status=$?; cat ../e2e.log; exit $status
       - if: failure()
         run: |
-          docker compose -f docker-compose.yml -f compose.ci.yml logs --tail 60 api worker llm-gateway > services.log 2>&1
+          docker compose -f docker-compose.yml -f compose.ci.yml logs --no-log-prefix api worker llm-gateway > all.log 2>&1
+          grep -E 'chat|Traceback|Error|error|exception|completions|embeddings|"level": "(warning|error)"' all.log | grep -v '"status": 200' > services.log || true
+          grep -A30 Traceback all.log > tracebacks.log || true
+          .github/scripts/annotate-tail.sh "tracebacks" tracebacks.log 80
           .github/scripts/annotate-tail.sh "stack" stack.log 60
           .github/scripts/annotate-tail.sh "playwright" e2e.log 80
           .github/scripts/annotate-tail.sh "service logs" services.log 80
