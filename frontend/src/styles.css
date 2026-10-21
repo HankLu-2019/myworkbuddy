@@ -422,3 +422,15 @@ td.num, th.num { font-variant-numeric: tabular-nums; text-align: right; }
   .dialog { width: 100vw; max-height: 100vh; height: 100vh; border-radius: 0; }
   .btn, .nav-link, .list-item { min-height: 44px; }
 }
+
+/* ---------- home and activity (H16) ---------- */
+.ok-icon { color: var(--st-done); flex: none; }
+.checklist ol li { min-height: 28px; }
+.needs { border-left: 4px solid var(--st-needs); }
+.needs-ingest_failed, .needs-budget_exceeded { border-left-color: var(--st-problem); }
+.popover-title { font-size: var(--t-md); margin: 0 0 var(--s-2); }
+.activity-list { min-width: 260px; max-width: 360px; }
+.activity-trigger { color: var(--accent); }
+.back-link { font-size: var(--t-sm); display: inline-flex; align-items: center; gap: 4px; }
+.cite-drawer .md { font-size: var(--t-md); }
+.error-action { font-weight: 600; text-decoration: underline; }

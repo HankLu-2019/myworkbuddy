@@ -13,6 +13,7 @@ from app.errors import DEFAULT_CODES, AppError
 from app.knowledge.acl import (
     can_change_visibility,
     can_edit,
+    can_view,
     ensure_edit,
     ensure_view,
     visible_filter,
@@ -37,7 +38,7 @@ from app.knowledge.wiki import (
     save_page,
 )
 from app.knowledge.wiki_writer import WikiWriter
-from app.models import Chunk, Document, LibrarianRun, Project, User, WikiPage
+from app.models import Chunk, Document, LibrarianRun, Project, User, UserSecret, WikiPage
 from app.tasks.app import (
     build_episode_task,
     cleanup_project_cache,
@@ -406,6 +407,57 @@ async def librarian_changes(auth: CurrentAuth, days: int = 3) -> list[LibrarianC
     return [LibrarianChangeOut(sha=c.sha, date=c.date, message=c.message, diff=await repo.show(c.sha)) for c in commits]
 
 
+class RevertOut(BaseModel):
+    reverted: list[str]
+
+
+@router.post("/wiki/librarian/changes/{sha}/revert", response_model=RevertOut)
+async def revert_librarian_change(sha: str, auth: CurrentAuth, db: DB) -> RevertOut:
+    """Undo one librarian commit in the caller's private wiki with a new commit (07-ux §5.5).
+
+    Refuses (409) when a page changed after the librarian's edit, so a revert never drops newer work.
+    """
+    sha = validate_sha(sha)
+    user = auth.user
+    repo = repo_for("private", user.id)
+    commit = next((c for c in await repo.log(limit=500, author=LIBRARIAN.email) if c.sha.startswith(sha)), None)
+    if commit is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No librarian change with that id in your wiki")
+    parent = await repo.parent(commit.sha)
+    reverted: list[str] = []
+    # save_page embeds before it takes the repo lock (rule R1) and then checks base_sha under it, so a page
+    # edited between the check below and the write still ends in 409 wiki_conflict, never in lost work.
+    async with WikiWriter() as w:
+        for path in await repo.changed_files(commit.sha):
+            after = await repo.file_at(commit.sha, path)
+            if repo.read(path) != after:
+                raise AppError(
+                    status.HTTP_409_CONFLICT,
+                    "conflict",
+                    f"{path} changed after the librarian's edit; open the page and change it by hand",
+                )
+            before = await repo.file_at(parent, path) if parent else None
+            page = await find_page(db, user.id, "private", path)
+            message = f"Revert librarian change {commit.sha[:8]} to {path}"
+            if before is None:
+                if page is not None:
+                    await delete_page(db, page, user, writer=w)
+                else:
+                    await w.lock(repo)
+                    await w.remove(repo, path, author_of(user), message)
+            else:
+                await save_page(
+                    db, owner=user, path=path, content=before, author=author_of(user), message=message, page=page,
+                    base_sha=page.head_sha if page else None, writer=w,
+                )  # fmt: skip
+            reverted.append(path)
+        await audit(
+            db, "wiki.revert", user_id=user.id, target_type="commit", target_id=commit.sha, detail={"paths": reverted}
+        )
+        await db.commit()
+    return RevertOut(reverted=reverted)
+
+
 class RejectedPageOut(BaseModel):
     """A rewrite the guardrails held back (design 01 §H8)."""
 
@@ -499,6 +551,85 @@ async def _own_project(db: DB, project_id: int, user: User) -> Project:
 @router.get("/projects", response_model=list[ProjectOut])
 async def get_projects(auth: CurrentAuth, db: DB) -> list[ProjectOut]:
     return [_project_out(p, auth.user) for p in await list_projects(db, auth.user)]
+
+
+class FixHint(BaseModel):
+    """What to do about a failed ingest (07-ux §4.6, §5.10)."""
+
+    message: str
+    action: str
+    href: str
+
+
+class ProjectDetail(ProjectOut):
+    files: int
+    code_chunks: int
+    docs: int
+    card_page_id: int | None
+    hint: FixHint | None
+
+
+HOST_LABEL = {"gitlab": "GitLab", "gerrit": "Gerrit"}
+HOST_SECRET = {"gitlab": "gitlab_token", "gerrit": "gerrit_password"}
+
+
+def ingest_hint(project: Project, has_credential: bool) -> FixHint | None:
+    host = HOST_LABEL.get(project.host, project.host)
+    focus = f"/settings/integrations?focus={HOST_SECRET.get(project.host, '')}"
+    if not has_credential:
+        return FixHint(message=f"Add your {host} token, then re-index.", action="Add token", href=focus)
+    if project.status != "failed":
+        return None
+    error = (project.error or "").lower()
+    if any(s in error for s in ("authentication failed", "401", "403", "could not read username", "can't be read")):
+        return FixHint(
+            message=f"Your {host} token was rejected. Update it, then re-index.", action="Update token", href=focus
+        )
+    if any(s in error for s in ("not found", "404", "does not exist")):
+        return FixHint(
+            message="Check the repository URL and that your token can read it.",
+            action="Update token",
+            href=focus,
+        )
+    return None
+
+
+@router.get("/projects/{project_id}", response_model=ProjectDetail)
+async def get_project(project_id: int, auth: CurrentAuth, db: DB) -> ProjectDetail:
+    project = await db.get(Project, project_id)
+    ensure_view(project, auth.user)
+    counts = dict(
+        (
+            await db.execute(
+                select(Document.source_type, func.count(Document.id))
+                .where(Document.project_id == project.id)
+                .group_by(Document.source_type)
+            )
+        ).all()
+    )
+    chunks = await db.scalar(
+        select(func.count(Chunk.id))
+        .join(Document, Document.id == Chunk.document_id)
+        .where(Document.project_id == project.id, Document.source_type == "code")
+    )
+    card = None
+    if project.card_page_id and (page := await db.get(WikiPage, project.card_page_id)) and can_view(page, auth.user):
+        card = page.id
+    mine = project.owner_id == auth.user.id
+    has_credential = True
+    if mine:
+        kind = HOST_SECRET.get(project.host)
+        has_credential = bool(
+            await db.scalar(select(func.count()).where(UserSecret.user_id == auth.user.id, UserSecret.kind == kind))
+        )
+    return ProjectDetail(
+        **_project_out(project, auth.user).model_dump(),
+        files=counts.get("code", 0),
+        code_chunks=chunks or 0,
+        docs=counts.get("repo_doc", 0),
+        card_page_id=card,
+        hint=ingest_hint(project, has_credential) if mine else None,
+    )
 
 
 @router.post("/projects", response_model=ProjectOut, status_code=201)

@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { History, Pencil, Plus, Trash2 } from "lucide-react";
+import { History, Pencil, Plus, Trash2, Undo2 } from "lucide-react";
+import { useAuth } from "../../auth";
+import { draftKey, readDraft, writeDraft } from "../../app/drafts";
+import { UnsavedGuard } from "../../app/UnsavedGuard";
+import { markLibrarianSeen } from "../../app/seen";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, type Commit, type LibrarianChange, type LibrarianRun, type Page, type PageSummary, type Visibility } from "../../api";
 import { usePageTitle } from "../../app/pageTitle";
@@ -14,6 +18,7 @@ import {
   ErrorNote,
   Markdown,
   PageHeader,
+  RelativeTime,
   SkeletonRows,
   TextArea,
   TextField,
@@ -70,6 +75,22 @@ function PageTree({ pages, current }: { pages: PageSummary[]; current?: number }
 }
 
 function LibrarianPanel() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { user } = useAuth();
+  const [reverting, setReverting] = useState<LibrarianChange | null>(null);
+  useEffect(() => markLibrarianSeen(user?.id), [user?.id]);
+  const revert = useMutation({
+    mutationFn: (sha: string) =>
+      api<{ reverted: string[] }>(`/api/wiki/librarian/changes/${sha}/revert`, { method: "POST" }),
+    onSuccess: (r) => {
+      setReverting(null);
+      qc.invalidateQueries({ queryKey: ["librarian"] });
+      qc.invalidateQueries({ queryKey: ["wiki"] });
+      qc.invalidateQueries({ queryKey: ["wiki-pages"] });
+      toast({ title: "Change reverted", description: r.reverted.join(", "), tone: "success" });
+    },
+  });
   const changes = useQuery({
     queryKey: ["librarian"],
     queryFn: () => api<LibrarianChange[]>("/api/wiki/librarian/changes?days=7"),
@@ -122,11 +143,38 @@ function LibrarianPanel() {
       {changes.data?.map((c) => (
         <details key={c.sha} className="card change">
           <summary>
-            <span>{c.message}</span> <span className="muted small">{formatDate(c.date)}</span>
+            <span>{c.message}</span> <RelativeTime iso={c.date} />
           </summary>
           <DiffView text={c.diff} />
+          <div className="actions">
+            <Button size="sm" icon={<Undo2 size={14} aria-hidden />} onClick={() => setReverting(c)}>
+              Revert this change
+            </Button>
+          </div>
         </details>
       ))}
+      <ConfirmDialog
+        open={!!reverting}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReverting(null);
+            revert.reset();
+          }
+        }}
+        title="Revert this change?"
+        body={
+          <div className="stack">
+            <p>
+              “{reverting?.message}” is undone with a new commit, so it stays in the page history. Pages edited
+              since can't be reverted this way; change them by hand.
+            </p>
+            <ErrorNote error={revert.error} />
+          </div>
+        }
+        confirmLabel="Revert change"
+        pending={revert.isPending}
+        onConfirm={() => reverting && revert.mutate(reverting.sha)}
+      />
     </div>
   );
 }
@@ -174,7 +222,16 @@ function PageView({ id }: { id: number }) {
   const toast = useToast();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [mode, setMode] = useState<"view" | "edit" | "history">("view");
-  const [draft, setDraft] = useState("");
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const key = draftKey(user?.id, "wiki", id);
+  const [draft, setDraftState] = useState("");
+  // Every keystroke goes to localStorage (07 §6.6), with the version the editor was opened on, so a reload or
+  // an expired session restores the edit and its conflict check.
+  const setDraft = (text: string) => {
+    setDraftState(text);
+    writeDraft(key, text);
+  };
   const editor = useRef<HTMLTextAreaElement>(null);
   const protect = () => {
     const el = editor.current;
@@ -202,10 +259,35 @@ function PageView({ id }: { id: number }) {
     enabled: !!diffSha,
   });
 
+  function startEditing(p: Page) {
+    const saved = readDraft(key);
+    const savedBase = readDraft(`${key}:base`);
+    setDraftState(saved ?? p.content);
+    setBaseSha(saved !== null && savedBase !== null ? savedBase : (p.head_sha ?? ""));
+    if (saved === null) writeDraft(`${key}:base`, p.head_sha ?? "");
+    setNotice(null);
+    setMode("edit");
+    if (saved !== null && saved !== p.content) toast({ title: "Restored your unsaved text" });
+  }
+  function stopEditing() {
+    writeDraft(key, "");
+    writeDraft(`${key}:base`, "");
+    setMode("view");
+  }
+
   useEffect(() => {
     setMode("view");
     setDiffSha(null);
   }, [id]);
+
+  // Back from an expired session (or a crash) with unsaved text: reopen the editor with it.
+  const resumed = useRef<number | null>(null);
+  useEffect(() => {
+    if (!page.data || resumed.current === id || !page.data.can_edit) return;
+    resumed.current = id;
+    if (readDraft(key) !== null) startEditing(page.data);
+    // only once per page, when it first loads
+  }, [page.data, id]);
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["wiki"] });
@@ -220,10 +302,10 @@ function PageView({ id }: { id: number }) {
         json: { content: draft, message: message || undefined, base_sha: baseSha },
       }),
     onSuccess: () => {
-      setMode("view");
+      stopEditing();
       setMessage("");
       refresh();
-      toast({ title: "Page saved", tone: "success" });
+      toast({ title: "Saved", tone: "success" });
     },
   });
   const conflict = save.error instanceof ApiError && save.error.code === "wiki_conflict" ? save.error : null;
@@ -242,7 +324,7 @@ function PageView({ id }: { id: number }) {
       setNotice(null);
     }
     save.reset();
-    setMode("view");
+    stopEditing();
     refresh();
   }
   const publish = useMutation({
@@ -281,12 +363,7 @@ function PageView({ id }: { id: number }) {
         {p.can_edit && mode === "view" && (
           <Button
             icon={<Pencil size={16} aria-hidden />}
-            onClick={() => {
-              setDraft(p.content);
-              setBaseSha(p.head_sha ?? "");
-              setNotice(null);
-              setMode("edit");
-            }}
+            onClick={() => startEditing(p)}
           >
             Edit
           </Button>
@@ -294,8 +371,14 @@ function PageView({ id }: { id: number }) {
         <Button icon={<History size={16} aria-hidden />} onClick={() => setMode(mode === "history" ? "view" : "history")}>
           {mode === "history" ? "Back to page" : "History"}
         </Button>
-        {p.mine && (
-          <VisibilityControl visibility={p.visibility} pending={publish.isPending} onChange={(v) => publish.mutate(v)} />
+        {(p.mine || (isAdmin && p.visibility === "public")) && (
+          <VisibilityControl
+            visibility={p.visibility}
+            item="page"
+            name={p.path}
+            mine={p.mine}
+            onChange={(v) => publish.mutateAsync(v)}
+          />
         )}
         {p.can_edit && (
           <Button variant="danger" icon={<Trash2 size={16} aria-hidden />} onClick={() => setConfirmDelete(true)}>
@@ -358,7 +441,7 @@ function PageView({ id }: { id: number }) {
             <Button variant="primary" onClick={() => save.mutate()} pending={save.isPending}>
               Save
             </Button>
-            <Button onClick={() => setMode("view")}>Cancel</Button>
+            <Button onClick={stopEditing}>Cancel</Button>
           </div>
         </>
       )}
@@ -379,6 +462,7 @@ function PageView({ id }: { id: number }) {
           {diff.data && <DiffView text={diff.data.diff} />}
         </div>
       )}
+      <UnsavedGuard when={mode === "edit" && draft !== p.content && !save.isPending} what="your edits to this page" />
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
@@ -414,7 +498,11 @@ export default function WikiPage() {
         <Button variant="primary" icon={<Plus size={16} aria-hidden />} onClick={() => setCreating(true)}>
           New page
         </Button>
-        <Link to="/wiki" className={`list-item ${!pageId && !creating ? "active" : ""}`} onClick={() => setCreating(false)}>
+        <Link
+          to="/wiki/changes"
+          className={`list-item ${!pageId && !creating ? "active" : ""}`}
+          onClick={() => setCreating(false)}
+        >
           Librarian changes
         </Link>
         <ErrorNote error={pages.error} />

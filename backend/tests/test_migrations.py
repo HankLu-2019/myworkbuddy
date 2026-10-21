@@ -41,6 +41,7 @@ SEEDS: dict[str, list[str]] = {
         "VALUES (1, 1, 'private', 0, 'seed chunk text', '{}')",
     ],
 }
+SEEDS["0005"] = []  # 0005 adds a column with a default; the 0001 user must get it
 CHECKS = {
     "users": 1,
     "chat_sessions": 1,
@@ -92,6 +93,7 @@ def test_upgrade_step_by_step_with_data_and_models_match(scratch_db: Connection)
 
     for table, expected in CHECKS.items():
         assert scratch_db.execute(text(f"SELECT count(*) FROM {table}")).scalar() == expected, table
+    assert scratch_db.execute(text("SELECT timezone_confirmed FROM users WHERE id = 1")).scalar() is False
     # The rebuilt BM25 index (0004) covers rows written before it.
     assert scratch_db.execute(text("SELECT count(*) FROM chunks WHERE content ||| 'seed'")).scalar() == 1
 

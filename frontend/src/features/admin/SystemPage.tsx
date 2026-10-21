@@ -5,7 +5,7 @@ import { api } from "../../api";
 import { useAuth } from "../../auth";
 import { RotateCcw } from "lucide-react";
 import { usePageTitle } from "../../app/pageTitle";
-import { Banner, Button, Card, DataTable, EmptyState, ErrorNote, KeyValue, PageHeader, SkeletonRows, StatusPill, formatDate, useToast } from "../../components/ui";
+import { Banner, Button, Card, DataTable, EmptyState, ErrorNote, KeyValue, PageHeader, RelativeTime, SkeletonRows, StatusPill, formatDate, useToast } from "../../components/ui";
 import { AdminTabs } from "./AdminTabs";
 
 type FailedJob = { id: number; queue: string; task: string; attempts: number; failed_at: string };
@@ -32,6 +32,7 @@ type System = {
   wiki_reconcile: Record<string, unknown> | null;
   embeddings: { failed: number; sample: { chunk_id: number; document_id: number; error: string }[] };
   llm_spend: { month_to_date_usd: number; users_counted: number; users_unknown: number };
+  audit?: { at: string; action: string; user: string | null; target: string | null }[];
 };
 
 const CHECK_LABELS: Record<string, string> = { database: "Database", llm_gateway: "AI gateway", worker: "Worker" };
@@ -230,6 +231,21 @@ export default function SystemPage() {
             />
             <h3>Scheduled tasks, last run</h3>
             <KeyValue items={s.jobs.periodic.map((p) => [<span className="mono">{p.task}</span>, formatDate(p.last_at)])} />
+          </Section>
+
+          <Section id="sys-audit" title="Recent activity (audit log)">
+            <DataTable
+              label="Audit log"
+              rows={s.audit ?? []}
+              rowKey={(r) => `${r.at}-${r.action}-${r.target}`}
+              empty={<EmptyState>Nothing recorded yet.</EmptyState>}
+              columns={[
+                { key: "at", header: "When", cell: (r) => <RelativeTime iso={r.at} /> },
+                { key: "user", header: "Who", cell: (r) => r.user ?? <span className="muted">system</span> },
+                { key: "action", header: "Action", cell: (r) => <span className="mono small">{r.action}</span> },
+                { key: "target", header: "Target", cell: (r) => <span className="mono small">{r.target ?? "—"}</span> },
+              ]}
+            />
           </Section>
 
           <Section id="sys-knowledge" title="Knowledge upkeep">

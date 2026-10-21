@@ -47,6 +47,7 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = _now()
     timezone: Mapped[str] = mapped_column(String(64), server_default="Europe/Stockholm")
+    timezone_confirmed: Mapped[bool] = mapped_column(Boolean, server_default="false")
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     email_notifications: Mapped[bool] = mapped_column(Boolean, server_default="true")
     llm_budget_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))

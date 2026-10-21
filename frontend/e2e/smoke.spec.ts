@@ -105,6 +105,8 @@ test("2. uploads are private until shared", async ({ browser }) => {
   await alice.goto("/documents");
   const shared = alice.getByRole("row", { name: new RegExp(DOC) });
   await shared.getByRole("button", { name: "Share with team" }).click();
+  const confirm = alice.getByRole("dialog", { name: `Share ${DOC} with the team?` });
+  await confirm.getByRole("button", { name: "Share with team" }).click();
   // Wait for the saved state, not for any text containing "team" (the "Share with team" button matched before,
   // so Bob sometimes searched before the share was committed).
   await expect(shared.getByText("Team", { exact: true })).toBeVisible();
@@ -135,8 +137,12 @@ test("3. chat streams an answer with a citation that opens the source", async ({
   await expect(alice.getByText("Here is what I found in your knowledge base")).toBeVisible();
   const chip = alice.locator("a.citation", { hasText: DOC }).first();
   await expect(chip).toBeVisible();
+  // Desktop: the source opens beside the conversation (07 §5.2); "Open full page" leaves the chat.
   await chip.click();
-  await expect(alice).toHaveURL(/\/documents$/);
+  const drawer = alice.getByRole("dialog", { name: new RegExp(DOC) });
+  await expect(drawer).toBeVisible();
+  await drawer.getByRole("link", { name: "Open full page" }).click();
+  await expect(alice).toHaveURL(/\/sources\/documents$/);
 });
 
 test("4. wiki page create, edit, history and diff", async ({ browser }) => {
@@ -164,10 +170,10 @@ test("4. wiki page create, edit, history and diff", async ({ browser }) => {
 
 test("5. changing the password signs the user out", async ({ browser }) => {
   const alice = await signIn(browser, ALICE);
-  await alice.goto("/settings");
+  await alice.goto("/settings/password");
   await alice.getByLabel("Current password").fill(PASSWORD);
   await alice.getByLabel("New password (10+ characters)").fill("member-password-2");
   await alice.getByRole("button", { name: "Change password" }).click();
-  await expect(alice).toHaveURL(/\/login(\?next=%2Fsettings)?$/);
+  await expect(alice).toHaveURL(/\/login(\?next=%2Fsettings%2Fpassword)?$/);
   await signIn(browser, ALICE, "member-password-2");
 });

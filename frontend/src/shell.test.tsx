@@ -70,8 +70,8 @@ describe("navigation (07 §3)", () => {
     ["/documents", "/sources/documents"],
     ["/imports", "/sources/imports"],
     ["/sources", "/sources/repos"],
-    ["/", "/chat"],
-    ["/nowhere", "/chat"],
+    ["/settings", "/settings/profile"],
+    ["/nowhere", "/"],
   ])("redirects %s to %s", async (from, to) => {
     mockApi({
       ...signedInAs(MEMBER),

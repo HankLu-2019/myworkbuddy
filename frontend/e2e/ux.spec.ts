@@ -7,13 +7,19 @@ import { expect, test, type Page } from "@playwright/test";
 const ADMIN = { username: "admin", password: process.env.MWB_E2E_ADMIN_PASSWORD ?? "admin-password-1" };
 
 const PAGES = [
+  ["home", "/"],
   ["chat", "/chat"],
   ["search", "/search?q=runbook"],
   ["wiki", "/wiki"],
   ["repositories", "/sources/repos"],
   ["documents", "/sources/documents"],
   ["imports", "/sources/imports"],
-  ["settings", "/settings"],
+  ["settings: profile", "/settings/profile"],
+  ["settings: integrations", "/settings/integrations"],
+  ["settings: usage", "/settings/usage"],
+  ["settings: sessions", "/settings/sessions"],
+  ["settings: password", "/settings/password"],
+  ["librarian changes", "/wiki/changes"],
   ["users", "/admin"],
   ["system", "/admin/system"],
   ["component gallery", "/dev/components"],
@@ -128,7 +134,7 @@ test.describe("shell", () => {
     await tabs.getByRole("button", { name: "More" }).click();
     const more = page.getByRole("dialog", { name: "More" });
     await more.getByRole("link", { name: "Settings" }).click();
-    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page).toHaveURL(/\/settings\/profile$/);
     await expect(more).toBeHidden();
   });
 

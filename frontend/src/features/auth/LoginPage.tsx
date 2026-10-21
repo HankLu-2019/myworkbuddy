@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth";
 import { usePageTitle } from "../../app/pageTitle";
-import { Button, Card, ErrorNote, TextField } from "../../components/ui";
+import { Banner, Button, Card, ErrorNote, TextField } from "../../components/ui";
 
 /** Only same-app paths: "/x" but not "//host" or "/\\host", so `next` can't send anyone off-site, and never back
     to /login, which would redirect forever once signed in. */
@@ -40,7 +40,11 @@ export default function LoginPage() {
     <main className="login-wrap" id="main">
       <Card as="form" className="login stack" onSubmit={submit} aria-labelledby="login-title">
         <h1 id="login-title">MyWorkBuddy</h1>
-        <p className="muted">Sign in with the account your admin created for you.</p>
+        {params.get("reason") === "expired" ? (
+          <Banner tone="info">Your session expired. Sign in to continue where you left off; unsaved text is kept.</Banner>
+        ) : (
+          <p className="muted">Sign in with the account your admin created for you.</p>
+        )}
         <TextField label="Username" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
         <TextField
           label="Password"

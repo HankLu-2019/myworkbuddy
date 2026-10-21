@@ -12,6 +12,7 @@ from app.auth.routes import router as auth_router
 from app.chat.routes import router as chat_router
 from app.config import ensure_runtime_ok, get_settings
 from app.db import get_engine
+from app.home.routes import router as home_router
 from app.knowledge.routes import router as knowledge_router
 from app.llm.routes import router as usage_router
 from app.logs import log, setup_logging
@@ -61,5 +62,14 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-for r in (auth_router, users_router, secrets_router, chat_router, knowledge_router, usage_router, ops_router):
+for r in (
+    auth_router,
+    users_router,
+    secrets_router,
+    chat_router,
+    knowledge_router,
+    usage_router,
+    ops_router,
+    home_router,
+):
     app.include_router(r)

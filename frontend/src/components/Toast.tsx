@@ -3,7 +3,14 @@ import * as RadixToast from "@radix-ui/react-toast";
 import { X } from "lucide-react";
 
 export type ToastTone = "info" | "success" | "error";
-export type ToastInput = { title: string; description?: string; tone?: ToastTone; action?: { label: string; onClick: () => void } };
+export type ToastInput = {
+  title: string;
+  description?: string;
+  tone?: ToastTone;
+  action?: { label: string; onClick: () => void };
+  /** Milliseconds; 5 s by default, 10 s for Undo (07 §6.7). */
+  duration?: number;
+};
 type ToastItem = ToastInput & { id: number };
 
 const ToastContext = createContext<(t: ToastInput) => void>(() => undefined);
@@ -25,6 +32,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             className={`toast toast-${t.tone ?? "info"}`}
             onOpenChange={(open) => !open && remove(t.id)}
             type={t.tone === "error" ? "foreground" : "background"}
+            duration={t.duration}
           >
             <div className="grow">
               <RadixToast.Title className="toast-title">

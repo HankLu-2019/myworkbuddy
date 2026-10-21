@@ -160,7 +160,7 @@ export default function GalleryPage() {
         <div className="row">
           <VisibilityBadge visibility="public" />
           <VisibilityBadge visibility="private" />
-          <VisibilityControl visibility={visibility} onChange={setVisibility} />
+          <VisibilityControl visibility={visibility} item="document" name="notes.md" onChange={setVisibility} />
           <CountBadge count={3} label="3 failed" />
           <Dot label="Needs attention" />
         </div>

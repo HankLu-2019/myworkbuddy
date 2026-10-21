@@ -3,6 +3,7 @@ import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from "react
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
+  ArrowLeft,
   Database,
   Home,
   Library,
@@ -14,7 +15,9 @@ import {
   Shield,
   Users,
 } from "lucide-react";
-import { api, type Project, type SecretStatus } from "../api";
+import { api, type Home as HomeData, type Project, type SecretStatus } from "../api";
+import { ActivityIndicator } from "./ActivityIndicator";
+import { librarianUnseen } from "./seen";
 import { useAuth } from "../auth";
 import { Button, Dialog, Drawer, Dot, TextField, Tooltip } from "../components/ui";
 import FirstPasswordPage from "../features/auth/FirstPasswordPage";
@@ -35,7 +38,7 @@ function NavItemLink({ item }: { item: NavItem }) {
   );
 }
 
-function useBadges(isAdmin: boolean) {
+function useBadges(isAdmin: boolean, userId: number | undefined) {
   // Small attention dots (07 §3.1). Polling stops while the tab is hidden (TanStack's default).
   const projects = useQuery({
     queryKey: ["projects"],
@@ -52,7 +55,10 @@ function useBadges(isAdmin: boolean) {
     enabled: isAdmin,
     refetchInterval: 60_000,
   });
+  // Shares Home's query and cache: one request a minute at most.
+  const home = useQuery({ queryKey: ["home"], queryFn: () => api<HomeData>("/api/home"), staleTime: 60_000 });
   return {
+    librarianNew: librarianUnseen(userId, home.data?.librarian?.at),
     sourcesFailed: !!projects.data?.some((p) => p.mine && p.status === "failed"),
     settingsUnreadable: !!secrets.data?.some((s) => s.status === "unreadable"),
     systemFailing: isAdmin && ready.data === false,
@@ -70,7 +76,8 @@ export default function Shell() {
   const [help, setHelp] = useState(false);
   const [more, setMore] = useState(false);
   const isAdmin = user?.role === "admin";
-  const badges = useBadges(!!isAdmin);
+  const badges = useBadges(!!isAdmin, user?.id);
+  const fromStart = new URLSearchParams(location.search).get("from") === "getting-started";
 
   useShortcuts({
     focusSearch: () => search.current?.focus(),
@@ -87,12 +94,23 @@ export default function Shell() {
   if (user.must_change_password) return <FirstPasswordPage />;
 
   const groups: { label?: string; items: NavItem[] }[] = [
-    { label: "Work", items: [{ to: "/chat", label: "Chat", icon: <MessageSquare size={18} aria-hidden /> }] },
+    {
+      label: "Work",
+      items: [
+        { to: "/", label: "Home", icon: <Home size={18} aria-hidden />, end: true },
+        { to: "/chat", label: "Chat", icon: <MessageSquare size={18} aria-hidden /> },
+      ],
+    },
     {
       label: "Knowledge",
       items: [
         { to: "/search", label: "Search", icon: <Search size={18} aria-hidden /> },
-        { to: "/wiki", label: "Wiki", icon: <Library size={18} aria-hidden /> },
+        {
+          to: "/wiki",
+          label: "Wiki",
+          icon: <Library size={18} aria-hidden />,
+          badge: badges.librarianNew ? <Dot label="The librarian changed pages" /> : undefined,
+        },
         {
           to: "/sources",
           label: "Sources",
@@ -174,6 +192,12 @@ export default function Shell() {
             ))}
           </ol>
         </nav>
+        {fromStart && location.pathname !== "/" && (
+          <Link to="/" className="back-link">
+            <ArrowLeft size={14} aria-hidden /> Back to getting started
+          </Link>
+        )}
+        <ActivityIndicator />
         <form className="global-search" role="search" onSubmit={submitSearch}>
           <TextField
             ref={search}

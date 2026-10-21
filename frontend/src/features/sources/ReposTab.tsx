@@ -1,78 +1,57 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GitBranch, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import { api, type Project, type Visibility } from "../../api";
+import { useAuth } from "../../auth";
 import {
-  Banner,
   Button,
-  Card,
-  ConfirmDialog,
   DataTable,
   EmptyState,
   ErrorNote,
-  Select,
+  RelativeTime,
   StatusPill,
-  TextField,
   VisibilityBadge,
   VisibilityControl,
-  formatDate,
   type Column,
 } from "../../components/ui";
+import { AddRepositoryDialog, RemoveRepositoryDialog } from "./repoParts";
 
-const HOSTS = [
-  ["gitlab", "GitLab"],
-  ["gerrit", "Gerrit"],
-] as const;
+const WORKING = ["queued", "running"];
 
-/** Sources → Repositories (07 §4.6). */
+/** Sources → Repositories (07 §4.6). `?add=1` opens Add repository (from Home and "Back to Add repository"). */
 export default function ReposTab() {
   const qc = useQueryClient();
-  const [repoUrl, setRepoUrl] = useState("");
-  const [host, setHost] = useState<"gitlab" | "gerrit">("gitlab");
-  const [branch, setBranch] = useState("");
-  const [notice, setNotice] = useState<string | null>(null);
+  const { user } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const [adding, setAdding] = useState(params.get("add") === "1");
   const [removing, setRemoving] = useState<Project | null>(null);
-  const [typed, setTyped] = useState("");
+  useEffect(() => {
+    if (params.get("add") === "1") {
+      setAdding(true);
+      setParams({}, { replace: true });
+    }
+  }, [params, setParams]);
 
   const projects = useQuery({
     queryKey: ["projects"],
     queryFn: () => api<Project[]>("/api/projects"),
-    // Poll while any ingestion is in flight (07 §6.4).
-    refetchInterval: (q) => (q.state.data?.some((p) => ["queued", "running"].includes(p.status)) ? 3000 : false),
+    // Poll while any ingestion is in flight (07 §6.4); paused while the tab is hidden.
+    refetchInterval: (q) => (q.state.data?.some((p) => WORKING.includes(p.status)) ? 3000 : false),
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ["projects"] });
-
-  const add = useMutation({
-    mutationFn: () =>
-      api<Project>("/api/projects", { method: "POST", json: { repo_url: repoUrl, host, branch: branch || null } }),
-    onSuccess: (p) => {
-      setRepoUrl("");
-      setBranch("");
-      setNotice(p.notice ?? null);
-      refresh();
-    },
-  });
   const ingest = useMutation({
     mutationFn: (id: number) => api(`/api/projects/${id}/ingest?force=true`, { method: "POST" }),
-    onSuccess: refresh,
+    onSuccess: () => {
+      refresh();
+      qc.invalidateQueries({ queryKey: ["activity"] });
+    },
   });
   const visibility = useMutation({
     mutationFn: ({ id, v }: { id: number; v: Visibility }) =>
       api(`/api/projects/${id}/visibility`, { method: "POST", json: { visibility: v } }),
     onSuccess: refresh,
   });
-  const remove = useMutation({
-    mutationFn: (id: number) => api(`/api/projects/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      setRemoving(null);
-      refresh();
-    },
-  });
-
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    add.mutate();
-  }
 
   const columns: Column<Project>[] = [
     {
@@ -81,7 +60,7 @@ export default function ReposTab() {
       sortValue: (p) => p.name,
       cell: (p) => (
         <>
-          <div>{p.name}</div>
+          <Link to={`/sources/repos/${p.id}`}>{p.name}</Link>
           <div className="muted small mono truncate">{p.repo_url}</div>
           {p.error && <div className="error-text small">{p.error}</div>}
         </>
@@ -99,91 +78,77 @@ export default function ReposTab() {
       ),
     },
     { key: "visibility", header: "Visibility", cell: (p) => <VisibilityBadge visibility={p.visibility} /> },
-    { key: "sha", header: "Indexed commit", cell: (p) => <span className="mono small">{p.last_ingested_sha?.slice(0, 10) ?? "—"}</span> },
-    { key: "updated", header: "Updated", sortValue: (p) => p.updated_at, cell: (p) => formatDate(p.updated_at) },
+    { key: "owner", header: "Owner", cell: (p) => (p.mine ? "you" : <span className="muted">a teammate</span>) },
+    { key: "updated", header: "Updated", sortValue: (p) => p.updated_at, cell: (p) => <RelativeTime iso={p.updated_at} /> },
     {
       key: "actions",
       header: <span className="visually-hidden">Actions</span>,
       cell: (p) =>
-        p.mine && (
+        p.mine ? (
           <div className="row-actions">
-            <Button size="sm" icon={<RefreshCw size={14} aria-hidden />} onClick={() => ingest.mutate(p.id)}>
+            <Button
+              size="sm"
+              icon={<RefreshCw size={14} aria-hidden />}
+              disabled={WORKING.includes(p.status)}
+              onClick={() => ingest.mutate(p.id)}
+            >
               Re-index
             </Button>
             <VisibilityControl
               size="sm"
+              item="repository"
+              name={p.name}
               visibility={p.visibility}
               shareLabel="Share code index"
-              onChange={(v) => visibility.mutate({ id: p.id, v })}
+              onChange={(v) => visibility.mutateAsync({ id: p.id, v })}
             />
-            <Button size="sm" variant="danger" icon={<Trash2 size={14} aria-hidden />} onClick={() => { setTyped(""); setRemoving(p); }}>
+            <Button size="sm" variant="danger" icon={<Trash2 size={14} aria-hidden />} onClick={() => setRemoving(p)}>
               Remove
             </Button>
           </div>
+        ) : (
+          user?.role === "admin" &&
+          p.visibility === "public" && (
+            <VisibilityControl
+              size="sm"
+              item="repository"
+              name={p.name}
+              mine={false}
+              visibility={p.visibility}
+              onChange={(v) => visibility.mutateAsync({ id: p.id, v })}
+            />
+          )
         ),
     },
   ];
 
-  const needsTyping = removing?.visibility === "public";
   return (
     <>
-      <p className="muted lede">
-        Add a repository you work on. MyWorkBuddy clones it with your token from Settings, indexes its code and
-        docs, and writes a project card into your private wiki from its files and your commits.
-      </p>
-      <Card as="form" className="form-row" onSubmit={submit}>
-        <TextField
-          label="Repository URL"
-          placeholder="https://gitlab.example.com/team/pipeline.git"
-          value={repoUrl}
-          onChange={(e) => setRepoUrl(e.target.value)}
-          required
-        />
-        <Select label="Host" value={host} options={HOSTS} onChange={(e) => setHost(e.target.value as "gitlab" | "gerrit")} />
-        <TextField label="Branch" placeholder="default branch" value={branch} onChange={(e) => setBranch(e.target.value)} />
-        <Button variant="primary" type="submit" pending={add.isPending} icon={<Plus size={16} aria-hidden />}>
+      <div className="page-header">
+        <p className="muted lede">
+          Repositories you work on. MyWorkBuddy indexes their code and docs and writes a project card into your
+          private wiki from their files and your commits.
+        </p>
+        <Button variant="primary" icon={<Plus size={16} aria-hidden />} onClick={() => setAdding(true)}>
           Add repository
         </Button>
-      </Card>
-      {notice && <Banner>{notice}</Banner>}
-      <ErrorNote error={add.error || ingest.error || visibility.error || remove.error || projects.error} />
+      </div>
+      <ErrorNote error={ingest.error || visibility.error || projects.error} />
       <DataTable
         label="Repositories"
         columns={columns}
         rows={projects.data}
         rowKey={(p) => p.id}
+        rowLabel={(p) => p.name}
         loading={projects.isLoading}
-        empty={<EmptyState>No repositories yet. Add one above to index its code and docs.</EmptyState>}
-      />
-      <ConfirmDialog
-        open={!!removing}
-        onOpenChange={(open) => !open && setRemoving(null)}
-        title={`Remove ${removing?.name ?? ""}?`}
-        danger
-        pending={remove.isPending}
-        disabled={needsTyping && typed !== removing?.name}
-        confirmLabel="Remove repository"
-        onConfirm={() => removing && remove.mutate(removing.id)}
-        body={
-          <div className="stack">
-            <p>
-              Deletes its code index{needsTyping ? ", which your team can search," : ""} and the local checkout. Your session
-              summaries that mention it stay. This can't be undone.
-            </p>
-            {needsTyping && (
-              <TextField
-                label={`Type ${removing?.name} to confirm`}
-                value={typed}
-                onChange={(e) => setTyped(e.target.value)}
-                autoComplete="off"
-              />
-            )}
-          </div>
+        empty={
+          <EmptyState action={<Button variant="primary" onClick={() => setAdding(true)}>Add repository</Button>}>
+            No repositories yet. Add one to search its code and docs.
+          </EmptyState>
         }
       />
-      <p className="muted small">
-        <GitBranch size={12} aria-hidden /> Gerrit URLs get the <code>/a/</code> prefix automatically.
-      </p>
+      <AddRepositoryDialog open={adding} onOpenChange={setAdding} />
+      <RemoveRepositoryDialog project={removing} onOpenChange={(o) => !o && setRemoving(null)} />
     </>
   );
 }

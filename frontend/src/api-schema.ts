@@ -5,6 +5,26 @@
  */
 
 export interface paths {
+    "/api/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Activity
+         * @description Background work of the caller that is still going. Phase 2+ adds runs, plan drafts and jobs.
+         */
+        get: operations["activity_api_activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/system": {
         parameters: {
             query?: never;
@@ -186,7 +206,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update Profile */
+        patch: operations["update_profile_api_auth_me_patch"];
         trace?: never;
     };
     "/api/auth/password": {
@@ -349,6 +370,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/home": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Home */
+        get: operations["home_api_home_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/imports/claude-code": {
         parameters: {
             query?: never;
@@ -480,7 +518,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Get Project */
+        get: operations["get_project_api_projects__project_id__get"];
         put?: never;
         post?: never;
         /** Remove Project */
@@ -608,6 +647,28 @@ export interface paths {
         get: operations["librarian_changes_api_wiki_librarian_changes_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/wiki/librarian/changes/{sha}/revert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revert Librarian Change
+         * @description Undo one librarian commit in the caller's private wiki with a new commit (07-ux §5.5).
+         *
+         *     Refuses (409) when a page changed after the librarian's edit, so a revert never drops newer work.
+         */
+        post: operations["revert_librarian_change_api_wiki_librarian_changes__sha__revert_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -760,6 +821,37 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActivityItem */
+        ActivityItem: {
+            /** Href */
+            href: string;
+            /** Id */
+            id: number;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "ingest";
+            /**
+             * Since
+             * Format: date-time
+             */
+            since: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running";
+            /** Step */
+            step: string | null;
+            /** Title */
+            title: string;
+        };
+        /** ActivityOut */
+        ActivityOut: {
+            /** Items */
+            items: components["schemas"]["ActivityItem"][];
+        };
         /** Body_import_claude_code_api_imports_claude_code_post */
         Body_import_claude_code_api_imports_claude_code_post: {
             /** Files */
@@ -774,6 +866,32 @@ export interface components {
         Body_upload_document_api_knowledge_documents_post: {
             /** File */
             file: string;
+        };
+        /** Checklist */
+        Checklist: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "getting_started" | "admin_setup";
+            /** Steps */
+            steps: components["schemas"]["ChecklistStep"][];
+        };
+        /** ChecklistStep */
+        ChecklistStep: {
+            /** Done */
+            done: boolean;
+            /** Href */
+            href: string;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Optional
+             * @default false
+             */
+            optional: boolean;
         };
         /** CommitOut */
         CommitOut: {
@@ -818,6 +936,18 @@ export interface components {
              */
             visibility: "private" | "public";
         };
+        /**
+         * FixHint
+         * @description What to do about a failed ingest (07-ux §4.6, §5.10).
+         */
+        FixHint: {
+            /** Action */
+            action: string;
+            /** Href */
+            href: string;
+            /** Message */
+            message: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -853,6 +983,20 @@ export interface components {
              * @enum {string}
              */
             visibility: "private" | "public";
+        };
+        /** HomeOut */
+        HomeOut: {
+            /** Checklists */
+            checklists: components["schemas"]["Checklist"][];
+            librarian: components["schemas"]["LibrarianSummary"] | null;
+            /** Needs You */
+            needs_you: components["schemas"]["NeedsYou"][];
+            /** Recent Chats */
+            recent_chats: components["schemas"]["RecentChat"][];
+            /** Recent Pages */
+            recent_pages: components["schemas"]["RecentPage"][];
+            /** Running */
+            running: components["schemas"]["ActivityItem"][];
         };
         /** ImportResult */
         ImportResult: {
@@ -913,6 +1057,18 @@ export interface components {
              */
             status: "ok" | "partial" | "failed" | "skipped";
         };
+        /** LibrarianSummary */
+        LibrarianSummary: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Pages Changed */
+            pages_changed: number;
+            /** Rejected */
+            rejected: number;
+        };
         /** LoginIn */
         LoginIn: {
             /** Password */
@@ -968,6 +1124,27 @@ export interface components {
             tools: {
                 [key: string]: unknown;
             }[];
+        };
+        /**
+         * NeedsYou
+         * @description One card. The same message and fix button wherever the problem shows up (07-ux §5.10).
+         */
+        NeedsYou: {
+            /** Action */
+            action: string;
+            /** At */
+            at?: string | null;
+            /** Href */
+            href: string;
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "ingest_failed" | "budget_warning" | "budget_exceeded" | "credential_unreadable";
+            /** Message */
+            message: string;
         };
         /** OffboardingPreview */
         OffboardingPreview: {
@@ -1061,6 +1238,18 @@ export interface components {
             /** New Password */
             new_password: string;
         };
+        /**
+         * ProfileIn
+         * @description Settings → Profile (07-ux §4.12). Omitted fields stay as they are; an empty email clears it.
+         */
+        ProfileIn: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Email */
+            email?: string | null;
+            /** Timezone */
+            timezone?: string | null;
+        };
         /** ProjectCreate */
         ProjectCreate: {
             /** Branch */
@@ -1074,6 +1263,58 @@ export interface components {
             name?: string | null;
             /** Repo Url */
             repo_url: string;
+        };
+        /** ProjectDetail */
+        ProjectDetail: {
+            /** Branch */
+            branch: string | null;
+            /** Card Page Id */
+            card_page_id: number | null;
+            /** Code Chunks */
+            code_chunks: number;
+            /** Docs */
+            docs: number;
+            /** Error */
+            error: string | null;
+            /** Files */
+            files: number;
+            hint: components["schemas"]["FixHint"] | null;
+            /**
+             * Host
+             * @enum {string}
+             */
+            host: "gitlab" | "gerrit";
+            /** Id */
+            id: number;
+            /** Last Ingested Sha */
+            last_ingested_sha: string | null;
+            /** Mine */
+            mine: boolean;
+            /** Name */
+            name: string;
+            /** Notice */
+            notice?: string | null;
+            /** Owner Id */
+            owner_id: number;
+            /** Progress */
+            progress: string | null;
+            /** Repo Url */
+            repo_url: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "new" | "queued" | "running" | "ready" | "failed";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Visibility
+             * @enum {string}
+             */
+            visibility: "private" | "public";
         };
         /** ProjectOut */
         ProjectOut: {
@@ -1118,6 +1359,39 @@ export interface components {
              */
             visibility: "private" | "public";
         };
+        /** RecentChat */
+        RecentChat: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** RecentPage */
+        RecentPage: {
+            /** Id */
+            id: number;
+            /** Mine */
+            mine: boolean;
+            /** Path */
+            path: string;
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Visibility
+             * @enum {string}
+             */
+            visibility: "private" | "public";
+        };
         /**
          * RejectedPageOut
          * @description A rewrite the guardrails held back (design 01 §H8).
@@ -1132,6 +1406,11 @@ export interface components {
             path: string;
             /** Reason */
             reason: string;
+        };
+        /** RevertOut */
+        RevertOut: {
+            /** Reverted */
+            reverted: string[];
         };
         /** SecretIn */
         SecretIn: {
@@ -1176,6 +1455,8 @@ export interface components {
             budget_reset_at: string | null;
             /** Budget Usd */
             budget_usd: number;
+            /** Chat Usd Month */
+            chat_usd_month?: number | null;
             /** Fetched At */
             fetched_at: string | null;
             /** Spend Usd */
@@ -1224,6 +1505,11 @@ export interface components {
             role: "admin" | "member";
             /** Timezone */
             timezone?: string | null;
+            /**
+             * Timezone Confirmed
+             * @default false
+             */
+            timezone_confirmed: boolean;
             /** Username */
             username: string;
         };
@@ -1271,6 +1557,11 @@ export interface components {
             role: "admin" | "member";
             /** Timezone */
             timezone?: string | null;
+            /**
+             * Timezone Confirmed
+             * @default false
+             */
+            timezone_confirmed: boolean;
             /** Username */
             username: string;
         };
@@ -1371,6 +1662,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    activity_api_activity_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityOut"];
+                };
+            };
+        };
+    };
     system_api_admin_system_get: {
         parameters: {
             query?: never;
@@ -1698,6 +2009,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeOut"];
+                };
+            };
+        };
+    };
+    update_profile_api_auth_me_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2076,6 +2420,26 @@ export interface operations {
             };
         };
     };
+    home_api_home_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HomeOut"];
+                };
+            };
+        };
+    };
     import_claude_code_api_imports_claude_code_post: {
         parameters: {
             query?: never;
@@ -2359,6 +2723,37 @@ export interface operations {
             };
         };
     };
+    get_project_api_projects__project_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     remove_project_api_projects__project_id__delete: {
         parameters: {
             query?: never;
@@ -2598,6 +2993,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LibrarianChangeOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revert_librarian_change_api_wiki_librarian_changes__sha__revert_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sha: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevertOut"];
                 };
             };
             /** @description Validation Error */
