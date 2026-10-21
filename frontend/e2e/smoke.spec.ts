@@ -53,14 +53,34 @@ async function search(page: Page, q: string) {
 
 test.describe.configure({ mode: "serial" });
 
-test("1. admin creates two members", async ({ browser }) => {
+test("1. admin creates two members, who replace their one-time passwords", async ({ browser }) => {
   const admin = await signIn(browser, ADMIN.username, ADMIN.password);
   await admin.goto("/admin");
+  const oneTime: Record<string, string> = {};
   for (const name of [ALICE, BOB]) {
     await admin.getByLabel("Username").fill(name);
-    await admin.getByLabel("Initial password").fill(PASSWORD);
-    await admin.getByRole("button", { name: "Create user" }).click();
+    await admin.getByRole("button", { name: "Add user" }).click();
+    const dialog = admin.getByRole("dialog", { name: "One-time password" });
+    oneTime[name] = (await dialog.getByLabel("Password").innerText()).trim();
+    expect(oneTime[name]).toHaveLength(16);
+    await dialog.getByRole("button", { name: "Done" }).click();
     await expect(admin.getByRole("cell", { name, exact: true }).first()).toBeVisible();
+  }
+  for (const name of [ALICE, BOB]) {
+    const page = await (await browser.newContext()).newPage();
+    lastPage = page;
+    await page.goto("/login");
+    await page.getByLabel("Username").fill(name);
+    await page.getByLabel("Password").fill(oneTime[name]);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByRole("heading", { name: "Choose your password" })).toBeVisible();
+    await page.getByLabel("One-time password").fill(oneTime[name]);
+    await page.getByLabel("New password (10+ characters)").fill(PASSWORD);
+    await page.getByLabel("Repeat new password").fill(PASSWORD);
+    await page.getByRole("button", { name: "Save and continue" }).click();
+    // Still signed in, now with the whole app available.
+    await expect(page.getByRole("link", { name: "Search" })).toBeVisible();
+    await page.context().close();
   }
 });
 

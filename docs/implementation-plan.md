@@ -86,12 +86,12 @@ Design: [01-hardening.md](design/01-hardening.md) and, for H15–H16, [07-ux.md]
   - Migration 0004 (BM25 tokenizer); `embed_model` filtering; `mwb reembed`; poison-chunk handling.
   - Acceptance: the four language tests in 01 §H10 pass; vectors with a different `embed_model` are ignored by search; `mwb reembed --dry-run` reports counts and changes nothing; a chunk that always fails embedding stops being retried after 5 attempts and doesn't block others.
 
-- [ ] **H11 Auth, sessions, secrets, offboarding** (01 §H11)
+- [x] **H11 Auth, sessions, secrets, offboarding** (01 §H11). Deleting the user's LiteLLM key moves to H12, which creates those keys.
   - Acceptance: each of the three rate-limit keys triggers 429 at its threshold; maintenance task deletes old login attempts, expired and idle sessions, old Procrastinate jobs and audit rows; idle timeout signs the user out; active sessions list and "sign out others" work; `MultiFernet` decrypts with an old key and `mwb rotate-secrets` re-encrypts; an undecryptable secret shows `unreadable` (not 500); offboarding transfers public items, deletes private ones, removes files and the LiteLLM key, and the preview counts match; CLI `reset-password`, `list-users` work.
 
 - [ ] **H12 LLM gateway: keys, budgets, cost** (01 §H12)
   - LiteLLM database and init script; per-user keys; `app/llm/client.py`; cost capture; usage limits; budget error mapping; spend views; `mwb llm rotate-key`.
-  - Acceptance (against the fake LLM extended with `/key/*` endpoints and a cost header): creating a user creates a key with the configured budget; every LLM call in the codebase goes through `app/llm/client.py` (test greps for `OpenAIProvider(` outside it); assistant messages store `cost_usd`; a budget error yields `budget_exceeded` in chat and fails a background task without retry; usage limits per purpose are applied (unit test on `limits_for`); admin and self spend endpoints return cached values.
+  - Acceptance (against the fake LLM extended with `/key/*` endpoints and a cost header): creating a user creates a key with the configured budget; every LLM call in the codebase goes through `app/llm/client.py` (test greps for `OpenAIProvider(` outside it); assistant messages store `cost_usd`; a budget error yields `budget_exceeded` in chat and fails a background task without retry; usage limits per purpose are applied (unit test on `limits_for`); admin and self spend endpoints return cached values; offboarding a user deletes their key (from H11).
 
 - [ ] **H13 Chat robustness** (01 §H13)
   - Acceptance: a second concurrent message to a session returns `409 session_busy`; the stream emits `: ping` during a slow model call (fake LLM delay); a mid-stream failure saves a `partial` message and the UI marks it; an immediate failure saves a `failed` message excluded from model history; error events carry codes and the UI shows a message per code.

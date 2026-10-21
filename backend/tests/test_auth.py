@@ -66,12 +66,15 @@ async def test_admin_user_management(client_for, anon):
     member = await client_for("alice")
     assert (await member.get("/api/admin/users")).status_code == 403
 
-    created = await admin.post("/api/admin/users", json={"username": "carol", "password": "carol-pass-123"})
+    created = await admin.post("/api/admin/users", json={"username": "carol"})
     assert created.status_code == 201
-    dup = await admin.post("/api/admin/users", json={"username": "Carol", "password": "carol-pass-123"})
+    initial = created.json()["initial_password"]
+    assert len(initial) == 16 and created.json()["must_change_password"] is True
+    dup = await admin.post("/api/admin/users", json={"username": "Carol"})
     assert dup.status_code == 409
-    bad_name = await admin.post("/api/admin/users", json={"username": "bad name!", "password": "carol-pass-123"})
+    bad_name = await admin.post("/api/admin/users", json={"username": "bad name!"})
     assert bad_name.status_code == 422
+    assert "initial_password" not in (await admin.get("/api/admin/users")).json()[0]
 
     users = (await admin.get("/api/admin/users")).json()
     assert [u["username"] for u in users] == ["alice", "carol", "root"]
@@ -82,10 +85,15 @@ async def test_admin_user_management(client_for, anon):
     assert (await member.get("/api/auth/me")).status_code == 401
     login = await anon.post("/api/auth/login", json={"username": "alice", "password": PASSWORD})
     assert login.status_code == 401
+    # Admins no longer choose passwords.
+    assert (await admin.patch(f"/api/admin/users/{alice_id}", json={"password": "x" * 12})).status_code == 422
 
-    reset = await admin.patch(f"/api/admin/users/{alice_id}", json={"is_active": True, "password": "reset-pass-123"})
+    assert (await admin.patch(f"/api/admin/users/{alice_id}", json={"is_active": True})).status_code == 200
+    reset = await admin.post(f"/api/admin/users/{alice_id}/reset-password")
     assert reset.status_code == 200
-    assert (await anon.post("/api/auth/login", json={"username": "alice", "password": "reset-pass-123"})).is_success
+    one_time = reset.json()["initial_password"]
+    assert (await anon.post("/api/auth/login", json={"username": "alice", "password": PASSWORD})).status_code == 401
+    assert (await anon.post("/api/auth/login", json={"username": "alice", "password": one_time})).is_success
 
     assert (await admin.patch(f"/api/admin/users/{admin.user_id}", json={"role": "member"})).status_code == 400
     assert (await admin.patch("/api/admin/users/9999", json={"role": "member"})).status_code == 404

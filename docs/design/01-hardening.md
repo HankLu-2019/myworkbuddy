@@ -312,26 +312,26 @@ ICU alone doesn't segment Chinese well enough, and Jieba alone breaks Swedish, s
 | `ip:<ip>` | 30 per 15 min |
 | `u:<username>` | 20 per 15 min (slows distributed guessing; a successful login from a new IP still works once the window passes) |
 
-Successful login clears only the `u|ip` key. Response for any limit: `429 rate_limited`, same message.
+Successful login clears only the `u|ip` key. Response for any limit: `429 rate_limited` with the same message ("Too many attempts. Try again in 15 minutes."), so it doesn't reveal which key tripped. Limits: `MWB_LOGIN_MAX_ATTEMPTS` (5), `MWB_LOGIN_MAX_ATTEMPTS_IP` (30), `MWB_LOGIN_MAX_ATTEMPTS_USER` (20), window `MWB_LOGIN_WINDOW_MINUTES` (15). A successful login also sets `users.last_login_at`.
 
-**Sessions.** `last_seen_at` is updated at most once per 5 minutes per session. Idle timeout `MWB_SESSION_IDLE_HOURS` (default 12) in addition to the absolute TTL. The Settings page lists the user's active sessions (created, last seen, IP, user agent) with "Sign out other sessions".
+**Sessions.** `last_seen_at` is updated at most once per 5 minutes per session, committed in its own statement so read-only requests also keep a session alive. Idle timeout `MWB_SESSION_IDLE_HOURS` (default 12) in addition to the absolute TTL. Sessions store IP and user agent at sign-in. `GET /api/auth/sessions` lists the caller's live sessions and `POST /api/auth/sessions/sign-out-others` ends all but the current one (audited). The Settings page shows them (device derived from the user agent, IP, signed in, last active) with "Sign out other sessions".
 
-**Maintenance task** `maintenance_hourly` (periodic): delete `login_attempts` older than 1 day, delete expired or idle sessions, delete Procrastinate jobs finished > 30 days ago, delete audit rows > 400 days, prune `/data/tmp`.
+**Maintenance task** `maintenance_hourly` (periodic, minute 17, `app/maintenance.py`): delete `login_attempts` older than 1 day, delete expired or idle sessions, delete Procrastinate jobs in a final state for > 30 days (`job_manager.delete_old_jobs`, failed/cancelled/aborted included), delete audit rows > 400 days, prune `/data/tmp` entries older than 1 day. Each delete is its own short transaction. Sign-in no longer deletes expired sessions inline.
 
-**Secrets.** `MWB_SECRET_KEYS` is a comma-separated list; the first key encrypts, all keys decrypt (`MultiFernet`). `MWB_SECRET_KEY` (single) is still accepted. `mwb rotate-secrets` re-encrypts every row with the first key. A row that no key can decrypt is reported as `status: "unreadable"` in the Settings list (not a 500), and using it raises `credential_invalid` with "Re-enter your token in Settings".
+**Secrets.** `MWB_SECRET_KEYS` is a comma-separated list; the first key encrypts, all keys decrypt (`MultiFernet`). `MWB_SECRET_KEY` (single) is still accepted. `mwb rotate-secrets` re-encrypts every row with the first key. A row that no key can decrypt is reported as `status: "unreadable"` in the Settings list (not a 500; `status` is `set | not_set | unreadable`, `is_set` stays for compatibility), and using it raises `409 credential_invalid` with "Your <token> can't be read. Re-enter it in Settings." (an ingest fails with that message). `mwb rotate-secrets` leaves unreadable rows untouched and reports their count.
 
-**Initial passwords.** When an admin creates a user or resets a password, the API generates a random 16-character password, returns it once, and sets `must_change_password`. While that flag is set, every endpoint except `GET /api/auth/me`, `POST /api/auth/password` and `POST /api/auth/logout` returns `403 password_change_required`, and the UI shows the change-password screen.
+**Initial passwords.** When an admin creates a user (`POST /api/admin/users`) or resets a password (`POST /api/admin/users/{id}/reset-password`, which also signs the user out everywhere), the API generates a random 16-character password from an unambiguous alphabet, returns it once as `initial_password`, and sets `must_change_password`. Admins can't choose passwords: both admin bodies reject unknown fields, including `password`. While the flag is set, every endpoint except `GET /api/auth/me`, `POST /api/auth/password` and `POST /api/auth/logout` returns `403 password_change_required`, and the UI shows only the "Choose your password" screen. Replacing the one-time password keeps the current sign-in (signing out other sessions), so the user goes on to Getting started. A normal password change still signs out everywhere. The new password must differ from the current one.
 
-**CLI additions:** `mwb reset-password --username`, `mwb list-users`, `mwb rotate-secrets`, `mwb wiki-reconcile`, `mwb reembed`.
+**CLI additions:** `mwb reset-password --username` (prints a one-time password, re-enables the account; for when no admin can sign in), `mwb list-users`, `mwb rotate-secrets`, `mwb wiki-reconcile`, `mwb reembed`.
 
 **Offboarding.** `DELETE /api/admin/users/{id}?transfer_to=<admin_id>` (admin, CSRF, cannot delete self):
 
-1. Transfer ownership of every **public** item (documents, wiki pages incl. git file stays in public repo, projects, chat sessions, episodes) to `transfer_to`; audit each with the old owner id.
-2. Revoke sessions, delete the user's LiteLLM key (H12).
+1. Transfer ownership of every **public** item (documents with their chunks, wiki pages (the git file stays in the public repo), projects, chat sessions, episodes of those sessions) to `transfer_to`, which must be another active admin; audit each (`offboard.transfer`, with `from_user`). Conflicts: a public project whose repository the new owner already added is not transferred but deleted with its code index; documents and imported sessions that would collide on their unique keys get a `#from-<old id>` suffix; a transferred project whose card was a private page loses `card_page_id`.
+2. Revoke sessions (by cascade). Deleting the user's LiteLLM key is added by H12; no per-user keys exist before it.
 3. Delete the user row (cascades private data).
-4. Defer `cleanup_user_files(user_id)`: remove `/data/wiki/users/<id>`, repo caches of deleted projects, artifacts.
+4. After commit, defer `cleanup_user_files(user_id)` (removes `/data/wiki/users/<id>`; runs under the user's `librarian:<id>` lock) and `cleanup_project_cache` for each deleted project (under its project lock). Artifacts have no files on disk until Phase 4, which adds them to this task.
 
-The confirmation dialog shows counts of what will be transferred and deleted (`GET /api/admin/users/{id}/offboarding-preview`).
+The confirmation dialog shows counts of what will be transferred and deleted (`GET /api/admin/users/{id}/offboarding-preview?transfer_to=`), computed by the same function the delete uses, so they match. `DELETE` returns the same counts. Steps 1–3 are one transaction; any integrity error rolls everything back with `409 conflict`.
 
 ## H12. LLM gateway: keys, budgets, cost
 

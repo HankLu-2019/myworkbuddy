@@ -40,7 +40,7 @@ async def test_validation_error_lists_fields(anon) -> None:
 
 async def test_conflict_and_unsupported_file(client_for) -> None:
     admin = await client_for("hank", role="admin")
-    user = {"username": "dup", "password": "long-enough-pw"}
+    user = {"username": "dup"}
     assert (await admin.post("/api/admin/users", json=user)).status_code == 201
     _assert_error(await admin.post("/api/admin/users", json=user), 409, "conflict")
     resp = await admin.post("/api/knowledge/documents", files={"file": ("x.exe", b"MZ", "application/octet-stream")})

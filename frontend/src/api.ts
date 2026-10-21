@@ -119,6 +119,31 @@ export interface User {
   display_name: string | null;
   role: "admin" | "member";
   is_active: boolean;
+  /** Set for a one-time password: everything except changing it is refused (password_change_required). */
+  must_change_password?: boolean;
+  last_login_at?: string | null;
+}
+
+/** Returned once when an admin creates a user or resets a password. */
+export interface UserWithPassword extends User {
+  initial_password: string;
+}
+
+export interface SignIn {
+  id: number;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+  ip: string | null;
+  user_agent: string | null;
+  current: boolean;
+}
+
+export interface OffboardingPreview {
+  transfer_to: number;
+  transfer: Record<string, number>;
+  delete: Record<string, number>;
+  duplicate_projects: number[];
 }
 
 export interface Session {
@@ -223,6 +248,7 @@ export interface SecretStatus {
   kind: string;
   label: string;
   is_set: boolean;
+  status: "set" | "not_set" | "unreadable";
   updated_at: string | null;
 }
 

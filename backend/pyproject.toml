@@ -53,6 +53,8 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 source = ["app"]
+# SQLAlchemy async runs DB calls in greenlets; without this, lines after some awaits are not traced.
+concurrency = ["greenlet", "thread"]
 
 [tool.ruff]
 line-length = 120

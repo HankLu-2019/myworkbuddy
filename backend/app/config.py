@@ -25,8 +25,11 @@ class Settings(BaseSettings):
     embed_dims: int = 1024
     data_dir: Path = Path("/data")
     cookie_secure: bool = True
-    session_ttl_hours: int = 72
-    login_max_attempts: int = 5
+    session_ttl_hours: int = Field(72, gt=0)
+    session_idle_hours: int = Field(12, gt=0)
+    login_max_attempts: int = 5  # per username and IP
+    login_max_attempts_ip: int = 30
+    login_max_attempts_user: int = 20
     login_window_minutes: int = 15
     log_level: str = "INFO"
     repo_max_files: int = 300

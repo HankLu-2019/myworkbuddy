@@ -14,6 +14,8 @@ from app.models import AuthSession, User
 
 CSRF_HEADER = "X-CSRF-Token"
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+# The only endpoints a user with a one-time password may call until they change it (design 01 §H11).
+PASSWORD_CHANGE_ALLOWED = {("GET", "/api/auth/me"), ("POST", "/api/auth/password"), ("POST", "/api/auth/logout")}
 
 DB = Annotated[AsyncSession, Depends(get_db)]
 
@@ -34,6 +36,8 @@ async def get_auth(request: Request, db: DB) -> Auth:
         sent = request.headers.get(CSRF_HEADER, "")
         if not secrets.compare_digest(sent, session.csrf_token):
             raise AppError(status.HTTP_403_FORBIDDEN, "csrf_invalid", "Missing or invalid CSRF token")
+    if user.must_change_password and (request.method, request.url.path) not in PASSWORD_CHANGE_ALLOWED:
+        raise AppError(status.HTTP_403_FORBIDDEN, "password_change_required", "Change your password to continue")
     structlog.contextvars.bind_contextvars(user_id=user.id)
     return Auth(user=user, session=session)
 

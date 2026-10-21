@@ -9,6 +9,7 @@ interface AuthState {
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   clear: () => void;
+  passwordChanged: () => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -40,12 +41,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const passwordChanged = useCallback(() => {
+    setUser((u) => (u ? { ...u, must_change_password: false } : u));
+  }, []);
+
   const logout = useCallback(async () => {
     await api("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     clear();
   }, [clear]);
 
-  return <AuthContext.Provider value={{ user, loading, login, logout, clear }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, loading, login, logout, clear, passwordChanged }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthState {
