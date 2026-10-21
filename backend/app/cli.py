@@ -42,9 +42,13 @@ def create_admin(username: str = typer.Option("admin"), email: str | None = type
             if await db.scalar(select(User).where(User.username == name)):
                 typer.echo(f"User {name} already exists")
                 raise typer.Exit(1)
-            db.add(User(username=name, email=email, role="admin", password_hash=hash_password(password)))
+            user = User(username=name, email=email, role="admin", password_hash=hash_password(password))
+            db.add(user)
             await db.commit()
             typer.echo(f"Created admin {name}")
+        from app.llm.keys import create_for_new_user
+
+        await create_for_new_user(user.id)  # logged if the gateway isn't up yet; created on first use then
 
     asyncio.run(run())
 
@@ -155,6 +159,40 @@ def reembed_cmd(dry_run: bool = typer.Option(False, "--dry-run", help="Report co
         typer.echo(f"other model {model}: {count} chunks")
     typer.echo(f"waiting for a vector: {report['missing']}; failed 5+ times: {report['failed']}")
     typer.echo(f"cleared: {report['cleared']}" + (" (dry run)" if dry_run else ""))
+
+
+llm_cli = typer.Typer(help="AI gateway: per-user keys (design 01 §H12)")
+cli.add_typer(llm_cli, name="llm")
+
+
+@llm_cli.command("rotate-key")
+def llm_rotate_key(user: str = typer.Option(..., "--user", help="username")) -> None:
+    """Give a user a new gateway key and delete the old one (06-operations §8)."""
+    from app.llm.keys import rotate_key
+
+    async def run() -> None:
+        async with get_sessionmaker()() as db:
+            row = await db.scalar(select(User).where(User.username == normalize_username(user)))
+        if row is None:
+            typer.echo(f"No user {user}", err=True)
+            raise typer.Exit(1)
+        await rotate_key(row.id)
+
+    asyncio.run(run())
+    typer.echo(f"Rotated the gateway key for {normalize_username(user)}")
+
+
+@llm_cli.command("check")
+def llm_check() -> None:
+    """Create, list and delete a throwaway key on the gateway. Run after install and after upgrading LiteLLM."""
+    from app.llm.keys import check_gateway
+
+    problems = asyncio.run(check_gateway())
+    for p in problems:
+        typer.echo(f"problem: {p}", err=True)
+    if problems:
+        raise typer.Exit(1)
+    typer.echo("gateway key management ok")
 
 
 def main() -> None:

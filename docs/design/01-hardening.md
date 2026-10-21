@@ -335,7 +335,7 @@ The confirmation dialog shows counts of what will be transferred and deleted (`G
 
 ## H12. LLM gateway: keys, budgets, cost
 
-**LiteLLM database.** `mwb db-bootstrap` (run by the `migrate` service, H1) creates role `litellm` with `LITELLM_DB_PASSWORD` and database `litellm` owned by it, if missing. The gateway depends on `migrate` and gets `DATABASE_URL=postgresql://litellm:…@postgres:5432/litellm` and `STORE_MODEL_IN_DB=False`. LiteLLM manages its own schema.
+**LiteLLM database.** `mwb db-bootstrap` (run by the `migrate` service, H1) creates role `litellm` with `LITELLM_DB_PASSWORD` and database `litellm` owned by it, if missing. The gateway depends on `migrate` and gets `DATABASE_URL=postgresql://litellm:…@postgres:5432/litellm` and `STORE_MODEL_IN_DB=False`. LiteLLM manages its own schema. The gateway gets an explicit `environment:` list (master key, its DB URL, AWS credentials, model ids) instead of the whole `.env`, so it never sees `MWB_SECRET_KEYS` or the app database password (rule R7).
 
 **Model aliases** (`gateway/litellm.yaml`): `chat`, `fast`, `embed`, `planner`, `coder` (Phase 4), each mapped from env (`MWB_<ALIAS>_MODEL_ID`). `planner` defaults to the chat model id.
 
@@ -343,8 +343,10 @@ The confirmation dialog shows counts of what will be transferred and deleted (`G
 
 - On user creation (API and CLI), and lazily for existing users, `app/llm/keys.py` calls `POST /key/generate` with the master key: `{"key_alias": "mwb-user-<id>", "user_id": "mwb:<id>", "models": ["chat","fast","embed","planner"], "max_budget": <user budget>, "budget_duration": "30d", "metadata": {"mwb_user": <id>}}`.
 - The returned key is stored encrypted in `user_secrets` with `kind='gateway_key'`. System kinds are hidden from the Settings list and from the secrets API.
-- Admin can set a user's budget (`PATCH /api/admin/users/{id}` `llm_budget_usd`), which calls `/key/update`.
-- Deleting a user calls `/key/delete`.
+- Creation follows rule R1: read (no key) → close → `/key/generate` → short write that re-checks under `FOR UPDATE`. If another process stored a key meanwhile, ours is deleted and theirs is used. An in-process lock per user avoids that race inside one process. A failed creation at user-creation time is logged and retried on first use. Disabled users get no key (`403`).
+- Admin can set a user's budget (`PATCH /api/admin/users/{id}` `llm_budget_usd`, `null` = default), which calls `/key/update` after the commit; if the gateway refuses, the response is `502 llm_unavailable` (the DB value is kept and the update can be retried).
+- Deleting a user defers `delete_gateway_key(user_id)`, which calls `/key/delete` with `key_aliases: ["mwb-user-<id>"]`. Deleting by alias needs no secret, so it works after the user row (and its secrets) are gone. 5 attempts, exponential back-off.
+- Lookups use the alias too: spend comes from `GET /key/list?key_alias=…&return_full_object=true`, so a user key never appears in a URL (rule R7). The shapes are those of LiteLLM v1.103.5; `mwb llm check` creates, lists and deletes a throwaway key against the real gateway, and is part of first install and of every LiteLLM upgrade (06 §2, §7).
 - The master key is used only by `app/llm/keys.py` and the admin spend view. It never leaves `api`/`worker`.
 
 **Every LLM call** goes through `app/llm/client.py` (rule R11):
@@ -355,7 +357,9 @@ def limits_for(purpose: Purpose) -> UsageLimits                    # per purpose
 async def embedder_for(user_id: int) -> Embedder                   # GatewayEmbedder with the user's key
 ```
 
-The OpenAI provider is built with a shared HTTP client (pydantic-ai 2.58 deprecates `httpx.AsyncClient` here in favour of `httpx2.AsyncClient`; use whichever the pinned version expects) whose response event hook reads `x-litellm-response-cost` and adds it to a `contextvars` accumulator (`app.llm.usage.current_cost()`). Callers read the accumulator after a run and store it (`messages.cost_usd`, `runs.cost_usd`, `jobs.cost_usd`).
+The OpenAI provider is built with one shared `httpx2.AsyncClient` (what pydantic-ai 2.58 expects; the embedder uses httpx2 too). Its response hook feeds a `contextvars` accumulator (`app.llm.usage.track()`): `x-litellm-response-cost` when present, otherwise the call's `x-litellm-call-id`. LiteLLM documents the cost-component headers as non-streaming only, and a streamed response's headers are sent before its cost is known. So for streamed calls (chat), the message is saved with the known part of the cost, and `settle_costs(message_id, call_ids)` runs 90 s later, then each minute up to 5 times. It adds each call's `spend` from `GET /spend/logs?request_id=<call id>` (LiteLLM writes spend logs in batches). `app.llm.client.run(agent, prompt, user_id=, purpose=)` applies limits and timeout, tracks cost (`result.cost_usd`) and maps budget errors. Chat streams with `run_stream_events(..., usage_limits=limits_for("chat_turn"))` inside `asyncio.timeout(timeout_for("chat_turn"))`. `runs.cost_usd` / `jobs.cost_usd` arrive with those tables (Phases 2 and 4).
+
+Embeddings use the key of the user who owns the text: the document owner when indexing (`embed_missing` groups chunks by owner), the searcher for query vectors. The master key is used only for the one-off embedding-model probe (H10). An exhausted budget is an outage for `embed_missing`, not a bad chunk.
 
 | Purpose | Alias | request_limit | total_tokens_limit | timeout |
 |---|---|---|---|---|
@@ -367,9 +371,13 @@ The OpenAI provider is built with a shared HTTP client (pydantic-ai 2.58 depreca
 | scheduled run (Phase 2) | per agent | 12 | 300 000 | `max_runtime_s` |
 | plan draft (Phase 3) | planner | 20 | 400 000 | 600 s |
 
-**Budget errors.** The gateway returns an error when a key is over budget. `app/llm/client.py` maps it to `AppError(code="budget_exceeded")`. Chat shows "You've reached your monthly AI budget (USD X). An admin can raise it." Background tasks record the run as failed with that code and do not retry.
+**Budget errors.** The gateway returns an error when a key is over budget: `429` with `error.type = "budget_exceeded"` in current LiteLLM, `400`/`401` with `ExceededTokenBudget` in older versions. `is_budget_error()` accepts both. `app/llm/client.py` maps it to `AppError(402, "budget_exceeded")` with "You've reached your monthly AI budget (USD X). An admin can raise it."; chat sends it as an SSE `error` event with that `code` (then `done`). Background tasks fail without retry: `NoRetryOnBudget`, a Procrastinate `RetryStrategy`, returns no retry for `budget_exceeded`. The librarian records a `failed` run and ingest a failed project with the message. Other chat failures carry `code: "llm_unavailable"` (timeout, usage limit, gateway error).
 
-**Spend view.** Admin → Users shows month-to-date spend per user (`GET /key/info` per key, cached 5 min). The user's own Settings page shows their spend and budget.
+**Spend view.** `GET /api/admin/usage` (admin) and `GET /api/usage` (self) return `{user_id, spend_usd, budget_usd, budget_reset_at, fetched_at}`, cached 5 min per user in the api process. `spend_usd` is `null` when the gateway can't be asked; that's not an error. Admin → Users shows spend / budget with an inline "Change" for the budget; Settings → AI usage shows spend, budget, a progress bar and the reset date.
+
+**Untrusted text (rule R6) lands here too.** `app/llm/untrusted.py` (`wrap`, `UNTRUSTED_NOTICE`, `with_notice`) is in place. Every system prompt in `app/knowledge/prompts.py` carries the notice. Chat's `search_knowledge` and `get_session` results are wrapped. A project card goes into the chat system prompt only when it is the user's own page.
+
+**CLI.** `mwb llm rotate-key --user <name>` (new key stored, old deleted) and `mwb llm check`.
 
 ## H13. Chat robustness
 

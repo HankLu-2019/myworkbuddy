@@ -109,7 +109,7 @@ jobs:
         run: |
           cp .env.example .env
           key=$(python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
-          sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=ci-postgres|; s|^MWB_SECRET_KEY=.*|MWB_SECRET_KEY=$key|; s|^MWB_COOKIE_SECURE=.*|MWB_COOKIE_SECURE=false|; s|^MWB_HOSTNAME=.*|MWB_HOSTNAME=http://localhost:8080|; s|^MWB_TLS_MODE=.*|MWB_TLS_MODE=none|; s|^LITELLM_MASTER_KEY=.*|LITELLM_MASTER_KEY=sk-ci|" .env
+          sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=ci-postgres|; s|^MWB_SECRET_KEY=.*|MWB_SECRET_KEY=$key|; s|^MWB_COOKIE_SECURE=.*|MWB_COOKIE_SECURE=false|; s|^MWB_HOSTNAME=.*|MWB_HOSTNAME=http://localhost:8080|; s|^MWB_TLS_MODE=.*|MWB_TLS_MODE=none|; s|^LITELLM_MASTER_KEY=.*|LITELLM_MASTER_KEY=sk-ci|; s|^LITELLM_DB_PASSWORD=.*|LITELLM_DB_PASSWORD=ci-litellm|" .env
       - name: Start stack with the fake LLM
         run: docker compose -f docker-compose.yml -f compose.ci.yml up -d --build --wait --wait-timeout 300 api worker web caddy > stack.log 2>&1 || { cat stack.log; { docker compose -f docker-compose.yml -f compose.ci.yml ps -a; docker compose -f docker-compose.yml -f compose.ci.yml logs --tail 25 migrate api worker web caddy llm-gateway; } > stack-state.log 2>&1; grep -i -E 'error|denied|invalid|conflict|failed|address' stack.log | tail -n 15 > stack-err.log; mv stack-err.log stack.log; cat stack-state.log >> stack.log; cat stack.log; exit 1; }
       - name: Create admin

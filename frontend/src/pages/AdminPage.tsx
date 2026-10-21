@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Navigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type OffboardingPreview, type User, type UserWithPassword } from "../api";
+import { api, type OffboardingPreview, type Usage, type User, type UserWithPassword } from "../api";
 import { useAuth } from "../auth";
 import { ErrorNote, PageHeader, formatDate } from "../components/ui";
 
@@ -147,12 +147,79 @@ function Offboard({ target, admins, onDone }: { target: User; admins: User[]; on
   );
 }
 
+function Budget({ u, usage }: { u: User; usage?: Usage }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const save = useMutation({
+    mutationFn: () =>
+      api<User>(`/api/admin/users/${u.id}`, { method: "PATCH", json: { llm_budget_usd: value === "" ? null : value } }),
+    onSuccess: () => {
+      setEditing(false);
+      qc.invalidateQueries({ queryKey: ["users"] });
+      qc.invalidateQueries({ queryKey: ["usage-all"] });
+    },
+  });
+  const spend = usage?.spend_usd;
+  const budget = usage?.budget_usd ?? u.llm_budget_usd;
+  if (editing) {
+    return (
+      <form
+        className="inline-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate();
+        }}
+      >
+        <input
+          aria-label={`Monthly budget for ${u.username} (USD)`}
+          type="number"
+          min={0}
+          step="0.01"
+          value={value}
+          placeholder="default"
+          onChange={(e) => setValue(e.target.value)}
+        />
+        <button type="submit" disabled={save.isPending}>
+          Save
+        </button>
+        <button type="button" onClick={() => setEditing(false)}>
+          Cancel
+        </button>
+        <ErrorNote error={save.error} />
+      </form>
+    );
+  }
+  return (
+    <>
+      {spend === null || spend === undefined ? "—" : `USD ${spend.toFixed(2)}`}
+      {budget !== null && budget !== undefined && <span className="muted"> / {budget.toFixed(2)}</span>}{" "}
+      <button
+        className="link"
+        aria-label={`Change budget for ${u.username}`}
+        onClick={() => {
+          setValue(u.llm_budget_usd === null || u.llm_budget_usd === undefined ? "" : String(u.llm_budget_usd));
+          setEditing(true);
+        }}
+      >
+        Change
+      </button>
+    </>
+  );
+}
+
 export default function AdminPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [oneTime, setOneTime] = useState<UserWithPassword | null>(null);
   const [deleting, setDeleting] = useState<User | null>(null);
   const users = useQuery({ queryKey: ["users"], queryFn: () => api<User[]>("/api/admin/users"), enabled: user?.role === "admin" });
+  const usage = useQuery({
+    queryKey: ["usage-all"],
+    queryFn: () => api<Usage[]>("/api/admin/usage"),
+    enabled: user?.role === "admin",
+  });
+  const usageOf = new Map((usage.data ?? []).map((x) => [x.user_id, x]));
   const update = useMutation({
     mutationFn: ({ id, body }: { id: number; body: Record<string, unknown> }) =>
       api<User>(`/api/admin/users/${id}`, { method: "PATCH", json: body }),
@@ -185,6 +252,7 @@ export default function AdminPage() {
               <th>Role</th>
               <th>Status</th>
               <th>Last sign-in</th>
+              <th>AI spend / budget (USD)</th>
               <th />
             </tr>
           </thead>
@@ -212,6 +280,9 @@ export default function AdminPage() {
                   {u.must_change_password && <div className="muted small">Must change password</div>}
                 </td>
                 <td>{u.last_login_at ? formatDate(u.last_login_at) : <span className="muted">Never</span>}</td>
+                <td>
+                  <Budget u={u} usage={usageOf.get(u.id)} />
+                </td>
                 <td className="row-actions">
                   <button
                     onClick={() =>

@@ -26,7 +26,7 @@ Self-hosted engineering workbench: FastAPI + SQLAlchemy async + Procrastinate (b
 - **R14** Config validated at startup.
 - **R15** Tests ship with the task; CI green; backend coverage ≥ 80 %.
 
-Some modules named above are created by Phase H tasks: `app/errors.py` (H5), `app/llm/client.py` (H12), `app/llm/untrusted.py` (H12, used from Phase 2). Until they exist, follow the existing pattern and don't add new direct `OpenAIProvider` uses.
+LLM calls: build models with `app.llm.client.model_for(user_id, alias)`, run agents with `app.llm.client.run(..., purpose=)`, and embed with `embedder_for(user_id)`; `tests/test_llm_gateway.py` fails on any other `OpenAIProvider(`, `OpenAIChatModel(` or `agent.run(`. Wrap untrusted text with `app.llm.untrusted.wrap` and keep `UNTRUSTED_NOTICE` in every system prompt.
 
 Frontend: follow `docs/design/07-ux.md` (navigation, page specs, flows, shared states, wording glossary, accessibility). Use the shared components; don't style one-off buttons, tables or dialogs. Render Markdown only with `components/ui.tsx` `Markdown` (no remote images, no raw HTML). Never `dangerouslySetInnerHTML`.
 

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.knowledge import prompts
 from app.knowledge.chunking import ChunkIn
 from app.knowledge.indexer import commit_before_network, upsert_document
-from app.llm.models import get_chat_model
+from app.llm import client as llm
 from app.logs import log
 from app.models import ChatSession, Episode, Message, ToolCall
 
@@ -84,8 +84,9 @@ async def build_episode(db: AsyncSession, session_id: uuid.UUID) -> Episode | No
     )
     await commit_before_network(db)
 
-    agent = Agent(get_chat_model(), output_type=EpisodeSummary, instructions=prompts.EPISODE)
-    summary = (await agent.run(f"Session title: {title}\nSource: {source}\n\n{transcript}")).output
+    agent = Agent(await llm.model_for(owner_id), output_type=EpisodeSummary, instructions=prompts.EPISODE)
+    prompt = f"Session title: {title}\nSource: {source}\n\n{transcript}"
+    summary = (await llm.run(agent, prompt, user_id=owner_id, purpose="episode")).output
 
     doc = await upsert_document(
         db,

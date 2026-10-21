@@ -10,7 +10,7 @@ export type Handler = (init: RequestInit & { url: string }) => unknown;
 export const ADMIN = { id: 1, username: "root", email: null, display_name: null, role: "admin", is_active: true };
 export const MEMBER = { id: 2, username: "alice", email: "a@x", display_name: "Alice", role: "member", is_active: true };
 
-/** Route fetch calls by "METHOD path" (query string ignored). Unmatched calls fail the test loudly. */
+/** Route fetch calls by "METHOD path" (query string ignored). Unmatched calls get HTTP 599 (the page shows an error). */
 export function mockApi(routes: Record<string, Handler | unknown>) {
   const calls: { method: string; path: string; body: unknown; headers: Record<string, string> }[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {

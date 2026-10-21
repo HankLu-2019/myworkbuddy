@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_sessionmaker
 from app.knowledge.acl import Visibility
 from app.knowledge.chunking import ChunkIn
-from app.llm.embeddings import current_embed_model, embed_model_id, get_embedder, is_permanent_failure
+from app.llm.client import embedder_for
+from app.llm.embeddings import current_embed_model, embed_model_id, is_permanent_failure
 from app.logs import log
 from app.models import Chunk, Document, Project
 
@@ -117,7 +118,8 @@ async def embed_prepared(p: PreparedDoc) -> Embedded:
     fresh: list[Vector] = [None] * len(todo)
     if todo:
         try:
-            fresh = list(await get_embedder().embed([p.texts[i] for i in todo]))
+            embedder = await embedder_for(p.owner_id)  # the owner's key pays (rule R11)
+            fresh = list(await embedder.embed([p.texts[i] for i in todo]))
         except Exception as exc:  # embedding service down: store without vectors, backfill later
             log.warning("index.embed_deferred", chunks=len(todo), error=str(exc))
     by_index = dict(zip(todo, fresh, strict=True))
@@ -223,14 +225,15 @@ MAX_EMBED_ATTEMPTS = 5
 async def embed_missing(db: AsyncSession, batch: int = 256) -> int:
     """Fill vectors for chunks stored without one. Read, commit, embed, then write in a new transaction.
 
-    If the batch fails, each chunk is retried on its own once, so one bad chunk can't block the others. A chunk
-    whose input is refused (4xx) gets `embed_attempts += 1` and `embed_error`; after MAX_EMBED_ATTEMPTS it is no
-    longer selected (the System page lists it). Outages (timeouts, 5xx, 429) don't count against chunks.
+    Chunks are embedded with their owner's key (rule R11), one owner group at a time. If a batch fails, each
+    chunk is retried on its own once, so one bad chunk can't block the others. A chunk whose input is refused
+    (4xx) gets `embed_attempts += 1` and `embed_error`; after MAX_EMBED_ATTEMPTS it is no longer selected (the
+    System page lists it). Outages (timeouts, 5xx, 429, an exhausted budget) don't count against chunks.
     Returns the number of chunks embedded.
     """
     rows = (
         await db.execute(
-            select(Chunk.id, Chunk.content, Document.title, Chunk.meta)
+            select(Chunk.id, Chunk.content, Chunk.owner_id, Document.title, Chunk.meta)
             .join(Document, Document.id == Chunk.document_id)
             .where(Chunk.embedding.is_(None), Chunk.embed_attempts < MAX_EMBED_ATTEMPTS)
             .order_by(Chunk.id)
@@ -243,17 +246,25 @@ async def embed_missing(db: AsyncSession, batch: int = 256) -> int:
     texts = [_embed_text(r.title, ChunkIn(r.content, r.meta or {})) for r in rows]
     vectors: list[Vector] = [None] * len(rows)
     errors: dict[int, str] = {}
-    try:
-        vectors = list(await get_embedder().embed(texts))
-    except Exception as exc:
-        if not is_permanent_failure(exc):
-            log.warning("index.embed_missing_unavailable", chunks=len(rows), error=str(exc)[:300])
-            return 0
-        for i, t in enumerate(texts):
+    by_owner: dict[int, list[int]] = {}
+    for i, r in enumerate(rows):
+        by_owner.setdefault(r.owner_id, []).append(i)
+    for owner_id, idx in by_owner.items():
+        try:
+            embedder = await embedder_for(owner_id)
+            got = list(await embedder.embed([texts[i] for i in idx]))
+            for i, v in zip(idx, got, strict=True):
+                vectors[i] = v
+            continue
+        except Exception as exc:
+            if not is_permanent_failure(exc):
+                log.warning("index.embed_missing_unavailable", owner_id=owner_id, chunks=len(idx), error=str(exc)[:300])
+                continue
+        for i in idx:
             try:
-                [vectors[i]] = await get_embedder().embed([t])
+                [vectors[i]] = await embedder.embed([texts[i]])
             except Exception as one:
-                if not is_permanent_failure(one):  # the service went away mid-way: stop, retry next tick
+                if not is_permanent_failure(one):  # the service went away mid-way: retry next tick
                     log.warning("index.embed_missing_unavailable", error=str(one)[:300])
                     break
                 errors[i] = str(one)[:1000]

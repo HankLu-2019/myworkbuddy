@@ -33,7 +33,25 @@ services:
   llm-gateway:
     image: ghcr.io/berriai/litellm:v1.103.5
     command: ["--config", "/app/config.yaml", "--port", "4000"]
-    env_file: .env
+    # Only what the gateway needs (rule R7: it never sees MWB_SECRET_KEYS or the app database password).
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      # Virtual keys, budgets and spend logs live in the gateway's own database (design 01 §H12).
+      DATABASE_URL: postgresql://litellm:${LITELLM_DB_PASSWORD}@postgres:5432/litellm
+      STORE_MODEL_IN_DB: "False"
+      AWS_REGION: ${AWS_REGION:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      MWB_CHAT_MODEL_ID: ${MWB_CHAT_MODEL_ID}
+      MWB_FAST_MODEL_ID: ${MWB_FAST_MODEL_ID}
+      MWB_EMBED_MODEL_ID: ${MWB_EMBED_MODEL_ID}
+      MWB_PLANNER_MODEL_ID: ${MWB_PLANNER_MODEL_ID:-${MWB_CHAT_MODEL_ID}}
+      OPENAI_COMPAT_BASE_URL: ${OPENAI_COMPAT_BASE_URL:-}
+      OPENAI_COMPAT_API_KEY: ${OPENAI_COMPAT_API_KEY:-}
+    depends_on:
+      migrate:  # creates the litellm role and database
+        condition: service_completed_successfully
     volumes:
       - ./gateway/litellm.yaml:/app/config.yaml:ro
     healthcheck:

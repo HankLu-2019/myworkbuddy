@@ -9,6 +9,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -26,8 +27,11 @@ from app.audit.service import audit
 from app.chat.agent import ChatDeps, build_agent
 from app.db import get_sessionmaker
 from app.deps import DB, CurrentAuth
+from app.errors import AppError
 from app.knowledge.acl import ensure_view, visible_filter
 from app.knowledge.indexer import set_visibility
+from app.llm import client as llm
+from app.llm import usage
 from app.logs import log
 from app.models import ChatSession, Document, Episode, Message, Project, ToolCall, User
 from app.tasks.app import build_episode_task, defer_once
@@ -242,59 +246,89 @@ async def _stream(session: ChatSession, user: User, content: str) -> AsyncIterat
     tool_rows: dict[str, int] = {}
     result = None
     log.info("chat.turn_started")
+    error: dict[str, Any] | None = None
+    tracked = usage.Usage()
     try:
-        history = await _history(session.id)
-        async with build_agent().run_stream_events(content, message_history=history, deps=deps) as events:
-            async for ev in events:
-                if isinstance(ev, PartStartEvent) and isinstance(ev.part, TextPart) and ev.part.content:
-                    text_parts.append(ev.part.content)
-                    yield _sse("delta", {"text": ev.part.content})
-                elif isinstance(ev, PartDeltaEvent) and isinstance(ev.delta, TextPartDelta):
-                    text_parts.append(ev.delta.content_delta)
-                    yield _sse("delta", {"text": ev.delta.content_delta})
-                elif isinstance(ev, FunctionToolCallEvent):
-                    async with maker() as db:
-                        row = ToolCall(
-                            session_id=session.id,
-                            call_id=ev.part.tool_call_id,
-                            tool_name=ev.part.tool_name,
-                            args=ev.part.args_as_dict(),
-                        )
-                        db.add(row)
-                        await db.commit()
-                        tool_rows[ev.part.tool_call_id] = row.id
-                    log.info("chat.tool_call", tool=ev.part.tool_name)
-                    yield _sse("tool_call", {"name": ev.part.tool_name, "args": ev.part.args_as_dict()})
-                elif isinstance(ev, FunctionToolResultEvent):
-                    async with maker() as db:
-                        await db.execute(
-                            update(ToolCall)
-                            .where(ToolCall.id == tool_rows.get(ev.part.tool_call_id))
-                            .values(status="done", result=to_jsonable_python(ev.part.content))
-                        )
-                        await db.commit()
-                    yield _sse("tool_result", {"name": ev.part.tool_name})
-                elif isinstance(ev, AgentRunResultEvent):
-                    result = ev.result
+        with usage.track() as tracked:
+            history = await _history(session.id)
+            agent = build_agent(await llm.model_for(user.id))
+            async with (
+                asyncio.timeout(llm.timeout_for("chat_turn")),
+                agent.run_stream_events(
+                    content, message_history=history, deps=deps, usage_limits=llm.limits_for("chat_turn")
+                ) as events,
+            ):
+                async for ev in events:
+                    if isinstance(ev, PartStartEvent) and isinstance(ev.part, TextPart) and ev.part.content:
+                        text_parts.append(ev.part.content)
+                        yield _sse("delta", {"text": ev.part.content})
+                    elif isinstance(ev, PartDeltaEvent) and isinstance(ev.delta, TextPartDelta):
+                        text_parts.append(ev.delta.content_delta)
+                        yield _sse("delta", {"text": ev.delta.content_delta})
+                    elif isinstance(ev, FunctionToolCallEvent):
+                        async with maker() as db:
+                            row = ToolCall(
+                                session_id=session.id,
+                                call_id=ev.part.tool_call_id,
+                                tool_name=ev.part.tool_name,
+                                args=ev.part.args_as_dict(),
+                            )
+                            db.add(row)
+                            await db.commit()
+                            tool_rows[ev.part.tool_call_id] = row.id
+                        log.info("chat.tool_call", tool=ev.part.tool_name)
+                        yield _sse("tool_call", {"name": ev.part.tool_name, "args": ev.part.args_as_dict()})
+                    elif isinstance(ev, FunctionToolResultEvent):
+                        async with maker() as db:
+                            await db.execute(
+                                update(ToolCall)
+                                .where(ToolCall.id == tool_rows.get(ev.part.tool_call_id))
+                                .values(status="done", result=to_jsonable_python(ev.part.content))
+                            )
+                            await db.commit()
+                        yield _sse("tool_result", {"name": ev.part.tool_name})
+                    elif isinstance(ev, AgentRunResultEvent):
+                        result = ev.result
+    except AppError as exc:
+        error = {"code": exc.code, "message": exc.detail}
     except Exception as exc:
-        log.exception("chat.failed")
-        yield _sse("error", {"message": f"The model call failed: {exc}"[:500]})
+        if llm.is_budget_error(exc):
+            err = await llm.budget_error(user.id)
+            log.warning("llm.budget_exceeded", user_id=user.id, purpose="chat_turn")
+            error = {"code": err.code, "message": err.detail}
+        elif isinstance(exc, TimeoutError):
+            error = {"code": "llm_unavailable", "message": "The model took too long to answer. Try again."}
+        elif isinstance(exc, UsageLimitExceeded):
+            error = {
+                "code": "llm_unavailable",
+                "message": "This answer needed too many steps. Try a narrower question.",
+            }
+        else:
+            log.exception("chat.failed")
+            error = {"code": "llm_unavailable", "message": f"The model call failed: {exc}"[:500]}
     except BaseException as exc:  # cancellation (client went away) is otherwise silent
         log.warning("chat.cancelled", error=type(exc).__name__, partial_chars=len("".join(text_parts)))
         raise
     finally:
         message_id = await asyncio.shield(
-            _save_assistant(session.id, text_parts, result, deps, list(tool_rows.values()))
+            _save_assistant(session.id, text_parts, result, deps, list(tool_rows.values()), tracked)
         )
+    if error:
+        yield _sse("error", error)
     yield _sse("done", {"message_id": message_id, "citations": deps.citations})
 
 
 async def _save_assistant(
-    session_id: uuid.UUID, text_parts: list[str], result: Any, deps: ChatDeps, tool_ids: list[int]
+    session_id: uuid.UUID,
+    text_parts: list[str],
+    result: Any,
+    deps: ChatDeps,
+    tool_ids: list[int],
+    tracked: usage.Usage,
 ) -> int | None:
     if result is None and not "".join(text_parts).strip():
         return None  # the model produced nothing; the user's message stays so they can retry
-    usage = result.usage if result else None
+    run_usage = result.usage if result else None
     async with get_sessionmaker()() as db:
         msg = Message(
             session_id=session_id,
@@ -302,8 +336,9 @@ async def _save_assistant(
             content=result.output if result else "".join(text_parts),
             raw=to_jsonable_python(result.new_messages()) if result else None,
             meta={"citations": deps.citations},
-            tokens_in=usage.input_tokens if usage else None,
-            tokens_out=usage.output_tokens if usage else None,
+            tokens_in=run_usage.input_tokens if run_usage else None,
+            tokens_out=run_usage.output_tokens if run_usage else None,
+            cost_usd=tracked.cost_usd,
         )
         db.add(msg)
         await db.flush()
@@ -311,8 +346,13 @@ async def _save_assistant(
             await db.execute(update(ToolCall).where(ToolCall.id.in_(tool_ids)).values(message_id=msg.id))
         await db.execute(update(ChatSession).where(ChatSession.id == session_id).values(updated_at=datetime.now(UTC)))
         await db.commit()
+        if tracked.unpriced_call_ids:  # streamed calls: the gateway's spend log has their cost a bit later
+            from app.tasks.app import defer_settle_costs
+
+            await defer_settle_costs(msg.id, tracked.unpriced_call_ids)
         log.info(
             "chat.message_saved",
+            cost_usd=float(tracked.cost_usd),
             message_id=msg.id,
             tokens_in=msg.tokens_in,
             tokens_out=msg.tokens_out,

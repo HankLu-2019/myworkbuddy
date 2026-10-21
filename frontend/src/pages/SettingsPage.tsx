@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type SecretStatus, type SignIn } from "../api";
+import { api, type SecretStatus, type SignIn, type Usage } from "../api";
 import { useAuth } from "../auth";
 import { ErrorNote, PageHeader, formatDate } from "../components/ui";
 
@@ -141,6 +141,37 @@ function Sessions() {
   );
 }
 
+export function usd(n: number): string {
+  return `USD ${n.toFixed(2)}`;
+}
+
+function AiUsage() {
+  const usage = useQuery({ queryKey: ["usage"], queryFn: () => api<Usage>("/api/usage") });
+  const u = usage.data;
+  if (usage.error) return <ErrorNote error={usage.error} />;
+  if (!u) return null;
+  const pct = u.spend_usd !== null && u.budget_usd > 0 ? Math.min(100, (u.spend_usd / u.budget_usd) * 100) : null;
+  return (
+    <div className="card stack narrow">
+      {u.spend_usd === null ? (
+        <p className="muted">Spend isn't available right now. Your budget is {usd(u.budget_usd)} a month.</p>
+      ) : (
+        <>
+          <p>
+            {usd(u.spend_usd)} of {usd(u.budget_usd)} used
+            {u.budget_reset_at && <span className="muted"> · resets {formatDate(u.budget_reset_at)}</span>}
+          </p>
+          <progress max={100} value={pct ?? 0} aria-label="Share of monthly AI budget used" />
+          {pct !== null && pct >= 100 && (
+            <p className="error-text small">You've reached your monthly AI budget. An admin can raise it.</p>
+          )}
+        </>
+      )}
+      <p className="muted small">Updated every few minutes.</p>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const secrets = useQuery({ queryKey: ["secrets"], queryFn: () => api<SecretStatus[]>("/api/secrets") });
   return (
@@ -157,6 +188,8 @@ export default function SettingsPage() {
           <tbody>{secrets.data?.map((s) => <SecretRow key={s.kind} s={s} />)}</tbody>
         </table>
       </div>
+      <h2>AI usage</h2>
+      <AiUsage />
       <h2>Sessions</h2>
       <Sessions />
       <h2>Password</h2>

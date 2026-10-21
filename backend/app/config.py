@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     gateway_key: str = ""
     chat_model: str = "chat"
     fast_model: str = "fast"
+    planner_model: str = "planner"
+    default_user_budget_usd: float = Field(50, ge=0)  # monthly, per user (design 01 §H12)
     embed_model: str = "embed"
     embed_dims: int = 1024
     data_dir: Path = Path("/data")

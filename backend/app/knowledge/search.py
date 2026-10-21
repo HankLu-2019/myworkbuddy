@@ -6,7 +6,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.knowledge.indexer import commit_before_network
-from app.llm.embeddings import embed_model_id, get_embedder
+from app.llm.client import embedder_for
+from app.llm.embeddings import embed_model_id
 from app.logs import log
 from app.models import User
 
@@ -73,7 +74,7 @@ async def hybrid_search(
         return []
     await commit_before_network(db)  # rule R1: the query embedding is a network call
     try:
-        [qvec] = await get_embedder().embed([query])
+        [qvec] = await (await embedder_for(user.id)).embed([query])  # the user's key pays (rule R11)
     except Exception as exc:  # embedding service down: keyword search still answers
         log.warning("search.embed_failed", error=str(exc))
         qvec = None

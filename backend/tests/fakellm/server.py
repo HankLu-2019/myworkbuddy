@@ -4,6 +4,14 @@ Implements the slice of the OpenAI API the app uses:
 - POST /v1/chat/completions (streaming and not), including tool calls and structured output tools
 - POST /v1/embeddings (bag-of-words vectors, same scheme as app.llm.embeddings.HashEmbedder)
 - GET /health/liveliness
+- LiteLLM key management (design 01 §H12): POST /key/generate, /key/update, /key/delete (keys or key_aliases),
+  GET /key/list?key_alias=&return_full_object=true, GET /spend/logs?request_id=, plus POST /fake/reset for tests.
+
+Keys: a request whose bearer token is a generated key is checked against that key's models and budget (HTTP 429
+`budget_exceeded` when spend has reached max_budget, like LiteLLM) and its cost is added to the key's spend.
+Any other bearer token is treated as the master key. Every chat call costs USD 0.001 and every embeddings call
+USD 0.00001. Non-streamed responses carry `x-litellm-response-cost`; streamed ones only `x-litellm-call-id`,
+and their cost appears in the spend log after the stream ends (as with LiteLLM).
 
 Chat behaviour:
 - If the request offers `search_knowledge` and the last message is from the user, call it with the user's text
@@ -28,6 +36,108 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 app = FastAPI(title="fake-llm")
 
+CHAT_COST = 0.001
+EMBED_COST = 0.00001
+KEYS: dict[str, dict[str, Any]] = {}
+SPEND_LOGS: dict[str, dict[str, Any]] = {}
+
+
+def _bearer(request: Request) -> str:
+    return request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+
+
+def _key_for(request: Request, model: str | None) -> tuple[dict[str, Any] | None, JSONResponse | None]:
+    """(key record or None for the master key, error response)."""
+    rec = KEYS.get(_bearer(request))
+    if rec is None:
+        return None, None
+    if model and rec["models"] and model not in rec["models"]:
+        err = {"message": f"key not allowed to access model {model}", "type": "key_model_access_denied"}
+        return rec, JSONResponse({"error": {**err, "param": "model", "code": "403"}}, status_code=403)
+    if rec["max_budget"] is not None and rec["spend"] >= rec["max_budget"]:
+        msg = (
+            f"Budget has been exceeded! Key={rec['key_alias']} "
+            f"Current cost: {rec['spend']}, Max budget: {rec['max_budget']}"
+        )
+        body = {"error": {"message": msg, "type": "budget_exceeded", "param": None, "code": "429"}}
+        return rec, JSONResponse(body, status_code=429)
+    return rec, None
+
+
+def _charge(rec: dict[str, Any] | None, cost: float) -> str:
+    call_id = f"call-{uuid.uuid4().hex}"
+    if rec is not None:
+        rec["spend"] = round(rec["spend"] + cost, 8)
+    SPEND_LOGS[call_id] = {"request_id": call_id, "spend": cost, "api_key_alias": rec and rec["key_alias"]}
+    return call_id
+
+
+def _public(rec: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in rec.items() if k != "token"}
+
+
+@app.post("/fake/reset")
+async def fake_reset() -> dict[str, bool]:
+    KEYS.clear()
+    SPEND_LOGS.clear()
+    return {"ok": True}
+
+
+@app.post("/key/generate")
+async def key_generate(request: Request) -> dict[str, Any]:
+    body = await request.json()
+    key = f"sk-{uuid.uuid4().hex}"
+    KEYS[key] = {
+        "token": key,
+        "key_alias": body.get("key_alias"),
+        "user_id": body.get("user_id"),
+        "models": body.get("models") or [],
+        "max_budget": body.get("max_budget"),
+        "budget_duration": body.get("budget_duration"),
+        "budget_reset_at": "2026-11-20T00:00:00+00:00" if body.get("budget_duration") else None,
+        "metadata": body.get("metadata") or {},
+        "spend": 0.0,
+    }
+    return {"key": key, **_public(KEYS[key])}
+
+
+@app.post("/key/update")
+async def key_update(request: Request):
+    body = await request.json()
+    rec = KEYS.get(body.get("key", ""))
+    if rec is None:
+        return JSONResponse({"error": {"message": "key not found", "type": "not_found"}}, status_code=404)
+    for field in ("max_budget", "models", "metadata"):
+        if field in body:
+            rec[field] = body[field]
+    return _public(rec)
+
+
+@app.post("/key/delete")
+async def key_delete(request: Request) -> dict[str, Any]:
+    body = await request.json()
+    keys = set(body.get("keys") or [])
+    aliases = set(body.get("key_aliases") or [])
+    gone = [k for k, rec in KEYS.items() if k in keys or rec["key_alias"] in aliases]
+    for k in gone:
+        del KEYS[k]
+    return {"deleted_keys": len(gone)}
+
+
+@app.get("/key/list")
+async def key_list(key_alias: str | None = None, return_full_object: bool = False) -> dict[str, Any]:
+    rows = [r for r in KEYS.values() if key_alias is None or r["key_alias"] == key_alias]
+    keys = [_public(r) for r in rows] if return_full_object else [r["key_alias"] for r in rows]
+    return {"keys": keys, "total_count": len(rows), "current_page": 1, "total_pages": 1}
+
+
+@app.get("/spend/logs")
+async def spend_logs(request_id: str | None = None) -> list[dict[str, Any]]:
+    if request_id is None:
+        return list(SPEND_LOGS.values())
+    return [SPEND_LOGS[request_id]] if request_id in SPEND_LOGS else []
+
+
 ANSWER = "Here is what I found in your knowledge base [1]."
 PLAIN_ANSWER = "This is a test answer from the fake model."
 _MARKER = re.compile(r"\[\[(\w+)(?::([^\]\s]+))?((?:\s+\w+=[^\]\s]+)*)\]\]")
@@ -50,10 +160,14 @@ def _embed(text: str, dims: int) -> list[float]:
 
 
 @app.post("/v1/embeddings")
-async def embeddings(request: Request) -> dict[str, Any]:
+async def embeddings(request: Request):
     body = await request.json()
+    rec, err = _key_for(request, "embed")
+    if err:
+        return err
     inputs = body["input"] if isinstance(body["input"], list) else [body["input"]]
     dims = int(body.get("dimensions") or 1024)
+    _charge(rec, EMBED_COST)
     return {
         "object": "list",
         "model": "fake-embed",
@@ -136,6 +250,9 @@ def _usage(body: dict[str, Any], text: str | None) -> dict[str, int]:
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     body = await request.json()
+    rec, err = _key_for(request, body.get("model"))
+    if err:
+        return err
     last_text = _text_of(body["messages"][-1]) if body.get("messages") else ""
     for m in _MARKER.finditer(last_text):
         if m.group(1) == "fail":
@@ -146,9 +263,10 @@ async def chat_completions(request: Request):
     base = {"id": f"chatcmpl-{uuid.uuid4().hex[:12]}", "created": int(time.time()), "model": body.get("model", "fake")}
     finish = "tool_calls" if tool_calls else "stop"
     usage = _usage(body, text)
-    headers = {"x-litellm-response-cost": "0.001"}
 
     if not body.get("stream"):
+        call_id = _charge(rec, CHAT_COST)
+        headers = {"x-litellm-response-cost": str(CHAT_COST), "x-litellm-call-id": call_id}
         message: dict[str, Any] = {"role": "assistant", "content": text}
         if tool_calls:
             message["tool_calls"] = tool_calls
@@ -161,6 +279,9 @@ async def chat_completions(request: Request):
             },
             headers=headers,
         )
+
+    call_id = f"call-{uuid.uuid4().hex}"
+    headers = {"x-litellm-call-id": call_id}  # a streamed response's cost isn't known when headers are sent
 
     async def events():
         def chunk(delta: dict[str, Any], finish_reason: str | None = None, **extra: Any) -> str:
@@ -184,5 +305,8 @@ async def chat_completions(request: Request):
         final = {**base, "object": "chat.completion.chunk", "choices": [], "usage": usage}
         yield f"data: {json.dumps(final)}\n\n"
         yield "data: [DONE]\n\n"
+        if rec is not None:
+            rec["spend"] = round(rec["spend"] + CHAT_COST, 8)
+        SPEND_LOGS[call_id] = {"request_id": call_id, "spend": CHAT_COST, "api_key_alias": rec and rec["key_alias"]}
 
     return StreamingResponse(events(), media_type="text/event-stream", headers=headers)

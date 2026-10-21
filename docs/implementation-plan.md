@@ -89,7 +89,7 @@ Design: [01-hardening.md](design/01-hardening.md) and, for H15–H16, [07-ux.md]
 - [x] **H11 Auth, sessions, secrets, offboarding** (01 §H11). Deleting the user's LiteLLM key moves to H12, which creates those keys.
   - Acceptance: each of the three rate-limit keys triggers 429 at its threshold; maintenance task deletes old login attempts, expired and idle sessions, old Procrastinate jobs and audit rows; idle timeout signs the user out; active sessions list and "sign out others" work; `MultiFernet` decrypts with an old key and `mwb rotate-secrets` re-encrypts; an undecryptable secret shows `unreadable` (not 500); offboarding transfers public items, deletes private ones, removes files and the LiteLLM key, and the preview counts match; CLI `reset-password`, `list-users` work.
 
-- [ ] **H12 LLM gateway: keys, budgets, cost** (01 §H12)
+- [x] **H12 LLM gateway: keys, budgets, cost** (01 §H12). Also brings `app/llm/untrusted.py` (rule R6) forward from Phase 2 for chat.
   - LiteLLM database and init script; per-user keys; `app/llm/client.py`; cost capture; usage limits; budget error mapping; spend views; `mwb llm rotate-key`.
   - Acceptance (against the fake LLM extended with `/key/*` endpoints and a cost header): creating a user creates a key with the configured budget; every LLM call in the codebase goes through `app/llm/client.py` (test greps for `OpenAIProvider(` outside it); assistant messages store `cost_usd`; a budget error yields `budget_exceeded` in chat and fails a background task without retry; usage limits per purpose are applied (unit test on `limits_for`); admin and self spend endpoints return cached values; offboarding a user deletes their key (from H11).
 

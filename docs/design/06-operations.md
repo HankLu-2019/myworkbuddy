@@ -20,6 +20,7 @@ docker compose run --rm api mwb generate-key        # paste into MWB_SECRET_KEYS
 # edit .env: see §3; put the TLS cert and key in deploy/tls/ (or set MWB_TLS_MODE=internal)
 docker compose -f docker-compose.yml up -d --wait
 docker compose exec api mwb create-admin --username admin --email you@company.example
+docker compose exec api mwb llm check                # gateway key management works (creates and deletes a test key)
 ```
 
 Then sign in at `https://$MWB_HOSTNAME`, create integrations (Phase 2+), create users, and check **Admin → System** shows all checks green.
@@ -39,7 +40,8 @@ Then sign in at `https://$MWB_HOSTNAME`, create integrations (Phase 2+), create 
 | `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | — | Or an instance role; region per O1 |
 | `MWB_CHAT_MODEL_ID`, `MWB_FAST_MODEL_ID`, `MWB_PLANNER_MODEL_ID`, `MWB_CODER_MODEL_ID`, `MWB_EMBED_MODEL_ID` | — | LiteLLM model strings |
 | `MWB_DEFAULT_TIMEZONE` | `Europe/Stockholm` | For new users |
-| `MWB_DEFAULT_USER_BUDGET_USD` | `50` | Monthly, per user |
+| `MWB_DEFAULT_USER_BUDGET_USD` | `50` | Monthly, per user; admins override per user |
+| `LITELLM_DB_PASSWORD` | — | Required: the gateway's own database (virtual keys, budgets, spend logs) |
 | `MWB_JOB_BUDGET_USD` | `10` | Per coding job |
 | `MWB_SESSION_TTL_HOURS` / `MWB_SESSION_IDLE_HOURS` | `72` / `12` | |
 | `MWB_LOGIN_MAX_ATTEMPTS` / `_IP` / `_USER`, `MWB_LOGIN_WINDOW_MINUTES` | `5` / `30` / `20`, `15` | Failed sign-ins per username+IP, per IP, per username |
@@ -109,6 +111,8 @@ Rollback: `git checkout <previous tag>` and `up -d` works only if the release no
 **Upgrading Procrastinate.** Read its release notes for new migration SQL files. Add an Alembic migration that executes those files in order (vendored into `backend/alembic/procrastinate/<version>/`), bump the exact pin, and run the CI `migration-upgrade` job.
 
 **Release with H10 (search quality).** After the upgrade, run `docker compose exec api mwb reembed --dry-run`, then `mwb reembed`. Vectors written before H10 are labelled with the configured alias instead of the resolved model, so search ignores them (keyword search still works) until the worker has re-embedded them. Migration 0004 rebuilds the BM25 index, which takes minutes for a team-sized index.
+
+**Upgrading LiteLLM.** Bump the image tag, `up -d llm-gateway`, then run `mwb llm check`. It exercises `/key/generate`, `/key/list?key_alias=` and `/key/delete` with `key_aliases`, which `app/llm/keys.py` relies on. Check the release notes for changes to the budget error (`budget_exceeded`) and the `x-litellm-call-id` / `x-litellm-response-cost` headers.
 
 **Upgrading ParadeDB / pg_search.** Major pg_search versions may require `REINDEX` of `chunks_bm25`. Follow ParadeDB's upgrade notes; run `ALTER EXTENSION pg_search UPDATE` in a migration; reindex during a maintenance window.
 
