@@ -93,7 +93,7 @@ Design: [01-hardening.md](design/01-hardening.md) and, for H15–H16, [07-ux.md]
   - LiteLLM database and init script; per-user keys; `app/llm/client.py`; cost capture; usage limits; budget error mapping; spend views; `mwb llm rotate-key`.
   - Acceptance (against the fake LLM extended with `/key/*` endpoints and a cost header): creating a user creates a key with the configured budget; every LLM call in the codebase goes through `app/llm/client.py` (test greps for `OpenAIProvider(` outside it); assistant messages store `cost_usd`; a budget error yields `budget_exceeded` in chat and fails a background task without retry; usage limits per purpose are applied (unit test on `limits_for`); admin and self spend endpoints return cached values; offboarding a user deletes their key (from H11).
 
-- [ ] **H13 Chat robustness** (01 §H13)
+- [x] **H13 Chat robustness** (01 §H13)
   - Acceptance: a second concurrent message to a session returns `409 session_busy`; the stream emits `: ping` during a slow model call (fake LLM delay); a mid-stream failure saves a `partial` message and the UI marks it; an immediate failure saves a `failed` message excluded from model history; error events carry codes and the UI shows a message per code.
 
 - [ ] **H14 Operations foundations** (01 §H14, 06)

@@ -48,6 +48,13 @@ describe("api", () => {
     expect(seen).toEqual(['delta:{"text":"Hel"}', 'delta:{"text":"lo"}', 'done:{"id":1}']);
   });
 
+  it("ignores keep-alive comments in the stream", async () => {
+    mockApi({ "POST /api/s": new Response(": ping\n\nevent: delta\ndata: {\"text\":\"a\"}\n\n: ping\n\n", { status: 200 }) });
+    const seen: string[] = [];
+    await streamPost("/api/s", {}, (e) => seen.push(e.event));
+    expect(seen).toEqual(["delta"]);
+  });
+
   it("parseEvent tolerates non-JSON data", () => {
     expect(parseEvent("event: x\ndata: plain")).toEqual({ event: "x", data: "plain" });
     expect(parseEvent("data: 3")).toEqual({ event: "message", data: 3 });

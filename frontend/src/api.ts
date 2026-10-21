@@ -88,6 +88,8 @@ export async function streamPost(path: string, json: unknown, onEvent: (e: Strea
     while ((idx = buffer.indexOf("\n\n")) >= 0) {
       const block = buffer.slice(0, idx);
       buffer = buffer.slice(idx + 2);
+      // Lines starting with ":" are SSE comments: the server's keep-alive pings during slow model calls.
+      if (block.split("\n").every((line) => line.startsWith(":") || line === "")) continue;
       onEvent(parseEvent(block));
     }
   }
@@ -185,6 +187,10 @@ export interface ChatMessage {
   created_at: string;
   citations: Citation[];
   tools: { name: string; args: Record<string, unknown>; status: string }[];
+  /** partial: the model failed after some text; failed: it failed before any (content is the error). */
+  status?: "complete" | "partial" | "failed";
+  error_code?: string | null;
+  cost_usd?: number | null;
 }
 
 export interface Hit {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, streamPost, type ChatMessage, type Citation, type Project, type Session } from "../api";
+import { api, ApiError, streamPost, type ChatMessage, type Citation, type Project, type Session } from "../api";
 import { useAuth } from "../auth";
 import { ErrorNote, Markdown, SOURCE_LABELS, VisibilityBadge } from "../components/ui";
 
@@ -41,6 +41,27 @@ function ToolActivity({ tools }: { tools: { name: string; args: Record<string, u
 }
 
 type Pending = { user: string; text: string; tools: { name: string; args: Record<string, unknown> }[]; error?: string };
+
+/** The user message a reply answered, for Retry. */
+export function previousUserText(messages: ChatMessage[], replyId: number): string {
+  const idx = messages.findIndex((m) => m.id === replyId);
+  for (let i = idx - 1; i >= 0; i--) if (messages[i].role === "user") return messages[i].content;
+  return "";
+}
+
+/** What to tell the user for each error code from the chat stream (design 01 §H13, 07-ux §6.8). */
+export function chatErrorText(code: string | undefined, message: string | undefined): string {
+  switch (code) {
+    case "budget_exceeded":
+      return message || "You've reached your monthly AI budget. An admin can raise it.";
+    case "session_busy":
+      return "A reply is still being written in another tab.";
+    case "llm_unavailable":
+      return message || "The AI model isn't answering right now. Try again in a minute.";
+    default:
+      return message || "Something went wrong. Try again.";
+  }
+}
 
 export default function ChatPage() {
   const { sessionId } = useParams();
@@ -110,14 +131,15 @@ export default function ChatPage() {
     },
   });
 
-  async function send(e?: FormEvent) {
+  async function send(e?: FormEvent, resend?: string) {
     e?.preventDefault();
-    const content = draft.trim();
+    const content = (resend ?? draft).trim();
     if (!content || !sessionId || streaming) return;
-    setDraft("");
+    if (resend === undefined) setDraft("");
     const controller = new AbortController();
     stream.current = controller;
     const state: Pending = { user: content, text: "", tools: [] };
+    let savedId: number | null = null;
     setPending({ ...state });
     setStreaming(true);
     try {
@@ -127,22 +149,24 @@ export default function ChatPage() {
         ({ event, data }) => {
           if (event === "delta") state.text += data.text;
           else if (event === "tool_call") state.tools = [...state.tools, data];
-          else if (event === "error") state.error = data.message;
+          else if (event === "error") state.error = chatErrorText(data.code, data.message);
+          else if (event === "done") savedId = data.message_id ?? null;
           setPending({ ...state });
         },
         controller.signal,
       );
     } catch (err) {
       if (controller.signal.aborted) return;
-      state.error = err instanceof Error ? err.message : String(err);
+      state.error = err instanceof ApiError ? chatErrorText(err.code, err.message) : String(err);
     } finally {
       setStreaming(false);
     }
     await qc.invalidateQueries({ queryKey: ["messages", sessionId] });
     qc.invalidateQueries({ queryKey: ["sessions"] });
     qc.invalidateQueries({ queryKey: ["session", sessionId] });
-    // The saved messages now include this turn; keep only an error note if the model call failed.
-    setPending(state.error ? { user: "", text: "", tools: [], error: state.error } : null);
+    // The saved messages now include this turn, including a partial or failed reply (which explains itself).
+    // Keep an error note only when nothing was saved, e.g. the chat was busy.
+    setPending(state.error && savedId === null ? { user: "", text: "", tools: [], error: state.error } : null);
   }
 
   function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -223,10 +247,31 @@ export default function ChatPage() {
             </div>
             <div className="messages">
               {messages.data?.map((m) => (
-                <div key={m.id} className={`msg msg-${m.role}`}>
+                <div key={m.id} className={`msg msg-${m.role}${m.status && m.status !== "complete" ? ` msg-${m.status}` : ""}`}>
                   {m.role === "assistant" && <ToolActivity tools={m.tools} />}
-                  <Markdown>{m.content}</Markdown>
+                  {m.status === "failed" ? (
+                    <div className="error-text" role="note">
+                      {chatErrorText(m.error_code ?? undefined, m.content)}
+                    </div>
+                  ) : (
+                    <Markdown>{m.content}</Markdown>
+                  )}
+                  {m.status === "partial" && (
+                    <div className="muted small" role="note">
+                      Incomplete — the model call failed.
+                    </div>
+                  )}
                   {m.role === "assistant" && <Citations items={m.citations} />}
+                  {m.role === "assistant" && (m.cost_usd ?? 0) > 0 && (
+                    <div className="muted small" aria-label="Cost of this reply">
+                      ${(m.cost_usd ?? 0) < 0.01 ? "<0.01" : (m.cost_usd ?? 0).toFixed(2)}
+                    </div>
+                  )}
+                  {m.role === "assistant" && m.status !== "complete" && m.status !== undefined && isOwner && (
+                    <button disabled={streaming} onClick={() => void send(undefined, previousUserText(messages.data ?? [], m.id))}>
+                      Retry
+                    </button>
+                  )}
                 </div>
               ))}
               {pending && (
