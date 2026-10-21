@@ -32,7 +32,7 @@ services:
     image: myworkbuddy-backend:dev
     environment:
       MWB_ENV: dev
-    command: ["sh", "-c", "mwb check-config && exec watchfiles --filter python 'procrastinate --app=app.tasks.app.app worker --concurrency=4' /app/app"]
+    command: ["sh", "-c", "mwb check-config && { mwb wiki-reconcile || echo wiki-reconcile failed, continuing; } && exec watchfiles --filter python 'procrastinate --app=app.tasks.app.app worker --concurrency=4' /app/app"]
     volumes:
       - ./backend/app:/app/app
       - mwbdata:/data

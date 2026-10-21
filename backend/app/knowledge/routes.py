@@ -16,7 +16,7 @@ from app.knowledge.acl import (
     ensure_view,
     visible_filter,
 )
-from app.knowledge.gitrepo import validate_page_path
+from app.knowledge.gitrepo import validate_page_path, validate_sha
 from app.knowledge.indexer import set_project_visibility, set_visibility
 from app.knowledge.ingest.files import MAX_UPLOAD_BYTES, ingest_upload
 from app.knowledge.ingest.repos import list_projects, project_name, validate_repo_url
@@ -28,10 +28,14 @@ from app.knowledge.wiki import (
     change_visibility,
     delete_page,
     find_page,
+    page_history,
+    page_version,
     read_page,
     repo_for,
+    repo_with_commit,
     save_page,
 )
+from app.knowledge.wiki_writer import WikiWriter
 from app.models import Chunk, Document, Project, User, WikiPage
 from app.tasks.app import build_episode_task, defer_once, ingest_project_task, librarian_user_task
 
@@ -212,6 +216,8 @@ class PageCreate(BaseModel):
 class PageUpdate(BaseModel):
     content: str = Field(max_length=500_000)
     message: str | None = Field(default=None, max_length=200)
+    # The page's head_sha when the editor loaded it; a different current version -> 409 wiki_conflict.
+    base_sha: str = Field(pattern=r"^[0-9a-f]{7,40}$")
 
 
 class CommitOut(BaseModel):
@@ -248,7 +254,9 @@ async def _page(db: DB, page_id: int, user: User) -> WikiPage:
 @router.get("/wiki/pages", response_model=list[PageSummary])
 async def list_pages(auth: CurrentAuth, db: DB) -> list[PageSummary]:
     pages = await db.scalars(
-        select(WikiPage).where(visible_filter(WikiPage, auth.user)).order_by(WikiPage.visibility, WikiPage.path)
+        select(WikiPage)
+        .where(visible_filter(WikiPage, auth.user), WikiPage.status == "ok")  # missing pages: see reconcile
+        .order_by(WikiPage.visibility, WikiPage.path)
     )
     return [_summary(p, auth.user) for p in pages]
 
@@ -263,15 +271,17 @@ async def create_page(body: PageCreate, auth: CurrentAuth, db: DB) -> PageOut:
     path = validate_page_path(body.path)
     if await find_page(db, auth.user.id, "private", path):
         raise HTTPException(status.HTTP_409_CONFLICT, "You already have a page at this path")
-    page = await save_page(
-        db,
-        owner=auth.user,
-        path=path,
-        content=body.content,
-        author=author_of(auth.user),
-        message=body.message or f"Create {path}",
-    )
-    await db.commit()
+    async with WikiWriter() as w:
+        page = await save_page(
+            db,
+            owner=auth.user,
+            path=path,
+            content=body.content,
+            author=author_of(auth.user),
+            message=body.message or f"Create {path}",
+            writer=w,
+        )
+        await db.commit()
     return _page_out(page, auth.user)
 
 
@@ -280,31 +290,36 @@ async def update_page(page_id: int, body: PageUpdate, auth: CurrentAuth, db: DB)
     page = await _page(db, page_id, auth.user)
     ensure_edit(page, auth.user)
     owner = await db.get(User, page.owner_id)
-    page = await save_page(
-        db,
-        owner=owner,
-        path=page.path,
-        content=body.content,
-        author=author_of(auth.user),
-        message=body.message,
-        page=page,
-    )
-    await db.commit()
+    async with WikiWriter() as w:
+        page = await save_page(
+            db,
+            owner=owner,
+            path=page.path,
+            content=body.content,
+            author=author_of(auth.user),
+            message=body.message,
+            page=page,
+            base_sha=body.base_sha,
+            writer=w,
+        )
+        await db.commit()
     return _page_out(page, auth.user)
 
 
 @router.post("/wiki/pages/{page_id}/visibility", response_model=PageOut)
 async def page_visibility(page_id: int, body: VisibilityIn, auth: CurrentAuth, db: DB) -> PageOut:
-    page = await change_visibility(db, await _page(db, page_id, auth.user), auth.user, body.visibility)
-    await audit(
-        db,
-        f"wiki.{body.visibility}",
-        user_id=auth.user.id,
-        target_type="wiki_page",
-        target_id=page.id,
-        detail={"path": page.path},
-    )
-    await db.commit()
+    page = await _page(db, page_id, auth.user)
+    async with WikiWriter() as w:
+        page = await change_visibility(db, page, auth.user, body.visibility, writer=w)
+        await audit(
+            db,
+            f"wiki.{body.visibility}",
+            user_id=auth.user.id,
+            target_type="wiki_page",
+            target_id=page.id,
+            detail={"path": page.path},
+        )
+        await db.commit()
     return _page_out(page, auth.user)
 
 
@@ -312,24 +327,48 @@ async def page_visibility(page_id: int, body: VisibilityIn, auth: CurrentAuth, d
 async def remove_page(page_id: int, auth: CurrentAuth, db: DB) -> None:
     page = await _page(db, page_id, auth.user)
     ensure_edit(page, auth.user)
-    await audit(
-        db, "wiki.delete", user_id=auth.user.id, target_type="wiki_page", target_id=page.id, detail={"path": page.path}
-    )
-    await delete_page(db, page, auth.user)
-    await db.commit()
+    async with WikiWriter() as w:
+        await audit(
+            db,
+            "wiki.delete",
+            user_id=auth.user.id,
+            target_type="wiki_page",
+            target_id=page.id,
+            detail={"path": page.path},
+        )
+        await delete_page(db, page, auth.user, writer=w)
+        await db.commit()
 
 
 @router.get("/wiki/pages/{page_id}/history", response_model=list[CommitOut])
-async def page_history(page_id: int, auth: CurrentAuth, db: DB) -> list[CommitOut]:
+async def get_page_history(page_id: int, auth: CurrentAuth, db: DB) -> list[CommitOut]:
     page = await _page(db, page_id, auth.user)
-    commits = await repo_for(page.visibility, page.owner_id).log(page.path)
+    commits = await page_history(page, auth.user)
     return [CommitOut(sha=c.sha, author=c.author, date=c.date, message=c.message) for c in commits]
 
 
 @router.get("/wiki/pages/{page_id}/commits/{sha}")
 async def page_diff(page_id: int, sha: str, auth: CurrentAuth, db: DB) -> dict[str, str]:
     page = await _page(db, page_id, auth.user)
-    return {"diff": await repo_for(page.visibility, page.owner_id).show(sha, page.path)}
+    validate_sha(sha)
+    repo = await repo_with_commit(page, auth.user, sha)
+    if repo is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such commit for this page")
+    return {"diff": await repo.show(sha, page.path)}
+
+
+class VersionOut(BaseModel):
+    sha: str
+    content: str
+
+
+@router.get("/wiki/pages/{page_id}/versions/{sha}", response_model=VersionOut)
+async def get_page_version(page_id: int, sha: str, auth: CurrentAuth, db: DB) -> VersionOut:
+    page = await _page(db, page_id, auth.user)
+    content = await page_version(page, auth.user, sha)
+    if content is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "This page has no version at that commit")
+    return VersionOut(sha=sha, content=content)
 
 
 @router.get("/wiki/librarian/changes")

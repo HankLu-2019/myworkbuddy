@@ -11,6 +11,7 @@ from app.knowledge.episodes import build_episode, sessions_needing_episodes
 from app.knowledge.indexer import embed_missing
 from app.knowledge.ingest.repos import ingest_project
 from app.knowledge.librarian import update_user_wiki
+from app.knowledge.reconcile import reconcile_wiki
 from app.logs import log, setup_logging
 from app.models import User
 
@@ -70,6 +71,12 @@ async def librarian_nightly(timestamp: int) -> None:
         user_ids = list(await db.scalars(select(User.id).where(User.is_active)))
     for uid in user_ids:
         await defer_once(librarian_user_task, f"librarian:{uid}", user_id=uid)
+
+
+@app.periodic(cron="30 3 * * *")
+@app.task(name="wiki_reconcile", queueing_lock="wiki_reconcile", lock="wiki_reconcile")
+async def wiki_reconcile_task(timestamp: int) -> None:
+    await reconcile_wiki()
 
 
 @app.periodic(cron="*/10 * * * *")

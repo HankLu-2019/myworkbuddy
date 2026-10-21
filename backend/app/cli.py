@@ -69,5 +69,15 @@ def db_bootstrap() -> None:
         typer.echo(line)
 
 
+@cli.command("wiki-reconcile")
+def wiki_reconcile(dry_run: bool = typer.Option(False, "--dry-run", help="Report only; change nothing")) -> None:
+    """Repair drift between the wiki git repos and the database (design 01 §H7)."""
+    from app.knowledge.reconcile import reconcile_wiki
+
+    report = asyncio.run(reconcile_wiki(dry_run=dry_run))
+    for name, value in vars(report).items():
+        typer.echo(f"{name}: {value}")
+
+
 def main() -> None:
     cli()

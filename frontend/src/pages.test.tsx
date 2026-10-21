@@ -172,11 +172,38 @@ describe("knowledge pages", () => {
     fireEvent.click(screen.getByText("Edit"));
     fireEvent.change(screen.getByLabelText("Page content"), { target: { value: "# New" } });
     fireEvent.click(screen.getByText("Save"));
-    await waitFor(() => expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ content: "# New" }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ content: "# New", base_sha: "abc" }),
+    );
     fireEvent.click(screen.getByText("Publish to team"));
     fireEvent.click(await screen.findByText("History"));
     fireEvent.click(await screen.findByText("Create runbooks/oom.md"));
     expect(await screen.findByText("+Raise memory.")).toBeInTheDocument();
+  });
+
+  it("shows an edit conflict with both versions and lets the user discard", async () => {
+    const page = { id: 3, path: "notes.md", title: "Notes", visibility: "private", owner_id: 2,
+      updated_at: NOW, mine: true, content: "# Notes\n\nmine", head_sha: "abc", can_edit: true };
+    const conflict = new Response(
+      JSON.stringify({ detail: "This page changed since you opened it", code: "wiki_conflict", current_sha: "def",
+        current_content: "# Notes\n\nsomeone else's text" }),
+      { status: 409 },
+    );
+    mockApi({
+      ...signedInAs(MEMBER),
+      "GET /api/wiki/pages": [page],
+      "GET /api/wiki/pages/3": page,
+      "PUT /api/wiki/pages/3": () => conflict,
+    });
+    renderAt("/wiki/3", <WikiPage />, "/wiki/:pageId");
+    fireEvent.click(await screen.findByText("Edit"));
+    fireEvent.change(screen.getByLabelText("Page content"), { target: { value: "my draft" } });
+    fireEvent.click(screen.getByText("Save"));
+    expect(await screen.findByRole("alertdialog", { name: "Edit conflict" })).toBeInTheDocument();
+    expect(screen.getByText(/someone else's text/)).toBeInTheDocument();
+    expect(screen.getAllByText("my draft").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByText("Discard my edits"));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   });
 
   it("shows librarian changes and creates pages", async () => {

@@ -74,7 +74,7 @@ services:
       # Background tasks run longer statements and need fewer connections than the API (design 01 §H6).
       MWB_DB_STATEMENT_TIMEOUT_MS: "300000"
       MWB_DB_POOL_SIZE: "6"
-    command: ["sh", "-c", "mwb check-config && exec procrastinate --app=app.tasks.app.app worker --concurrency=4"]
+    command: ["sh", "-c", "mwb check-config && { mwb wiki-reconcile || echo wiki-reconcile failed, continuing; } && exec procrastinate --app=app.tasks.app.app worker --concurrency=4"]
     depends_on:
       migrate:
         condition: service_completed_successfully
