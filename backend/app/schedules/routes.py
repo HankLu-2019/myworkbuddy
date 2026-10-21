@@ -15,14 +15,8 @@ from app.deps import DB, CurrentAuth, client_ip
 from app.errors import AppError
 from app.models import Agent, Run, Schedule, User
 from app.schedules import cron, proposals
-from app.schedules.service import (
-    ScheduleFields,
-    create_manual_run,
-    create_test_run,
-    min_interval,
-    now,
-    validate_schedule,
-)
+from app.schedules.service import create_manual_run, create_test_run
+from app.schedules.validation import ScheduleFields, min_interval, now, validate_schedule
 
 router = APIRouter(prefix="/api", tags=["schedules"])
 

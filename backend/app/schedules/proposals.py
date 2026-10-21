@@ -20,7 +20,7 @@ from app.enums import ProposalStatus
 from app.errors import AppError
 from app.models import Agent, Schedule, ScheduleProposal, User
 from app.schedules import cron as cronlib
-from app.schedules.service import ScheduleFields, now, validate_schedule
+from app.schedules.validation import ScheduleFields, now, validate_schedule
 
 TTL = timedelta(hours=24)
 MAX_PENDING_PER_SESSION = 10
