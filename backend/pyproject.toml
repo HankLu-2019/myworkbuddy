@@ -16,7 +16,7 @@ dependencies = [
   "structlog>=25",
   "httpx>=0.28",
   "pydantic-ai-slim[openai]>=2.50",
-  "procrastinate>=3.5",
+  "procrastinate==3.10.0",  # exact: its schema lives in our migrations; upgrade per 06-operations §7
   "typer>=0.15",
   "python-multipart>=0.0.20",
   "pypdf>=6",

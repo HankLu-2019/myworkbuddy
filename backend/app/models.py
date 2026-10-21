@@ -1,22 +1,26 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -42,6 +46,11 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16), default="member")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = _now()
+    timezone: Mapped[str] = mapped_column(String(64), server_default="Europe/Stockholm")
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    email_notifications: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    llm_budget_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    must_change_password: Mapped[bool] = mapped_column(Boolean, server_default="false")
 
     @property
     def is_admin(self) -> bool:
@@ -56,6 +65,9 @@ class AuthSession(Base):
     csrf_token: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = _now()
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime] = _now()
+    ip: Mapped[str | None] = mapped_column(String(64))
+    user_agent: Mapped[str | None] = mapped_column(String(255))
 
 
 class LoginAttempt(Base):
@@ -74,7 +86,7 @@ class AuditLog(Base):
     target_id: Mapped[str | None] = mapped_column(String(64))
     detail: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     ip: Mapped[str | None] = mapped_column(String(64))
-    at: Mapped[datetime] = _now()
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
 class UserSecret(Base):
@@ -101,6 +113,7 @@ class Project(Base):
     card_page_id: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(16), default="new")
     error: Mapped[str | None] = mapped_column(Text)
+    progress: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = _updated()
 
@@ -122,6 +135,7 @@ class ChatSession(Base):
 
 class Message(Base):
     __tablename__ = "messages"
+    __table_args__ = (Index("ix_messages_session_id_id", "session_id", "id"),)
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chat_sessions.id", ondelete="CASCADE"), index=True)
     role: Mapped[str] = mapped_column(String(16))
@@ -131,6 +145,8 @@ class Message(Base):
     model: Mapped[str | None] = mapped_column(String(128))
     tokens_in: Mapped[int | None] = mapped_column(Integer)
     tokens_out: Mapped[int | None] = mapped_column(Integer)
+    cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))
+    status: Mapped[str] = mapped_column(String(16), default="complete", server_default="complete")
     created_at: Mapped[datetime] = _now()
 
 
@@ -138,7 +154,7 @@ class ToolCall(Base):
     __tablename__ = "tool_calls"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chat_sessions.id", ondelete="CASCADE"), index=True)
-    message_id: Mapped[int | None] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"))
+    message_id: Mapped[int | None] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), index=True)
     call_id: Mapped[str | None] = mapped_column(String(128))
     tool_name: Mapped[str] = mapped_column(String(64))
     args: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
@@ -189,6 +205,7 @@ class Chunk(Base):
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
         Index("chunks_bm25", "id", "content", "owner_id", "visibility", postgresql_using="bm25"),
+        Index("chunks_missing_embedding", "id", postgresql_where=text("embedding IS NULL")),
     )
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
@@ -198,6 +215,10 @@ class Chunk(Base):
     content: Mapped[str] = mapped_column(Text)
     meta: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBED_DIMS))
+    content_hash: Mapped[str | None] = mapped_column(String(64))
+    embed_model: Mapped[str | None] = mapped_column(String(128))
+    embed_attempts: Mapped[int] = mapped_column(SmallInteger, default=0, server_default="0")
+    embed_error: Mapped[str | None] = mapped_column(Text)
 
 
 class WikiPage(Base):
@@ -213,6 +234,7 @@ class WikiPage(Base):
     title: Mapped[str] = mapped_column(String(255))
     head_sha: Mapped[str | None] = mapped_column(String(64))
     document_id: Mapped[int | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(16), default="ok", server_default="ok")
     updated_at: Mapped[datetime] = _updated()
 
 
@@ -233,3 +255,24 @@ class LibrarianState(Base):
     __tablename__ = "librarian_state"
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     episodes_until: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class LibrarianRun(Base):
+    __tablename__ = "librarian_runs"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    started_at: Mapped[datetime] = _now()
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    local_date: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(16))
+    episodes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    pages_updated: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")
+    pages_rejected: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, server_default="[]")
+    error: Mapped[str | None] = mapped_column(Text)
+
+
+class SystemState(Base):
+    __tablename__ = "system_state"
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    updated_at: Mapped[datetime] = _updated()

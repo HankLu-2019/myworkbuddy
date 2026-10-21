@@ -7,9 +7,10 @@ import structlog
 from fastapi import FastAPI, Request, Response
 from sqlalchemy import text
 
+from app import errors
 from app.auth.routes import router as auth_router
 from app.chat.routes import router as chat_router
-from app.config import get_settings
+from app.config import ensure_runtime_ok, get_settings
 from app.db import get_engine
 from app.knowledge.routes import router as knowledge_router
 from app.logs import log, setup_logging
@@ -21,6 +22,7 @@ from app.users.routes import router as users_router
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     setup_logging(get_settings().log_level)
+    ensure_runtime_ok()
     async with tasks_app.open_async():
         log.info("api.started")
         yield
@@ -28,6 +30,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="MyWorkBuddy", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")
+errors.install(app)
 
 
 @app.middleware("http")

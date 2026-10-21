@@ -29,11 +29,16 @@ describe("api", () => {
       "GET /api/b": new Response(JSON.stringify({ detail: [{ msg: "too short" }, { msg: "bad" }] }), { status: 422 }),
       "GET /api/c": new Response("oops", { status: 500 }),
     });
-    await expect(api("/api/a")).rejects.toMatchObject({ status: 404, message: "Not found" });
+    await expect(api("/api/a")).rejects.toMatchObject({ status: 404, message: "Not found", code: "http_404" });
     await expect(api("/api/b")).rejects.toMatchObject({ message: "too short; bad" });
     const err: unknown = await api("/api/c").catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).message).toBe("Request failed (500)");
+  });
+
+  it("exposes the error code from the API", async () => {
+    mockApi({ "GET /api/d": new Response(JSON.stringify({ detail: "Busy", code: "session_busy" }), { status: 409 }) });
+    await expect(api("/api/d")).rejects.toMatchObject({ status: 409, message: "Busy", code: "session_busy" });
   });
 
   it("parses server-sent events across chunk boundaries", async () => {

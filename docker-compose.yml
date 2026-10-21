@@ -69,7 +69,7 @@ services:
 
   worker:
     <<: *backend
-    command: ["procrastinate", "--app=app.tasks.app.app", "worker", "--concurrency=4"]
+    command: ["sh", "-c", "mwb check-config && exec procrastinate --app=app.tasks.app.app worker --concurrency=4"]
     depends_on:
       migrate:
         condition: service_completed_successfully

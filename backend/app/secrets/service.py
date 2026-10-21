@@ -1,4 +1,4 @@
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, MultiFernet
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,8 +13,9 @@ SECRET_KINDS = {
 }
 
 
-def _fernet() -> Fernet:
-    return Fernet(get_settings().secret_key.encode())
+def _fernet() -> MultiFernet:
+    # First key encrypts; every key decrypts, so keys can be rotated (06-operations §8).
+    return MultiFernet([Fernet(k.encode()) for k in get_settings().fernet_keys])
 
 
 async def set_secret(db: AsyncSession, user_id: int, kind: str, value: str) -> None:

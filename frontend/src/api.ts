@@ -4,10 +4,33 @@ export function setCsrfToken(token: string) {
   csrfToken = token;
 }
 
+/** Error codes from the API (backend app/errors.py, rule R12). */
+export type ErrorCode =
+  | "not_signed_in"
+  | "invalid_credentials"
+  | "csrf_invalid"
+  | "rate_limited"
+  | "forbidden"
+  | "not_found"
+  | "conflict"
+  | "bad_request"
+  | "wiki_conflict"
+  | "session_busy"
+  | "budget_exceeded"
+  | "llm_unavailable"
+  | "unsupported_file"
+  | "file_too_large"
+  | "credential_invalid"
+  | "password_change_required"
+  | "validation_error"
+  | "internal";
+
 export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code: ErrorCode | string = `http_${status}`,
+    public body: unknown = null,
   ) {
     super(message);
   }
@@ -37,7 +60,8 @@ async function send(path: string, { method = "GET", json, form, signal }: Option
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new ApiError(res.status, errorMessage(body, res.status));
+    const code = body && typeof body === "object" && "code" in body ? String((body as { code: unknown }).code) : undefined;
+    throw new ApiError(res.status, errorMessage(body, res.status), code, body);
   }
   return res;
 }

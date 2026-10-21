@@ -624,7 +624,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.150" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "pgvector", specifier = ">=0.4" },
-    { name = "procrastinate", specifier = ">=3.5" },
+    { name = "procrastinate", specifier = "==3.10.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },
     { name = "pydantic-ai-slim", extras = ["openai"], specifier = ">=2.50" },
     { name = "pydantic-settings", specifier = ">=2.5" },
