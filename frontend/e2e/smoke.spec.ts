@@ -85,7 +85,10 @@ test("2. uploads are private until shared", async ({ browser }) => {
   await alice.goto("/documents");
   const shared = alice.getByRole("row", { name: new RegExp(DOC) });
   await shared.getByRole("button", { name: "Share with team" }).click();
-  await expect(shared.getByText("Team")).toBeVisible();
+  // Wait for the saved state, not for any text containing "team" (the "Share with team" button matched before,
+  // so Bob sometimes searched before the share was committed).
+  await expect(shared.getByText("Team", { exact: true })).toBeVisible();
+  await expect(shared.getByRole("button", { name: "Make private" })).toBeVisible();
   await search(bob, WORD);
   try {
     await expect(bob.getByRole("link", { name: DOC })).toBeVisible();
