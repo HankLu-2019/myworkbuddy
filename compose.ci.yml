@@ -19,6 +19,9 @@ services:
   migrate:
     environment:
       MWB_ENV: dev
+  backup:
+    environment:
+      MWB_ENV: dev
 
   caddy:
     environment:

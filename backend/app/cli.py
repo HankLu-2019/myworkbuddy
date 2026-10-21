@@ -10,7 +10,8 @@ from app.config import ensure_runtime_ok, get_settings
 from app.db import get_sessionmaker
 from app.models import User
 
-cli = typer.Typer(no_args_is_help=True)
+# Plain tracebacks: CLI output ends up in container logs and CI annotations, where boxed ones are unreadable.
+cli = typer.Typer(no_args_is_help=True, pretty_exceptions_enable=False)
 
 # Commands that must work before the configuration is complete.
 _NO_CONFIG_CHECK = {"generate-key", "check-config", "worker-health"}
