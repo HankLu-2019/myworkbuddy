@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-24.04
     defaults: { run: { working-directory: backend } }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen --group dev
       - run: uv run --frozen ruff check . > ../lint.log 2>&1 || { cat ../lint.log; exit 1; }
@@ -43,7 +43,7 @@ jobs:
       MWB_DATABASE_URL: postgresql://mwb:mwb@localhost:5432/mwb
       MWB_SECRET_KEY: ci-placeholder-overridden-by-conftest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen --group dev
       - run: git config --global user.email ci@example.com && git config --global user.name CI
@@ -57,8 +57,8 @@ jobs:
     runs-on: ubuntu-24.04
     defaults: { run: { working-directory: frontend } }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with: { node-version: 24, cache: npm, cache-dependency-path: frontend/package-lock.json }
       - run: npm ci
       - run: npm run typecheck > ../typecheck.log 2>&1 || { cat ../typecheck.log; exit 1; }
@@ -72,7 +72,7 @@ jobs:
   images:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build images
         run: |
           set -o pipefail
@@ -82,7 +82,7 @@ jobs:
       - name: Prod backend image has no dev tooling
         run: |
           if docker run --rm mwb-backend:prod python -c "import pytest" 2>/dev/null; then echo "pytest found in prod image" > images.log; exit 1; fi
-          docker run --rm mwb-backend:prod python -c "import app.main" > images.log 2>&1 || { cat images.log; exit 1; }
+          docker run --rm -e MWB_DATABASE_URL=postgresql://x@localhost/x -e MWB_SECRET_KEY=x mwb-backend:prod python -c "import app.main" > images.log 2>&1 || { cat images.log; exit 1; }
       - if: failure()
         run: .github/scripts/annotate-tail.sh "images" images.log 80
 
@@ -92,7 +92,7 @@ jobs:
     env:
       MWB_E2E_ADMIN_PASSWORD: admin-password-1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Write .env
         run: |
           cp .env.example .env
@@ -102,7 +102,7 @@ jobs:
         run: docker compose -f docker-compose.yml -f compose.ci.yml up -d --build --wait --wait-timeout 300 api worker web > stack.log 2>&1 || { cat stack.log; docker compose -f docker-compose.yml -f compose.ci.yml logs --tail 100 >> stack.log; exit 1; }
       - name: Create admin
         run: docker compose -f docker-compose.yml -f compose.ci.yml exec -T -e MWB_ADMIN_PASSWORD=$MWB_E2E_ADMIN_PASSWORD api mwb create-admin --username admin --email admin@example.com
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with: { node-version: 24, cache: npm, cache-dependency-path: frontend/package-lock.json }
       - name: Playwright
         working-directory: frontend
