@@ -49,10 +49,10 @@ Design: [01-hardening.md](design/01-hardening.md) and, for H15–H16, [07-ux.md]
 
 - [ ] **H1 Build, images, repo hygiene** (01 §H1)
   - [x] TS error fixed; coverage and tsbuildinfo untracked *(done in the review PR)*
-  - [ ] Split tsconfig (app/test); `build` uses app config only
-  - [ ] Backend multi-stage Dockerfile (`prod` without dev deps or tests; `dev`)
-  - [ ] `migrate` one-shot service; `api` no longer migrates
-  - [ ] Images pinned by digest in compose
+  - [x] Split tsconfig (app/test); `build` uses app config only
+  - [x] Backend multi-stage Dockerfile (`prod` without dev deps or tests; `dev`)
+  - [x] `migrate` one-shot service (`mwb db-bootstrap` + Alembic); `api` no longer migrates
+  - [ ] Images pinned by digest in compose — `deploy/pin-images.sh` is ready; run it once from a machine with Docker Hub access and commit the result
   - Acceptance: `docker compose -f docker-compose.yml build` succeeds; prod backend image has no `pytest` (`docker run … python -c "import pytest"` fails); `api` starts only after `migrate` exits 0; a test-file type error does not break `npm run build` but does fail `npm run typecheck`.
 
 - [ ] **H2 CI** (01 §H2)

@@ -1,7 +1,9 @@
 name: myworkbuddy
 
 x-backend: &backend
-  build: ./backend
+  build:
+    context: ./backend
+    target: prod
   image: myworkbuddy-backend:latest
   env_file: .env
   environment:
@@ -41,12 +43,21 @@ services:
       retries: 20
     restart: unless-stopped
 
-  api:
+  # One-shot: database bootstrap + Alembic. api and worker start only after it exits 0.
+  migrate:
     <<: *backend
-    command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*"]
+    command: ["sh", "-c", "mwb db-bootstrap && alembic upgrade head"]
+    restart: "no"
     depends_on:
       postgres:
         condition: service_healthy
+
+  api:
+    <<: *backend
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
       llm-gateway:
         condition: service_started
     healthcheck:
@@ -59,11 +70,15 @@ services:
     <<: *backend
     command: ["procrastinate", "--app=app.tasks.app.app", "worker", "--concurrency=4"]
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       api:
         condition: service_healthy
 
   web:
-    build: ./frontend
+    build:
+      context: ./frontend
+      target: prod
     image: myworkbuddy-web:latest
     ports:
       - "${MWB_WEB_PORT:-8080}:80"
