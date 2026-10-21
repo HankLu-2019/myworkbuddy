@@ -51,7 +51,10 @@ jobs:
         run: uv run --frozen pytest --cov=app --cov-report=term --cov-fail-under=80 -p no:cacheprovider > ../pytest.log 2>&1; status=$?; tail -n 80 ../pytest.log; exit $status
       - if: failure()
         working-directory: .
-        run: .github/scripts/annotate-tail.sh "pytest" pytest.log 80
+        run: |
+          grep -E "^(FAILED|ERROR) |^E  |^tests/.*:[0-9]+: " pytest.log | head -n 120 > pytest-failures.log
+          .github/scripts/annotate-tail.sh "pytest failures" pytest-failures.log 120
+          .github/scripts/annotate-tail.sh "pytest" pytest.log 80
 
   frontend:
     runs-on: ubuntu-24.04
