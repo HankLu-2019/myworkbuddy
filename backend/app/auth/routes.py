@@ -15,6 +15,7 @@ from app.auth.service import (
 )
 from app.config import get_settings
 from app.deps import DB, CurrentAuth, client_ip
+from app.errors import AppError
 from app.models import AuthSession, User
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -73,7 +74,7 @@ async def login(body: LoginIn, request: Request, response: Response, db: DB) -> 
     if user is None:
         await audit(db, "login.failed", user_id=None, detail={"username": normalize_username(body.username)}, ip=ip)
         await record_failed_login(db, key)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong username or password")
+        raise AppError(status.HTTP_401_UNAUTHORIZED, "invalid_credentials", "Wrong username or password")
     token, session = await create_session(db, user, key)
     await audit(db, "login", user_id=user.id, ip=ip)
     await db.commit()

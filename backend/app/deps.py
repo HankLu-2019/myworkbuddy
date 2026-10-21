@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.service import resolve_session
 from app.config import get_settings
 from app.db import get_db
+from app.errors import AppError
 from app.models import AuthSession, User
 
 CSRF_HEADER = "X-CSRF-Token"
@@ -32,7 +33,7 @@ async def get_auth(request: Request, db: DB) -> Auth:
     if request.method not in SAFE_METHODS:
         sent = request.headers.get(CSRF_HEADER, "")
         if not secrets.compare_digest(sent, session.csrf_token):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Missing or invalid CSRF token")
+            raise AppError(status.HTTP_403_FORBIDDEN, "csrf_invalid", "Missing or invalid CSRF token")
     structlog.contextvars.bind_contextvars(user_id=user.id)
     return Auth(user=user, session=session)
 

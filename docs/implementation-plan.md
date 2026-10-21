@@ -66,7 +66,7 @@ Design: [01-hardening.md](design/01-hardening.md) and, for H15–H16, [07-ux.md]
 - [x] **H4 Safe Markdown** (01 §H4). Renderer in `components/markdown.tsx`; the "lint" rules are vitest source checks (no ESLint in the project yet; H15 can move them).
   - Acceptance (vitest): `![x](https://evil.example/a.png?d=1)` renders no `<img>` and shows a text link with host `evil.example`; `[x](javascript:alert(1))` renders `href="#"`; relative and `data:image/png` images render; external links have `rel="noopener noreferrer nofollow"`; lint forbids `rehype-raw` and `dangerouslySetInnerHTML`.
 
-- [ ] **H5 Schema 0003, config validation, error format** (01 §H5)
+- [x] **H5 Schema 0003, config validation, error format** (01 §H5). Also: `MultiFernet` already decrypts with any key in `MWB_SECRET_KEYS` (rotation CLI remains in H11); `mwb check-config` runs before the worker; `idle_in_transaction_session_timeout` set in 0003.
   - Acceptance: migration adds every column/constraint/table listed; inserting an invalid enum value fails at the DB; each config check in the table refuses startup with its message (unit tests on `Settings.validate()`); every error response matches `{"detail","code"}` (parametrised test over representative endpoints); `procrastinate` pinned exactly.
 
 - [ ] **H6 Transaction discipline** (01 §H6)

@@ -6,11 +6,27 @@ import typer
 from sqlalchemy import select
 
 from app.auth.service import hash_password, normalize_username
-from app.config import get_settings
+from app.config import ensure_runtime_ok, get_settings
 from app.db import get_sessionmaker
 from app.models import User
 
 cli = typer.Typer(no_args_is_help=True)
+
+# Commands that must work before the configuration is complete.
+_NO_CONFIG_CHECK = {"generate-key", "check-config"}
+
+
+@cli.callback()
+def _startup(ctx: typer.Context) -> None:
+    if ctx.invoked_subcommand not in _NO_CONFIG_CHECK:
+        ensure_runtime_ok()
+
+
+@cli.command("check-config")
+def check_config() -> None:
+    """Validate configuration; exits non-zero with every problem listed. The worker runs this before starting."""
+    ensure_runtime_ok()
+    typer.echo("configuration ok")
 
 
 @cli.command("create-admin")
