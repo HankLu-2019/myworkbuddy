@@ -560,6 +560,7 @@ class ImportResult(BaseModel):
 
 @router.post("/imports/claude-code", response_model=list[ImportResult])
 async def import_claude_code(auth: CurrentAuth, db: DB, files: list[UploadFile] = File(...)) -> list[ImportResult]:
+    user_id = auth.user.id  # a failed file rolls back, which expires auth.user
     results = []
     for f in files[:200]:
         name = f.filename or "transcript.jsonl"
@@ -568,7 +569,7 @@ async def import_claude_code(auth: CurrentAuth, db: DB, files: list[UploadFile] 
             data = await f.read(limit + 1)
             if len(data) > limit:
                 raise AppError(413, "file_too_large", f"Larger than {get_settings().transcript_max_mb} MB")
-            session, changed = await import_transcript(db, auth.user.id, data)
+            session, changed = await import_transcript(db, user_id, data)
             await db.commit()
             if changed:
                 await defer_once(build_episode_task, f"episode:{session.id}", session_id=str(session.id))
@@ -591,7 +592,7 @@ async def import_claude_code(auth: CurrentAuth, db: DB, files: list[UploadFile] 
     await audit(
         db,
         "import.claude_code",
-        user_id=auth.user.id,
+        user_id=user_id,
         detail={"files": len(results), "imported": sum(r.status == "imported" for r in results)},
     )
     await db.commit()
