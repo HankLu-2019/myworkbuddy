@@ -244,7 +244,6 @@ async def _stream(session: ChatSession, user: User, content: str) -> AsyncIterat
     log.info("chat.turn_started")
     try:
         history = await _history(session.id)
-        log.info("chat.history_loaded", messages=len(history))
         async with build_agent().run_stream_events(content, message_history=history, deps=deps) as events:
             async for ev in events:
                 if isinstance(ev, PartStartEvent) and isinstance(ev.part, TextPart) and ev.part.content:

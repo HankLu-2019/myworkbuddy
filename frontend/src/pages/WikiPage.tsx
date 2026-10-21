@@ -227,7 +227,9 @@ export default function WikiPage() {
   const [creating, setCreating] = useState(false);
   const pages = useQuery({ queryKey: ["wiki-pages"], queryFn: () => api<PageSummary[]>("/api/wiki/pages") });
 
-  useEffect(() => setCreating(false), [pageId]);
+  useEffect(() => {
+    setCreating(false);
+  }, [pageId]);
 
   return (
     <div className="split">
