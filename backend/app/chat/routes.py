@@ -241,8 +241,10 @@ async def _stream(session: ChatSession, user: User, content: str) -> AsyncIterat
     text_parts: list[str] = []
     tool_rows: dict[str, int] = {}
     result = None
+    log.info("chat.turn_started")
     try:
         history = await _history(session.id)
+        log.info("chat.history_loaded", messages=len(history))
         async with build_agent().run_stream_events(content, message_history=history, deps=deps) as events:
             async for ev in events:
                 if isinstance(ev, PartStartEvent) and isinstance(ev.part, TextPart) and ev.part.content:
@@ -278,6 +280,9 @@ async def _stream(session: ChatSession, user: User, content: str) -> AsyncIterat
     except Exception as exc:
         log.exception("chat.failed")
         yield _sse("error", {"message": f"The model call failed: {exc}"[:500]})
+    except BaseException as exc:  # cancellation (client went away) is otherwise silent
+        log.warning("chat.cancelled", error=type(exc).__name__, partial_chars=len("".join(text_parts)))
+        raise
     finally:
         message_id = await asyncio.shield(
             _save_assistant(session.id, text_parts, result, deps, list(tool_rows.values()))

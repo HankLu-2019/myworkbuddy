@@ -11,6 +11,7 @@ from app.knowledge.acl import can_view
 from app.knowledge.search import hybrid_search
 from app.knowledge.wiki import find_page, read_page
 from app.llm.models import get_chat_model
+from app.logs import log
 from app.models import ChatSession, Message, Project, User, WikiPage
 
 SCOPES: dict[str, list[str] | None] = {
@@ -32,6 +33,7 @@ class ChatDeps:
 
 
 async def _instructions(ctx: RunContext[ChatDeps]) -> str:
+    log.info("chat.instructions")
     parts = [prompts.CHAT_SYSTEM]
     async with get_sessionmaker()() as db:
         me = await find_page(db, ctx.deps.user.id, "private", "me/how-i-work.md")
