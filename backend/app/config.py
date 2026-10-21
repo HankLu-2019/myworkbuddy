@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     repo_max_files: int = 300
     ingest_max_summary_files: int = 150
     librarian_local_hour: int = Field(2, ge=0, le=23)  # local hour of the nightly librarian run (01 §H8)
+    # Backups (design 06 §5). The repository is any restic repository URL or a path; RESTIC_PASSWORD and the
+    # target's credentials come from the environment and are passed to restic only through it (rule R7).
+    backup_repo: str = ""
+    backup_time: str = Field("01:30", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    backup_timezone: str = ""  # default: MWB_DEFAULT_TIMEZONE
+    backup_staging_dir: Path = Path("/backup/staging")
+    backup_keep: str = "--keep-daily 14 --keep-weekly 8 --keep-monthly 6"
     db_pool_size: int = 10
     db_statement_timeout_ms: int = 30_000
     repo_max_file_bytes: int = 200_000

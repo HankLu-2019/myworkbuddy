@@ -58,7 +58,11 @@ Then sign in at `https://$MWB_HOSTNAME`, create integrations (Phase 2+), create 
 | `MWB_RUNNER_TOKEN` | — | Phase 4, random 32 bytes |
 | `MWB_PROXY_AGENT_HOSTS`, `MWB_PROXY_VERIFY_HOSTS`, `MWB_SANDBOX_OPTIONAL_HOSTS` | see 04 §1 | Phase 4 |
 | `MWB_JOB_MAX_CHANGED_LINES`, `MWB_JOB_DISK_GB` | `3000`, `10` | Phase 4 |
-| `MWB_BACKUP_REPO`, `RESTIC_PASSWORD`, plus target credentials | — | §5 |
+| `MWB_BACKUP_REPO`, `RESTIC_PASSWORD` | — | §5. Any restic repository (`s3:…`, `sftp:…`, `rest:…`) or a path under `/backup-local` |
+| `MWB_BACKUP_AWS_ACCESS_KEY_ID`, `MWB_BACKUP_AWS_SECRET_ACCESS_KEY` | — | Only for an S3 repository; kept apart from the Bedrock `AWS_*` |
+| `MWB_BACKUP_LOCAL_DIR` | `./backups` | Host directory mounted at `/backup-local` (owned by uid 1000) |
+| `MWB_BACKUP_TIME`, `MWB_BACKUP_TIMEZONE` | `01:30`, `MWB_DEFAULT_TIMEZONE` | Nightly backup time |
+| `MWB_EDGE_PREFIX`, `MWB_HTTPS_PORT`, `MWB_HTTP_PORT` | `172.30.0`, `443`, `80` | Only to run a second stack (restore drill) on the same host |
 
 ## 4. Routine checks
 
@@ -70,14 +74,16 @@ Monthly: restore drill (§6); review Dependabot/Renovate PRs; rotate the runner 
 
 ## 5. Backups
 
-The `backup` service runs nightly at 01:30 local time:
+The `backup` service runs nightly at `MWB_BACKUP_TIME` (01:30) local time:
 
 1. `pg_dump -Fc mwb` and `pg_dump -Fc litellm` to `/backup/staging/`.
 2. `tar` of `/data` excluding `repos/` and `tmp/`.
-3. `restic backup /backup/staging` to `MWB_BACKUP_REPO`, then `restic forget --keep-daily 14 --keep-weekly 8 --keep-monthly 6 --prune`.
-4. Write `system_state['backup']` with snapshot id, sizes, duration, status.
+3. `restic backup` of the staging dir to `MWB_BACKUP_REPO` (initialised on first use), then `restic forget --keep-daily 14 --keep-weekly 8 --keep-monthly 6 --prune`.
+4. Write `system_state['backup']` with snapshot id, sizes, duration, status. Admin → System alerts after 26 h without a success.
 
-On-demand: `docker compose run --rm backup now`.
+Setup: set `MWB_BACKUP_REPO` and `RESTIC_PASSWORD` in `.env`, and store the restic password with `.env` (§2), because without it the snapshots can't be read. For a repository on the host or a mounted NAS: `mkdir -p backups && sudo chown 1000:1000 backups` and `MWB_BACKUP_REPO=/backup-local/repo`. Off-host is the point; an S3 or sftp repository is preferred.
+
+On-demand: `docker compose run --rm backup now`. List a snapshot: `docker compose run --rm backup list latest`.
 
 Not in the backup on purpose: repo caches (rebuilt by re-ingest), job workspaces (ephemeral), `.env` (backed up separately, §2).
 
@@ -93,9 +99,18 @@ deploy/restore.sh --snapshot latest        # or a snapshot id from `restic snaps
 1. Refuses to run if the `mwb` database has data, unless `--force`.
 2. Starts only `postgres`; restores `mwb` and `litellm` with `pg_restore --clean --if-exists`.
 3. Restores `/data` (wiki, artifacts).
-4. Runs `migrate`, then starts the stack, then runs `mwb wiki-reconcile` and queues re-ingest of all projects.
+4. Runs `migrate`, then starts the stack, then runs `mwb wiki-reconcile`, queues re-ingest of all projects, and prints `mwb backup verify-restore` (users, wiki pages with their files, tokens that still decrypt; it exits non-zero if any is wrong).
 
-**Drill** (monthly, ~30 min): restore the latest snapshot into a throwaway VM or a separate compose project name (`-p mwb-drill`) with a different port, sign in, open a wiki page, run a search, check a stored token shows "set". Record the result in the System page (`mwb backup record-drill --ok`).
+Each database is dropped and recreated from `template0` before `pg_restore`, so the restore holds exactly what was backed up.
+
+**Drill** (monthly, ~30 min), next to the live stack:
+
+```bash
+COMPOSE_PROJECT_NAME=mwb-drill MWB_EDGE_PREFIX=172.31.0 MWB_HTTPS_PORT=8443 MWB_HTTP_PORT=8081 \
+  deploy/restore.sh --snapshot latest
+```
+
+Sign in at port 8443, open a wiki page, run a search, check a stored token shows "Saved". Then record the result, `docker compose exec api mwb backup record-drill --ok --note "…"`, and remove the drill: `COMPOSE_PROJECT_NAME=mwb-drill docker compose down -v`. CI runs the same restore on every change (job `ops`).
 
 ## 7. Upgrades
 
