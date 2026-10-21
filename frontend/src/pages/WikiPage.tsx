@@ -185,7 +185,7 @@ function PageView({ id }: { id: number }) {
       <div className="muted small mono">
         {p.path} · updated {formatDate(p.updated_at)}
       </div>
-      <ErrorNote error={save.error || publish.error || remove.error} />
+      <ErrorNote error={save.error || publish.error || remove.error || history.error || diff.error} />
       {mode === "view" && <Markdown>{p.content}</Markdown>}
       {mode === "edit" && (
         <>
