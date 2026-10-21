@@ -157,6 +157,56 @@ export type NeedsYou = Schemas["NeedsYou"];
 export type ActivityItem = Schemas["ActivityItem"];
 export type Activity = Schemas["ActivityOut"];
 export type Checklist = Schemas["Checklist"];
+export type TodayBrief = Schemas["TodayBrief"];
+
+// Phase 2: schedules, runs, inbox (02 §7).
+export type Agent = Schemas["AgentOut"];
+export type Schedule = Schemas["ScheduleOut"];
+export type ScheduleIn = Schemas["ScheduleIn"];
+export type SchedulePage = Schemas["SchedulePage"];
+export type CronPreview = Schemas["PreviewOut"];
+export type RunSummary = Schemas["RunOut"];
+export type RunDetail = Schemas["RunDetail"];
+export type RunPage = Schemas["RunPage"];
+export type Proposal = Schemas["ProposalOut"];
+export type InboxItem = Schemas["InboxItemOut"];
+export type InboxPage = Schemas["InboxPage"];
+export type NotifyMode = Schedule["notify_mode"];
+
+/** A finding in a run report as stored (02 §3): the model's fields plus the server's `verified`. */
+export interface Finding {
+  fingerprint: string;
+  severity: "info" | "warning" | "alert";
+  title: string;
+  detail: string;
+  links: string[];
+  verified?: boolean;
+}
+
+export interface Report {
+  status: "ok" | "warning" | "alert";
+  headline: string;
+  findings: Finding[];
+  summary_md: string;
+}
+
+/** A proposal card as the chat stream and message history carry it (02 §6). */
+export interface ProposalCard {
+  proposal_id: string;
+  name: string;
+  agent: string;
+  agent_name?: string;
+  cron: string;
+  timezone: string;
+  prompt?: string;
+  inputs: Record<string, unknown>;
+  notify_mode: NotifyMode;
+  description?: string;
+  next_runs?: string[];
+  status?: "pending" | "accepted" | "dismissed" | "expired";
+  schedule_id?: string | null;
+  expires_at: string;
+}
 
 /** Citations and tool calls are free-form JSON in the schema; this is what the chat stream and history carry. */
 export interface Citation {
@@ -171,7 +221,8 @@ export interface Citation {
 
 export type ToolActivity = { name: string; args: Record<string, unknown>; status?: string };
 
-export type ChatMessage = Omit<Schemas["MessageOut"], "citations" | "tools"> & {
+export type ChatMessage = Omit<Schemas["MessageOut"], "citations" | "tools" | "proposals"> & {
   citations: Citation[];
   tools: ToolActivity[];
+  proposals?: ProposalCard[];
 };

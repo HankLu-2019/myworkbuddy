@@ -13,6 +13,7 @@ import {
   PageHeader,
   RelativeTime,
   SkeletonRows,
+  StatusPill,
   VisibilityBadge,
   buttonClass,
   formatElapsed,
@@ -148,6 +149,24 @@ export default function HomePage() {
               <EmptyState>Nothing needs you right now.</EmptyState>
             )}
           </section>
+
+          {h.today && (
+            <section aria-labelledby="today" className="stack">
+              <h2 id="today">Today</h2>
+              <Card className="row">
+                <StatusPill status={h.today.status} />
+                <span className="grow">
+                  <strong>{h.today.schedule_name}:</strong> {h.today.headline}
+                </span>
+                <span className="muted small">
+                  <RelativeTime iso={h.today.at} />
+                </span>
+                <Link to={`/runs/${h.today.run_id}`} className={buttonClass("secondary", "sm")}>
+                  <span className="btn-label">Open</span>
+                </Link>
+              </Card>
+            </section>
+          )}
 
           {h.running.length > 0 && (
             <section aria-labelledby="running-now" className="stack">

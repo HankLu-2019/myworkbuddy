@@ -96,8 +96,9 @@ export function SkeletonRows({ rows = 3, longWait = "Still working — this can 
 export function CountBadge({ count, label }: { count: number; label: string }) {
   if (count <= 0) return null;
   return (
-    <span className="count-badge" aria-label={`${count} ${label}`}>
-      {count > 99 ? "99+" : count}
+    <span className="count-badge">
+      <span aria-hidden>{count > 99 ? "99+" : count}</span>
+      <span className="visually-hidden">{` ${count} ${label}`}</span>
     </span>
   );
 }

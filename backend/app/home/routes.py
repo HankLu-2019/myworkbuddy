@@ -17,7 +17,20 @@ from app.integrations.service import credential_label, state_of
 from app.knowledge.acl import visible_filter
 from app.llm import keys
 from app.logs import log
-from app.models import ChatSession, Integration, LibrarianRun, Message, Project, User, UserCredential, WikiPage
+from app.models import (
+    Agent,
+    ChatSession,
+    InboxItem,
+    Integration,
+    LibrarianRun,
+    Message,
+    Project,
+    Run,
+    Schedule,
+    User,
+    UserCredential,
+    WikiPage,
+)
 
 router = APIRouter(prefix="/api", tags=["home"])
 
@@ -28,7 +41,15 @@ LIBRARIAN_RECENT = timedelta(hours=36)  # "last night", wherever the user's nigh
 class NeedsYou(BaseModel):
     """One card. The same message and fix button wherever the problem shows up (07-ux §5.10)."""
 
-    kind: Literal["ingest_failed", "budget_warning", "budget_exceeded", "credential_invalid", "credential_unreadable"]
+    kind: Literal[
+        "ingest_failed",
+        "budget_warning",
+        "budget_exceeded",
+        "credential_invalid",
+        "credential_unreadable",
+        "alert",
+        "schedule_paused",
+    ]
     key: str  # stable id, so the client can tell cards apart
     message: str
     action: str
@@ -37,8 +58,8 @@ class NeedsYou(BaseModel):
 
 
 class ActivityItem(BaseModel):
-    kind: Literal["ingest"]
-    id: int
+    kind: Literal["ingest", "run"]
+    id: int | str  # project id, or run id
     title: str
     status: Literal["queued", "running"]
     step: str | None
@@ -80,8 +101,19 @@ class Checklist(BaseModel):
     steps: list[ChecklistStep]
 
 
+class TodayBrief(BaseModel):
+    """The latest morning brief from the last 24 hours (07-ux §4.1 "Today")."""
+
+    run_id: str
+    schedule_name: str
+    headline: str
+    status: Literal["ok", "warning", "alert"]
+    at: datetime
+
+
 class HomeOut(BaseModel):
     needs_you: list[NeedsYou]
+    today: TodayBrief | None = None
     running: list[ActivityItem]
     recent_chats: list[RecentChat]
     recent_pages: list[RecentPage]
@@ -99,7 +131,7 @@ async def _running(db: DB, user: User) -> list[ActivityItem]:
         .where(Project.owner_id == user.id, Project.status.in_(["queued", "running"]))
         .order_by(Project.updated_at)
     )
-    return [
+    items = [
         ActivityItem(
             kind="ingest",
             id=p.id,
@@ -111,11 +143,30 @@ async def _running(db: DB, user: User) -> list[ActivityItem]:
         )
         for p in rows
     ]
+    runs = await db.scalars(
+        select(Run)
+        .where(Run.owner_id == user.id, Run.status.in_(["queued", "running"]))
+        .order_by(Run.created_at)
+        .limit(20)
+    )
+    for r in runs:
+        items.append(
+            ActivityItem(
+                kind="run",
+                id=str(r.id),
+                title=r.config.get("name", "Run"),
+                status=r.status,
+                step="Running checks" if r.status == "running" else "Waiting to start",
+                since=r.started_at or r.created_at,
+                href=f"/runs/{r.id}",
+            )  # fmt: skip
+        )
+    return items
 
 
 @router.get("/activity", response_model=ActivityOut)
 async def activity(auth: CurrentAuth, db: DB) -> ActivityOut:
-    """Background work of the caller that is still going. Phase 2+ adds runs, plan drafts and jobs."""
+    """Background work of the caller that is still going: ingests and runs (Phase 3+ adds plan drafts, jobs)."""
     return ActivityOut(items=await _running(db, auth.user))
 
 
@@ -248,6 +299,61 @@ async def home(auth: CurrentAuth, db: DB) -> HomeOut:
                     at=cred.updated_at,
                 )  # fmt: skip
             )
+    alerts = await db.scalars(
+        select(InboxItem)
+        .where(InboxItem.owner_id == user.id, InboxItem.read_at.is_(None), InboxItem.kind == "alert")
+        .order_by(InboxItem.created_at.desc())
+        .limit(5)
+    )
+    for item in alerts:
+        needs.append(
+            NeedsYou(
+                kind="alert",
+                key=f"inbox:{item.id}",
+                message=item.title,
+                action="Open alert",
+                href=item.link or "/inbox",
+                at=item.created_at,
+            )  # fmt: skip
+        )
+    paused = await db.scalars(
+        select(Schedule)
+        .where(Schedule.owner_id == user.id, Schedule.enabled.is_(False), Schedule.paused_reason.is_not(None))
+        .order_by(Schedule.updated_at.desc())
+        .limit(10)
+    )
+    for sch in paused:
+        reason = sch.paused_reason or ""
+        needs.append(
+            NeedsYou(
+                kind="schedule_paused",
+                key=f"schedule:{sch.id}",
+                message=reason,
+                action="Review",
+                href=f"/schedules/{sch.id}",
+                at=sch.last_run_at or sch.updated_at,
+            )  # fmt: skip
+        )
+    brief = await db.execute(
+        select(Run, Agent.slug)
+        .join(Agent, Agent.id == Run.agent_id)
+        .where(
+            Run.owner_id == user.id,
+            Run.status == "succeeded",
+            Agent.slug == "morning-brief",
+            Run.finished_at >= datetime.now(UTC) - timedelta(hours=24),
+        )  # fmt: skip
+        .order_by(Run.finished_at.desc())
+        .limit(1)
+    )
+    today = None
+    if row := brief.first():
+        run = row[0]
+        report = run.report or {}
+        today = TodayBrief(
+            run_id=str(run.id), schedule_name=run.config.get("name", "Morning brief"),
+            headline=report.get("headline", ""), status=report.get("status", "ok"), at=run.finished_at,
+        )  # fmt: skip
     running = await _running(db, user)
     chats = [
         RecentChat(id=str(c.id), title=c.title, updated_at=c.updated_at)
@@ -312,6 +418,7 @@ async def home(auth: CurrentAuth, db: DB) -> HomeOut:
         checklists.insert(0, Checklist(kind="admin_setup", steps=admin_steps))
     return HomeOut(
         needs_you=needs,
+        today=today,
         running=running,
         recent_chats=chats,
         recent_pages=pages,

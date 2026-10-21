@@ -422,6 +422,17 @@ Layouts, navigation, flows and states are specified in [07-ux.md](07-ux.md) (§4
 | Admin → Integrations | CRUD, CA bundle upload, Kubernetes allowed kinds/namespaces, feed allowlist |
 | Chat | Proposal card under the assistant message |
 
+*Changed while building S7:*
+
+- **Notifications is its own Settings tab** (`/settings/notifications`, as 07 §4.12 has it), not part of Profile. It's also the email's `List-Unsubscribe` target.
+- **Inbox API additions** for the 07 §4.2 row menu and filters: `GET /api/inbox?kind=alert` (the Alerts filter), `POST /api/inbox/unread {"ids"}` (Mark unread, and Undo of Mark all read, which now returns the `ids` it changed), `DELETE /api/inbox/{id}` (Dismiss; the UI waits out its 5 s Undo toast before calling it). Opening the inbox refreshes the sidebar badge.
+- **Run detail** (`GET /api/runs/{id}`) adds `new_fingerprints`, `resolved` (verified findings of the previous successful run that are gone) and `previous_run_id`, for "New since last run" and "Resolved since last run" (07 §4.8). On a first run every finding counts as new. Finding links are shown as host + path text, never as anchors, because they come from untrusted tool output. Unverified findings carry an "Unverified" tag.
+- **Home** (`GET /api/home`): `needs_you` gains `alert` (unread alert inbox items, up to 5) and `schedule_paused` (with `paused_reason` as the message and "Review" → schedule detail), and a `today` block with the latest morning brief from the last 24 h. Both cards disappear once read or resumed. `GET /api/activity` lists the caller's queued and running runs (`kind: "run"`, `id` is the run's UUID); the activity indicator toasts when one finishes.
+- **Chat**: `?context=run:<id>` creates the session with the run attached (title "Investigate a run") and pre-fills "What's the likely cause and what should I check?"; attached runs show as removable chips; run transcripts (`source='run'`) open read-only with a pointer to "Investigate in chat". The messages list returns each proposal with its derived `description`, `next_runs` and `agent_name`, so a reloaded card matches the streamed one.
+- **Schedule form**: presets map to fixed cron (`0 8 * * 1-5`, `0 * * * *`, `0 8 * * *`); list inputs are one per line; the draft is kept per schedule (`draft:<user>:schedule:<id|new>`) and cleared only after a successful save. The same form, in a drawer, is the proposal card's Edit.
+- **The fake gateway** (tests/fakellm) proposes a schedule when asked for something "every weekday", and turns a feed named in a run's inputs into one verified alert per item; it serves `/fake/feed.xml`. That's what the 07 §5.6 and §5.7 Playwright flows run against.
+- The feed tool picks the integration whose allowlist contains the URL, so several feed integrations work without `integration=`.
+
 ## 9. Seeded system tasks added in Phase 2
 
 | Task | Schedule | Purpose |

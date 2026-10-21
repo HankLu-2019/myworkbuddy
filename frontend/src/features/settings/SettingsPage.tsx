@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactElement } from "react";
-import { Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type SignIn, type Usage, type User } from "../../api";
 import IntegrationsTab from "./IntegrationsTab";
@@ -8,6 +8,7 @@ import { useAuth } from "../../auth";
 import { usePageTitle } from "../../app/pageTitle";
 import {
   Banner,
+  Toggle,
   Button,
   Card,
   DataTable,
@@ -255,15 +256,50 @@ function ProfileTab() {
   );
 }
 
+/** Notifications (07 §4.12): email on or off, and what the daily cap means. */
+function NotificationsTab() {
+  const { user, updateUser } = useAuth();
+  const toast = useToast();
+  const save = useMutation({
+    mutationFn: (on: boolean) => api<User>("/api/auth/me", { method: "PATCH", json: { email_notifications: on } }),
+    onSuccess: (u) => {
+      updateUser(u);
+      toast({ title: u.email_notifications ? "Email notifications on" : "Email notifications off", tone: "success" });
+    },
+  });
+  return (
+    <Card className="stack narrow" aria-label="Notifications">
+      <Toggle
+        label="Email me about alerts, recoveries and paused schedules"
+        checked={!!user?.email_notifications}
+        disabled={save.isPending}
+        onChange={(on) => save.mutate(on)}
+      />
+      {!user?.email && (
+        <Banner tone="warning">
+          Add your email address in <Link to="/settings/profile">Profile</Link> to get emails.
+        </Banner>
+      )}
+      <p className="muted">
+        Everything also arrives in your inbox. Each schedule chooses when it notifies (on change, on alert, or every
+        run) and whether it emails. There is a daily limit on emails (30 unless your admin changed it); after that, notifications for the rest of
+        the day are in the inbox only.
+      </p>
+      <ErrorNote error={save.error} />
+    </Card>
+  );
+}
+
 const TABS: Record<string, { label: string; element: () => ReactElement | null }> = {
   profile: { label: "Profile", element: ProfileTab },
   integrations: { label: "Integrations", element: IntegrationsTab },
+  notifications: { label: "Notifications", element: NotificationsTab },
   usage: { label: "Usage", element: AiUsage },
   sessions: { label: "Sessions", element: Sessions },
   password: { label: "Password", element: PasswordForm },
 };
 
-/** Settings tabs (07 §4.12); each tab has its own URL. Notifications arrive with email in Phase 2. */
+/** Settings tabs (07 §4.12); each tab has its own URL. */
 export default function SettingsPage() {
   const { tab = "" } = useParams();
   const current = TABS[tab];

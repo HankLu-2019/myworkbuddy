@@ -122,6 +122,9 @@ class RunDetail(RunOut):
     session_id: uuid.UUID | None
     prompt: str
     inputs: dict[str, Any]
+    new_fingerprints: list[str]  # verified now, not in the previous successful run ("New since last run")
+    resolved: list[dict[str, Any]]  # verified findings of the previous run that are gone now
+    previous_run_id: uuid.UUID | None
 
 
 class RunPage(BaseModel):
@@ -383,8 +386,30 @@ async def get_run(run_id: uuid.UUID, auth: CurrentAuth, db: DB) -> RunDetail:
     r = await db.scalar(select(Run).where(Run.id == run_id, Run.owner_id == auth.user.id))
     if r is None:
         raise _not_found("Run")
+    previous = None
+    if r.schedule_id is not None and r.status == "succeeded":
+        previous = await db.scalar(
+            select(Run)
+            .where(
+                Run.schedule_id == r.schedule_id,
+                Run.status == "succeeded",
+                Run.id != r.id,
+                Run.created_at < r.created_at,
+            )  # fmt: skip
+            .order_by(Run.created_at.desc())
+            .limit(1)
+        )
+    before = set(previous.fingerprints) if previous else set()
+    now_fps = set(r.fingerprints)
+    resolved = [
+        {"fingerprint": f["fingerprint"], "title": f["title"], "severity": f["severity"]}
+        for f in ((previous.report or {}).get("findings", []) if previous else [])
+        if f.get("verified") and f["fingerprint"] in before - now_fps
+    ]
     return RunDetail(
         **_run_fields(r), report=r.report, fingerprints=list(r.fingerprints), tokens_in=r.tokens_in,
         tokens_out=r.tokens_out, session_id=r.session_id, prompt=r.config.get("prompt", ""),
         inputs=r.config.get("inputs") or {},
+        new_fingerprints=sorted(now_fps - before) if previous else sorted(now_fps), resolved=resolved,
+        previous_run_id=previous.id if previous else None,
     )  # fmt: skip

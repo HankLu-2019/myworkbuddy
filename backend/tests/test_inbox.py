@@ -269,7 +269,8 @@ async def test_inbox_list_unread_count_and_marking_read(client_for, make_user) -
     bobs = (await other.get("/api/inbox")).json()["items"]
     assert [i["title"] for i in bobs] == ["bob's"]
     assert (await other.post(f"/api/inbox/{first['id']}/read")).status_code == 404
-    assert (await c.post("/api/inbox/read-all")).json() == {"marked": 4}
+    all_read = (await c.post("/api/inbox/read-all")).json()
+    assert all_read["marked"] == 4 and len(all_read["ids"]) == 4
     assert (await c.get("/api/inbox/unread-count")).json() == {"unread": 0}
     assert (await other.get("/api/inbox/unread-count")).json() == {"unread": 1}
 
@@ -304,3 +305,21 @@ def test_smtp_settings_are_checked() -> None:
             env="prod", hostname="https://x.example", cookie_secure=True, smtp_user="u",
             smtp_password=SecretStr("p"), smtp_starttls=False, **base,
         )  # fmt: skip
+
+
+async def test_unread_dismiss_and_alert_filter(client_for) -> None:
+    c = await client_for("alice")
+    other = await client_for("bob")
+    async with get_sessionmaker()() as db:
+        alice = await db.scalar(select(User).where(User.username == "alice"))
+        add_item(db, alice.id, kind="alert", severity="alert", title="alert")
+        add_item(db, alice.id, kind="system", severity="info", title="note")
+        await db.commit()
+    assert [i["title"] for i in (await c.get("/api/inbox", params={"kind": "alert"})).json()["items"]] == ["alert"]
+    ids = (await c.post("/api/inbox/read-all")).json()["ids"]
+    assert (await other.post("/api/inbox/unread", json={"ids": ids})).json()["marked"] == 0  # not bob's
+    assert (await c.post("/api/inbox/unread", json={"ids": ids})).json()["marked"] == 2  # undo
+    assert (await c.get("/api/inbox/unread-count")).json() == {"unread": 2}
+    assert (await other.delete(f"/api/inbox/{ids[0]}")).status_code == 404
+    assert (await c.delete(f"/api/inbox/{ids[0]}")).status_code == 204
+    assert len((await c.get("/api/inbox")).json()["items"]) == 1
