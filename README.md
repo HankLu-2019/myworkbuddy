@@ -50,7 +50,7 @@ docker compose exec api mwb create-admin --username admin --email you@example.co
 
 Open http://localhost:8080, sign in as the admin, and create team members under **Users**. Each user should add their tokens under **Settings** before adding repositories under **Projects**.
 
-For a prod-like run without the dev override: `docker compose -f docker-compose.yml up -d --build`. The one-shot `migrate` service runs `mwb db-bootstrap` and Alembic first; `api` and `worker` start after it exits successfully. Set `MWB_COOKIE_SECURE=true` when serving over HTTPS.
+For production: `docker compose -f docker-compose.yml up -d --build`. Caddy is the only published service; set `MWB_HOSTNAME` (https), `MWB_TLS_MODE` and put the certificate in `deploy/tls/` (see `docs/design/06-operations.md`). The one-shot `migrate` service runs `mwb db-bootstrap` and Alembic first; `api` and `worker` start after it exits successfully.
 
 Logs are structured JSON: `docker compose logs -f api worker`.
 
@@ -70,5 +70,5 @@ Current: 60 backend tests (83% coverage), 19 frontend tests (99% statement cover
 
 - `tree-sitter` is pinned below 0.26: 0.26.0 returns corrupted nodes and segfaults on some class bodies.
 - Repo ingestion never follows symlinks or reads outside the checkout.
-- nginx overwrites `X-Forwarded-For` so the login rate limit can't be bypassed with a forged header.
+- Caddy overwrites `X-Forwarded-For` and uvicorn trusts it only from Caddy's fixed address, so the login rate limit can't be bypassed with a forged header.
 - `pg_search` (ParadeDB) is AGPL-licensed, which is fine for internal use.

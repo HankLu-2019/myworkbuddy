@@ -5,6 +5,8 @@ services:
       context: ./backend
       target: dev
     image: myworkbuddy-backend:dev
+    environment:
+      MWB_ENV: dev
     volumes:
       - ./backend/app:/app/app
       - ./backend/alembic:/app/alembic
@@ -14,20 +16,22 @@ services:
       context: ./backend
       target: dev
     image: myworkbuddy-backend:dev
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/app"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/app", "--proxy-headers", "--forwarded-allow-ips=172.30.0.200"]
+    environment:
+      MWB_ENV: dev
     volumes:
       - ./backend/app:/app/app
       - ./backend/alembic:/app/alembic
       - ./backend/tests:/app/tests
       - mwbdata:/data
-    ports:
-      - "8000:8000"
 
   worker:
     build:
       context: ./backend
       target: dev
     image: myworkbuddy-backend:dev
+    environment:
+      MWB_ENV: dev
     command: ["watchfiles", "--filter", "python", "procrastinate --app=app.tasks.app.app worker --concurrency=4", "/app/app"]
     volumes:
       - ./backend/app:/app/app
@@ -39,8 +43,6 @@ services:
       target: dev
     image: myworkbuddy-web:dev
     command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "80"]
-    environment:
-      MWB_API_URL: http://api:8000
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/index.html:/app/index.html
@@ -50,3 +52,13 @@ services:
     image: axllent/mailpit:v1.27
     ports:
       - "8025:8025"
+
+  # Dev: plain HTTP on localhost:8080; Caddy still routes /api and adds the same headers as production.
+  caddy:
+    environment:
+      MWB_HOSTNAME: http://localhost:8080
+      MWB_TLS_MODE: none
+      # Vite's dev server injects an inline script (React refresh) and uses a websocket for HMR.
+      MWB_CSP: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+    ports: !override
+      - "8080:8080"

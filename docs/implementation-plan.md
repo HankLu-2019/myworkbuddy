@@ -60,7 +60,7 @@ Design: [01-hardening.md](design/01-hardening.md) and, for H15–H16, [07-ux.md]
   - `backend/tests/fakellm/` server; `compose.ci.yml`.
   - Acceptance: all jobs green on the PR; introducing a deliberate type error, failing test, or broken Dockerfile in a scratch branch turns CI red (*manual once*); Playwright smoke covers the 5 flows in 01 §H2.
 
-- [ ] **H3 Edge: Caddy, TLS, headers, proxy trust** (01 §H3)
+- [x] **H3 Edge: Caddy, TLS, headers, proxy trust** (01 §H3). Fonts are self-hosted (the CSP blocks Google Fonts). Watch: one CI run showed a shared document not appearing in a teammate's search; it did not reproduce in the next runs, and CI now logs search/share requests on failure. CSP comes from `MWB_CSP` (strict in compose; the dev override allows Vite's inline script and HMR websocket).
   - Acceptance: only Caddy publishes ports; response headers include CSP, HSTS (prod), nosniff, Referrer-Policy, frame-ancestors none; a request to `api` with a forged `X-Forwarded-For` from any IP other than Caddy's is logged with the real peer IP; startup fails in `prod` when `MWB_COOKIE_SECURE=false`; SSE chat still streams through Caddy (e2e).
 
 - [ ] **H4 Safe Markdown** (01 §H4)

@@ -81,7 +81,7 @@ flowchart LR
 
 | Network | Members | Notes |
 |---|---|---|
-| `edge` | caddy, web, api | Fixed subnet `172.30.0.0/24`; caddy has fixed IP `172.30.0.2`, which is the only address uvicorn trusts for `X-Forwarded-For`. |
+| `edge` | caddy, web, api | Fixed subnet `172.30.0.0/24`; caddy has fixed IP `172.30.0.200`, which is the only address uvicorn trusts for `X-Forwarded-For`. |
 | `app` | api, worker, worker-jobs, postgres, llm-gateway, runner, backup, egress-proxy | Postgres and the gateway are never published to the host. |
 | `sandbox` | egress-proxy, sandbox containers | `internal: true` (no route out). Sandboxes get `--dns 127.0.0.1` so they cannot resolve external names; the proxy resolves. |
 

@@ -79,10 +79,19 @@ jobs:
           { docker build --target prod -t mwb-backend:prod backend \
             && docker build --target dev -t mwb-backend:dev backend \
             && docker build --target prod -t mwb-web:prod frontend; } > images.log 2>&1 || { tail -n 80 images.log; exit 1; }
+      - name: Caddyfile is valid in every TLS mode
+        run: |
+          mkdir -p tls && openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=mwb.example.com -keyout tls/key.pem -out tls/cert.pem 2>/dev/null
+          for mode in files internal none; do
+            host=https://mwb.example.com; [ $mode = none ] && host=http://localhost:8080
+            docker run --rm -v "$PWD/deploy/caddy:/etc/caddy:ro" -v "$PWD/tls:/tls:ro" -e MWB_HOSTNAME=$host -e MWB_TLS_MODE=$mode \
+              -e "MWB_CSP=default-src 'self'" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile >> images.log 2>&1 \
+              || { echo "caddy validate failed for $mode" >> images.log; tail -n 40 images.log; exit 1; }
+          done
       - name: Prod backend image has no dev tooling
         run: |
           if docker run --rm mwb-backend:prod python -c "import pytest" 2>/dev/null; then echo "pytest found in prod image" > images.log; exit 1; fi
-          docker run --rm -e MWB_DATABASE_URL=postgresql://x@localhost/x -e MWB_SECRET_KEY=x mwb-backend:prod python -c "import app.main" > images.log 2>&1 || { cat images.log; exit 1; }
+          docker run --rm -e MWB_DATABASE_URL=postgresql://x@localhost/x -e MWB_SECRET_KEY=x -e MWB_HOSTNAME=https://mwb.example.com mwb-backend:prod python -c "import app.main" > images.log 2>&1 || { cat images.log; exit 1; }
       - if: failure()
         run: .github/scripts/annotate-tail.sh "images" images.log 80
 
@@ -97,11 +106,28 @@ jobs:
         run: |
           cp .env.example .env
           key=$(python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
-          sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=ci-postgres|; s|^MWB_SECRET_KEY=.*|MWB_SECRET_KEY=$key|; s|^MWB_COOKIE_SECURE=.*|MWB_COOKIE_SECURE=false|; s|^LITELLM_MASTER_KEY=.*|LITELLM_MASTER_KEY=sk-ci|" .env
+          sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=ci-postgres|; s|^MWB_SECRET_KEY=.*|MWB_SECRET_KEY=$key|; s|^MWB_COOKIE_SECURE=.*|MWB_COOKIE_SECURE=false|; s|^MWB_HOSTNAME=.*|MWB_HOSTNAME=http://localhost:8080|; s|^MWB_TLS_MODE=.*|MWB_TLS_MODE=none|; s|^LITELLM_MASTER_KEY=.*|LITELLM_MASTER_KEY=sk-ci|" .env
       - name: Start stack with the fake LLM
-        run: docker compose -f docker-compose.yml -f compose.ci.yml up -d --build --wait --wait-timeout 300 api worker web > stack.log 2>&1 || { cat stack.log; docker compose -f docker-compose.yml -f compose.ci.yml logs --tail 100 >> stack.log; exit 1; }
+        run: docker compose -f docker-compose.yml -f compose.ci.yml up -d --build --wait --wait-timeout 300 api worker web caddy > stack.log 2>&1 || { cat stack.log; { docker compose -f docker-compose.yml -f compose.ci.yml ps -a; docker compose -f docker-compose.yml -f compose.ci.yml logs --tail 25 migrate api worker web caddy llm-gateway; } > stack-state.log 2>&1; grep -i -E 'error|denied|invalid|conflict|failed|address' stack.log | tail -n 15 > stack-err.log; mv stack-err.log stack.log; cat stack-state.log >> stack.log; cat stack.log; exit 1; }
       - name: Create admin
         run: docker compose -f docker-compose.yml -f compose.ci.yml exec -T -e MWB_ADMIN_PASSWORD=$MWB_E2E_ADMIN_PASSWORD api mwb create-admin --username admin --email admin@example.com
+      - name: Edge sends security headers and ignores forged X-Forwarded-For
+        run: |
+          set -o pipefail
+          curl -sfI http://localhost:8080/ > headers.txt
+          for h in content-security-policy x-content-type-options referrer-policy permissions-policy; do
+            grep -qi "^$h:" headers.txt || { echo "missing header $h" | tee edge.log; cat headers.txt >> edge.log; exit 1; }
+          done
+          grep -qi "img-src 'self' data:" headers.txt || { echo "CSP does not restrict images" | tee edge.log; exit 1; }
+          if grep -qi "^server:" headers.txt; then echo "Server header leaked" | tee edge.log; exit 1; fi
+          curl -s -o /dev/null -H 'content-type: application/json' -H 'X-Forwarded-For: 203.0.113.99' \
+            -d '{"username":"nobody","password":"wrong-password"}' http://localhost:8080/api/auth/login
+          ips=$(docker compose -f docker-compose.yml -f compose.ci.yml exec -T postgres psql -U mwb -d mwb -tAc "select ip from audit_log where action='login.failed'")
+          echo "audit ips: $ips"
+          [ -n "$ips" ] || { echo "no login.failed audit row" | tee edge.log; exit 1; }
+          if echo "$ips" | grep -q 203.0.113.99; then echo "forged X-Forwarded-For was trusted" | tee edge.log; exit 1; fi
+      - if: failure()
+        run: .github/scripts/annotate-tail.sh "edge" edge.log 40
       - name: Chat streams through the web proxy (curl)
         run: |
           J=$(mktemp)
@@ -121,7 +147,7 @@ jobs:
       - if: failure()
         run: |
           docker compose -f docker-compose.yml -f compose.ci.yml logs --no-log-prefix api worker llm-gateway > all.log 2>&1
-          grep -E '"status": [345][0-9][0-9]|Traceback|"level": "(warning|error)"|git\.' all.log | grep -v '/api/auth/me' > services.log || true
+          grep -E '"status": [345][0-9][0-9]|Traceback|"level": "(warning|error)"|git\.|"path": "/api/knowledge/(search|documents/[0-9]+/visibility)"' all.log | grep -v '/api/auth/me' > services.log || true
           grep -A30 Traceback all.log > tracebacks.log || true
           grep -E 'chat\.|chat/completions' all.log | head -40 > after-chat.log || true
           .github/scripts/annotate-tail.sh "after chat request" after-chat.log 40

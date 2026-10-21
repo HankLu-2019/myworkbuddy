@@ -12,6 +12,7 @@ os.environ.update(
     MWB_DATABASE_URL=_BASE_URL,
     MWB_SECRET_KEY=Fernet.generate_key().decode(),
     MWB_DATA_DIR=str(_TMP),
+    MWB_ENV="dev",
     MWB_COOKIE_SECURE="false",
     MWB_GATEWAY_URL="http://gateway.invalid",
 )

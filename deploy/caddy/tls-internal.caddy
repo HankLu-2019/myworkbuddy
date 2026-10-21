@@ -1,0 +1,2 @@
+# Caddy's own CA; distribute its root certificate to team browsers (06-operations §2).
+tls internal

@@ -1,0 +1,2 @@
+# Certificate and key from deploy/tls/ (mounted at /tls).
+tls /tls/cert.pem /tls/key.pem

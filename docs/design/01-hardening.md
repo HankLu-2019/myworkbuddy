@@ -97,7 +97,8 @@ Failing steps post the tail of their log as a check annotation (`.github/scripts
 }
 ```
 
-- `uvicorn --proxy-headers --forwarded-allow-ips=172.30.0.2` (Caddy's fixed IP on the `edge` network, §2.1 of 00). Never `*`.
+- The CSP value is passed to Caddy as `MWB_CSP` (strict value in `docker-compose.yml`). The dev override relaxes only `script-src` (`'unsafe-inline'` for Vite's React-refresh preamble) and `connect-src` (`ws:` for HMR); production never does.
+- `uvicorn --proxy-headers --forwarded-allow-ips=172.30.0.200` (Caddy's fixed IP on the `edge` network, §2.1 of 00). Never `*`.
 - `compose.override.yml` (dev) stops publishing `api:8000`. Developers reach everything through `http://localhost:8080` served by Caddy with `{$MWB_HOSTNAME}` set to `http://localhost:8080` (no TLS in dev).
 - Settings: `MWB_ENV` (`dev`|`prod`, default `prod`). In `prod`, startup fails if `MWB_COOKIE_SECURE` is false.
 - Cookie: `__Host-mwb_session` (requires Secure, Path=/, no Domain) in prod; `mwb_session` in dev.

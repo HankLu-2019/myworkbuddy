@@ -54,7 +54,8 @@ services:
 
   api:
     <<: *backend
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+    networks: [default, edge]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=172.30.0.200"]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -80,13 +81,45 @@ services:
       context: ./frontend
       target: prod
     image: myworkbuddy-web:latest
+    networks: [edge]
+    restart: unless-stopped
+
+  # The only published service: TLS, security headers, routing (deploy/caddy/Caddyfile).
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      MWB_HOSTNAME: ${MWB_HOSTNAME:?set MWB_HOSTNAME in .env}
+      MWB_TLS_MODE: ${MWB_TLS_MODE:-files}
+      # Strict CSP. Remote images are blocked here as a backstop to the Markdown renderer (H4).
+      MWB_CSP: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
     ports:
-      - "${MWB_WEB_PORT:-8080}:80"
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./deploy/caddy:/etc/caddy:ro
+      - ./deploy/tls:/tls:ro
+      - caddydata:/data
+    networks:
+      edge:
+        # uvicorn trusts X-Forwarded-For only from this address (--forwarded-allow-ips).
+        ipv4_address: 172.30.0.200
     depends_on:
       api:
         condition: service_healthy
+      web:
+        condition: service_started
     restart: unless-stopped
+
+networks:
+  default:
+  edge:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          # Automatic addresses come from the lower half, so Caddy's fixed .200 is never taken.
+          ip_range: 172.30.0.0/25
 
 volumes:
   pgdata:
   mwbdata:
+  caddydata:
