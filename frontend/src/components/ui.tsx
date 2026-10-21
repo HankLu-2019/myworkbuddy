@@ -1,16 +1,7 @@
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import type { ReactNode } from "react";
 import type { Visibility } from "../api";
 
-export function Markdown({ children }: { children: string }) {
-  // react-markdown never renders raw HTML, so LLM output can't inject markup.
-  return (
-    <div className="md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
-    </div>
-  );
-}
+export { Markdown } from "./markdown";
 
 export function VisibilityBadge({ visibility }: { visibility: Visibility }) {
   return visibility === "public" ? (

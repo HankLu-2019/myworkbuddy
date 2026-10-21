@@ -198,3 +198,7 @@ td.num { font-variant-numeric: tabular-nums; text-align: right; }
   .page { padding: 16px; }
   .history { grid-template-columns: 1fr; }
 }
+
+.md .md-host { color: var(--muted); font-size: 0.85em; }
+.md .md-remote-image { font-style: italic; }
+.md img { max-width: 100%; }
