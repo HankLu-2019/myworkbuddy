@@ -87,7 +87,20 @@ test("2. uploads are private until shared", async ({ browser }) => {
   await shared.getByRole("button", { name: "Share with team" }).click();
   await expect(shared.getByText("Team")).toBeVisible();
   await search(bob, WORD);
-  await expect(bob.getByRole("link", { name: DOC })).toBeVisible();
+  try {
+    await expect(bob.getByRole("link", { name: DOC })).toBeVisible();
+  } catch (err) {
+    // Diagnostics for an intermittent CI failure: is it the API's answer or the page?
+    const url = `/api/knowledge/search?${new URLSearchParams({ q: WORD, scope: "all", limit: "20" })}`;
+    for (const delay of [0, 3000]) {
+      await bob.waitForTimeout(delay);
+      const r = await bob.request.get(url);
+      console.log(`[diag] bob search after ${delay} ms: ${r.status()} ${(await r.text()).slice(0, 500)}`);
+    }
+    const docs = await bob.request.get("/api/knowledge/documents");
+    console.log(`[diag] bob documents: ${docs.status()} ${(await docs.text()).slice(0, 500)}`);
+    throw err;
+  }
 });
 
 test("3. chat streams an answer with a citation that opens the source", async ({ browser }) => {
