@@ -1,3 +1,5 @@
+import uuid
+
 from sqlalchemy import select
 
 from app.db import get_sessionmaker
@@ -72,15 +74,21 @@ async def test_shared_session_hides_private_citations(client_for):
     assert {c["title"] for c in theirs} == {"public.txt"}
 
 
-async def test_model_failure_reports_error_and_keeps_no_empty_reply(client_for):
+async def test_immediate_failure_saves_a_failed_reply_outside_model_history(client_for):
     alice = await client_for("alice")
     sid = (await alice.post("/api/chat/sessions", json={})).json()["id"]
     set_model_override(failing_model())
     events = parse_sse((await alice.post(f"/api/chat/sessions/{sid}/messages", json={"content": "hello"})).text)
-    assert events[0][0] == "error" and "bedrock unavailable" in events[0][1]["message"]
-    assert events[-1] == ("done", {"message_id": None, "citations": []})
+    error = next(d for n, d in events if n == "error")
+    assert error["code"] == "llm_unavailable" and "bedrock unavailable" in error["message"]
+    assert events[-1][0] == "done" and events[-1][1]["message_id"] is not None
     messages = (await alice.get(f"/api/chat/sessions/{sid}/messages")).json()
-    assert [m["role"] for m in messages] == ["user"]
+    assert [(m["role"], m["status"]) for m in messages] == [("user", "complete"), ("assistant", "failed")]
+    assert "bedrock unavailable" in messages[1]["content"] and messages[1]["error_code"] == "llm_unavailable"
+    # The next turn's model history doesn't include the failed reply.
+    from app.chat.routes import _history
+
+    assert await _history(uuid.UUID(sid)) == []
 
 
 async def test_session_management(client_for, task_queue):

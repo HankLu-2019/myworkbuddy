@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import App from "./App";
-import ChatPage, { citationHref } from "./pages/ChatPage";
+import ChatPage, { chatErrorText, citationHref } from "./pages/ChatPage";
 import SearchPage from "./pages/SearchPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import WikiPage, { wrapInKeep } from "./pages/WikiPage";
@@ -115,6 +115,73 @@ describe("chat", () => {
     expect(await screen.findByText("The model call failed: 403")).toBeInTheDocument();
     fireEvent.change(box, { target: { value: "again" } });
     expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+  });
+
+  it("shows partial and failed replies from the saved history", async () => {
+    let saved: unknown[] = [];
+    const calls = mockApi({
+      ...signedInAs(MEMBER),
+      "GET /api/chat/sessions": [session],
+      "GET /api/chat/shared": [],
+      "GET /api/projects": [],
+      "GET /api/chat/sessions/s1": session,
+      "GET /api/chat/sessions/s1/messages": () => saved,
+      "POST /api/chat/sessions/s1/messages": () => {
+        saved = [
+          { id: 1, role: "user", content: "a", created_at: NOW, citations: [], tools: [] },
+          { id: 2, role: "assistant", content: "The executor ran out of", created_at: NOW, citations: [], tools: [],
+            status: "partial", error_code: "llm_unavailable", cost_usd: 0.031 },
+          { id: 3, role: "user", content: "b", created_at: NOW, citations: [], tools: [] },
+          { id: 4, role: "assistant", content: "You've reached your monthly AI budget (USD 50.00). An admin can raise it.",
+            created_at: NOW, citations: [], tools: [], status: "failed", error_code: "budget_exceeded" },
+        ];
+        return sse([
+          ["error", { code: "budget_exceeded", message: "You've reached your monthly AI budget (USD 50.00). An admin can raise it." }],
+          ["done", { message_id: 4, citations: [] }],
+        ]);
+      },
+    });
+    renderAt("/chat/s1", <ChatPage />, "/chat/:sessionId");
+    const box = await screen.findByLabelText("Message");
+    fireEvent.change(box, { target: { value: "b" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByText(/Incomplete — the model call failed/)).toBeInTheDocument();
+    expect(screen.getByText("The executor ran out of")).toBeInTheDocument();
+    expect(screen.getByLabelText("Cost of this reply")).toHaveTextContent("$0.03");
+    // The failed reply is saved, so the message appears once (no duplicate error note).
+    await waitFor(() => expect(screen.getAllByText(/monthly AI budget/)).toHaveLength(1));
+    // Retry resends the user message the failed reply answered.
+    fireEvent.click(screen.getAllByText("Retry")[1]);
+    await waitFor(() =>
+      expect(calls.filter((c) => c.method === "POST").map((c) => c.body)).toEqual([{ content: "b" }, { content: "b" }]),
+    );
+  });
+
+  it("explains a busy chat", async () => {
+    mockApi({
+      ...signedInAs(MEMBER),
+      "GET /api/chat/sessions": [session],
+      "GET /api/chat/shared": [],
+      "GET /api/projects": [],
+      "GET /api/chat/sessions/s1": session,
+      "GET /api/chat/sessions/s1/messages": [],
+      "POST /api/chat/sessions/s1/messages": new Response(
+        JSON.stringify({ detail: "This chat is still answering.", code: "session_busy" }),
+        { status: 409 },
+      ),
+    });
+    renderAt("/chat/s1", <ChatPage />, "/chat/:sessionId");
+    const box = await screen.findByLabelText("Message");
+    fireEvent.change(box, { target: { value: "hi" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByText("A reply is still being written in another tab.")).toBeInTheDocument();
+  });
+
+  it("maps error codes to messages", () => {
+    expect(chatErrorText("budget_exceeded", undefined)).toMatch(/monthly AI budget/);
+    expect(chatErrorText("llm_unavailable", undefined)).toMatch(/isn't answering/);
+    expect(chatErrorText("internal", "")).toBe("Something went wrong. Try again.");
+    expect(chatErrorText(undefined, "custom")).toBe("custom");
   });
 });
 

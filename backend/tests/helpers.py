@@ -54,6 +54,30 @@ def failing_model() -> FunctionModel:
 def parse_sse(body: str) -> list[tuple[str, Any]]:
     events = []
     for block in body.strip().split("\n\n"):
+        if all(line.startswith(":") for line in block.splitlines()):
+            continue  # keep-alive comment (": ping")
         lines = dict(line.split(": ", 1) for line in block.splitlines() if ": " in line)
         events.append((lines.get("event"), json.loads(lines.get("data", "null"))))
     return events
+
+
+def slow_then_text(delay: float, answer: str = "done") -> FunctionModel:
+    """Streaming model that waits `delay` seconds before answering."""
+
+    async def stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
+        import asyncio
+
+        await asyncio.sleep(delay)
+        yield answer
+
+    return FunctionModel(stream_function=stream)
+
+
+def text_then_failure(text: str) -> FunctionModel:
+    """Streaming model that sends some text, then fails mid-reply."""
+
+    async def stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
+        yield text
+        raise RuntimeError("connection reset by gateway")
+
+    return FunctionModel(stream_function=stream)

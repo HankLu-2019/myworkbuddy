@@ -381,11 +381,11 @@ Embeddings use the key of the user who owns the text: the document owner when in
 
 ## H13. Chat robustness
 
-- **One reply at a time per session.** `post_message` takes `pg_try_advisory_lock(hashtext('chat:'||session_id))` on a dedicated connection for the stream's lifetime. If not acquired: `409 session_busy`.
-- **Keep-alive.** The SSE generator yields `: ping\n\n` every 15 s while waiting for model events.
-- **Partial replies.** If the stream ends with an error after text was produced, the message is saved with `status='partial'` and the UI marks it "Incomplete — the model call failed". If nothing was produced, the error is saved as an assistant message with `status='failed'` so the session history explains the gap; it is excluded from model history.
-- **Error events** carry `code` (`budget_exceeded`, `llm_unavailable`, `internal`). The UI shows a message per code.
-- **Cost** stored per assistant message (H12).
+- **One reply at a time per session.** `post_message` takes `pg_try_advisory_lock(hashtext('chat:'||session_id))` on a dedicated connection (`ReplyLock`) before the stream starts. If not acquired: `409 session_busy`. The connection is `AUTOCOMMIT` and committed straight after locking, so no transaction stays open while the reply streams (rule R1). The lock is released in the stream's `finally` and again by the response's background task (idempotent), which covers a client that disconnects before the body starts. If the unlock fails, the connection is invalidated, so a pooled connection never keeps a lock. Each streaming reply holds one connection: the api pool (`MWB_DB_POOL_SIZE` + overflow) must exceed the number of concurrent replies, which is fine at ≤ 20 users.
+- **Keep-alive.** The SSE generator yields the comment `: ping\n\n` every 15 s (`PING_SECONDS`) while waiting for the next model event. It waits on the event iterator's pending `__anext__` with a timeout instead of cancelling it. The frontend's stream parser skips comment-only blocks.
+- **Partial replies.** If the stream ends with an error after text was produced, the message is saved with `status='partial'` and the UI marks it "Incomplete — the model call failed". If nothing was produced, the error message is saved as an assistant message with `status='failed'` so the session history explains the gap. Both store `meta.error_code`, and only `complete` messages are sent back to the model (`_history`). A reply cancelled by the client before any text saves nothing; the user's message stays. `GET .../messages` returns `status`, `error_code` and `cost_usd`.
+- **Error events** carry `code` (`budget_exceeded`, `llm_unavailable` for gateway errors, timeouts and usage limits, `internal`), followed by `done` with the saved message id. The UI shows a message per code (`chatErrorText`, 07-ux §4.3 and §6.8): for example "A reply is still being written in another tab." for `session_busy`. A saved partial or failed reply explains itself, so no extra note is shown. Partial and failed replies have a "Retry" button that resends the user message they answered.
+- **Cost** stored per assistant message (H12) and shown small and muted under the reply.
 
 ## H14. Operations foundations
 

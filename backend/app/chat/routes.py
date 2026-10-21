@@ -21,12 +21,14 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.run import AgentRunResultEvent
 from pydantic_core import to_jsonable_python
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
+from starlette.background import BackgroundTask
 
 from app.audit.service import audit
 from app.chat.agent import ChatDeps, build_agent
-from app.db import get_sessionmaker
+from app.db import get_engine, get_sessionmaker
 from app.deps import DB, CurrentAuth
+from app.enums import MessageStatus
 from app.errors import AppError
 from app.knowledge.acl import ensure_view, visible_filter
 from app.knowledge.indexer import set_visibility
@@ -71,6 +73,9 @@ class MessageOut(BaseModel):
     created_at: datetime
     citations: list[dict[str, Any]] = []
     tools: list[dict[str, Any]] = []
+    status: Literal["complete", "partial", "failed"] = "complete"
+    error_code: str | None = None  # why a partial or failed reply stopped
+    cost_usd: float | None = None
 
 
 class MessageIn(BaseModel):
@@ -191,6 +196,9 @@ async def list_messages(session_id: uuid.UUID, auth: CurrentAuth, db: DB) -> lis
             created_at=m.created_at,
             citations=_visible_citations(m.meta.get("citations", []), auth.user, session),
             tools=tools.get(m.id, []),
+            status=m.status,
+            error_code=(m.meta or {}).get("error_code"),
+            cost_usd=float(m.cost_usd) if m.cost_usd is not None else None,
         )
         for m in messages
     ]
@@ -216,7 +224,12 @@ async def _history(session_id: uuid.UUID) -> list:
         raws = list(
             await db.scalars(
                 select(Message.raw)
-                .where(Message.session_id == session_id, Message.role == "assistant", Message.raw.is_not(None))
+                .where(
+                    Message.session_id == session_id,
+                    Message.role == "assistant",
+                    Message.status == MessageStatus.complete,  # partial and failed replies stay out of the model's view
+                    Message.raw.is_not(None),
+                )
                 .order_by(Message.id.desc())
                 .limit(HISTORY_RUNS)
             )
@@ -230,7 +243,68 @@ async def _history(session_id: uuid.UUID) -> list:
     return ModelMessagesTypeAdapter.validate_python([m for raw in reversed(kept) for m in raw])
 
 
-async def _stream(session: ChatSession, user: User, content: str) -> AsyncIterator[str]:
+PING_SECONDS = 15.0  # keep-alive comment while waiting for the model (proxies drop idle connections)
+
+
+class ReplyLock:
+    """One reply at a time per chat session (design 01 §H13): a session-level advisory lock on a dedicated
+    AUTOCOMMIT connection, held for the stream's lifetime. Released explicitly; the connection is discarded if
+    that fails, so a pooled connection never keeps a lock."""
+
+    def __init__(self, session_id: uuid.UUID) -> None:
+        self.key = f"chat:{session_id}"
+        self._conn = None
+
+    async def acquire(self) -> bool:
+        conn = await get_engine().connect()
+        conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
+        got = (await conn.execute(text("SELECT pg_try_advisory_lock(hashtext(:k))"), {"k": self.key})).scalar()
+        await conn.commit()  # no transaction stays open while the reply streams (rule R1)
+        if not got:
+            await conn.close()
+            return False
+        self._conn = conn
+        return True
+
+    async def release(self) -> None:
+        conn, self._conn = self._conn, None
+        if conn is None:
+            return
+        try:
+            await conn.execute(text("SELECT pg_advisory_unlock(hashtext(:k))"), {"k": self.key})
+            await conn.commit()
+        except Exception:
+            await conn.invalidate()  # closing the backend releases the lock
+        finally:
+            await conn.close()
+
+
+async def _with_pings(events: AsyncIterator[Any]) -> AsyncIterator[Any]:
+    """Yield the agent's events, plus None every PING_SECONDS while the next one is slow to arrive."""
+    it = events.__aiter__()
+    pending: asyncio.Future | None = None
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.ensure_future(it.__anext__())
+            done, _ = await asyncio.wait({pending}, timeout=PING_SECONDS)
+            if not done:
+                yield None
+                continue
+            try:
+                ev = pending.result()
+            except StopAsyncIteration:
+                return
+            finally:
+                if pending.done():
+                    pending = None
+            yield ev
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+
+
+async def _stream(session: ChatSession, user: User, content: str, lock: ReplyLock | None = None) -> AsyncIterator[str]:
     structlog.contextvars.bind_contextvars(session_id=str(session.id))
     maker = get_sessionmaker()
     async with maker() as db:
@@ -258,8 +332,10 @@ async def _stream(session: ChatSession, user: User, content: str) -> AsyncIterat
                     content, message_history=history, deps=deps, usage_limits=llm.limits_for("chat_turn")
                 ) as events,
             ):
-                async for ev in events:
-                    if isinstance(ev, PartStartEvent) and isinstance(ev.part, TextPart) and ev.part.content:
+                async for ev in _with_pings(events):
+                    if ev is None:
+                        yield ": ping\n\n"
+                    elif isinstance(ev, PartStartEvent) and isinstance(ev.part, TextPart) and ev.part.content:
                         text_parts.append(ev.part.content)
                         yield _sse("delta", {"text": ev.part.content})
                     elif isinstance(ev, PartDeltaEvent) and isinstance(ev.delta, TextPartDelta):
@@ -308,11 +384,16 @@ async def _stream(session: ChatSession, user: User, content: str) -> AsyncIterat
             error = {"code": "llm_unavailable", "message": f"The model call failed: {exc}"[:500]}
     except BaseException as exc:  # cancellation (client went away) is otherwise silent
         log.warning("chat.cancelled", error=type(exc).__name__, partial_chars=len("".join(text_parts)))
+        error = {"code": "cancelled", "message": "The reply was interrupted."}
         raise
     finally:
-        message_id = await asyncio.shield(
-            _save_assistant(session.id, text_parts, result, deps, list(tool_rows.values()), tracked)
-        )
+        try:
+            message_id = await asyncio.shield(
+                _save_assistant(session.id, text_parts, result, deps, list(tool_rows.values()), tracked, error)
+            )
+        finally:
+            if lock is not None:
+                await asyncio.shield(lock.release())
     if error:
         yield _sse("error", error)
     yield _sse("done", {"message_id": message_id, "citations": deps.citations})
@@ -325,17 +406,29 @@ async def _save_assistant(
     deps: ChatDeps,
     tool_ids: list[int],
     tracked: usage.Usage,
+    error: dict[str, Any] | None = None,
 ) -> int | None:
-    if result is None and not "".join(text_parts).strip():
-        return None  # the model produced nothing; the user's message stays so they can retry
+    """Save the reply. Complete → `complete`. Text then an error → `partial` (kept, shown as incomplete).
+    An error before any text → `failed`, with the error as content, so the session explains the gap. Partial and
+    failed replies are never sent back to the model (`_history`)."""
+    text_so_far = "".join(text_parts)
+    if result is not None and error is None:
+        status_, body = MessageStatus.complete, result.output
+    elif text_so_far.strip():
+        status_, body = MessageStatus.partial, text_so_far
+    elif error is not None and error.get("code") != "cancelled":
+        status_, body = MessageStatus.failed, error["message"]
+    else:
+        return None  # cancelled before anything was produced; the user's message stays so they can retry
     run_usage = result.usage if result else None
     async with get_sessionmaker()() as db:
         msg = Message(
             session_id=session_id,
             role="assistant",
-            content=result.output if result else "".join(text_parts),
-            raw=to_jsonable_python(result.new_messages()) if result else None,
-            meta={"citations": deps.citations},
+            content=body,
+            raw=to_jsonable_python(result.new_messages()) if status_ == MessageStatus.complete else None,
+            meta={"citations": deps.citations, **({"error_code": error["code"]} if error else {})},
+            status=status_,
             tokens_in=run_usage.input_tokens if run_usage else None,
             tokens_out=run_usage.output_tokens if run_usage else None,
             cost_usd=tracked.cost_usd,
@@ -354,6 +447,7 @@ async def _save_assistant(
             "chat.message_saved",
             cost_usd=float(tracked.cost_usd),
             message_id=msg.id,
+            status=status_,
             tokens_in=msg.tokens_in,
             tokens_out=msg.tokens_out,
             citations=len(deps.citations),
@@ -367,8 +461,14 @@ async def post_message(session_id: uuid.UUID, body: MessageIn, auth: CurrentAuth
     # The request's session stays checked out while the reply streams; end its read transaction now so it isn't
     # "idle in transaction" for minutes (rule R1; the server ends such sessions after 60 s).
     await db.commit()
+    lock = ReplyLock(session.id)
+    if not await lock.acquire():
+        raise AppError(
+            status.HTTP_409_CONFLICT, "session_busy", "This chat is still answering. Wait for the reply to finish."
+        )
     return StreamingResponse(
-        _stream(session, auth.user, body.content),
+        _stream(session, auth.user, body.content, lock),
+        background=BackgroundTask(lock.release),  # also releases if the stream never started
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
