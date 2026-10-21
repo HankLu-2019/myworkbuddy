@@ -100,7 +100,7 @@ test("4. wiki page create, edit, history and diff", async ({ browser }) => {
   await alice.getByLabel("Path").fill(`notes/e2e-${run}.md`);
   await alice.getByLabel("Content (Markdown)").fill("# E2E page\n\nfirst version\n");
   await alice.getByRole("button", { name: "Create page" }).click();
-  await expect(alice.getByRole("heading", { name: "E2E page" })).toBeVisible();
+  await expect(alice.locator(".page-header h1", { hasText: "E2E page" })).toBeVisible();
 
   await alice.getByRole("button", { name: "Edit" }).click();
   await alice.getByLabel("Page content").fill("# E2E page\n\nsecond version\n");
