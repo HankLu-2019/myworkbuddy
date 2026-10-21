@@ -41,6 +41,9 @@ SEEDS: dict[str, list[str]] = {
         "VALUES (1, 1, 'private', 0, 'seed chunk text', '{}')",
     ],
 }
+SEEDS["0007"] = [
+    "INSERT INTO inbox_items (owner_id, kind, severity, title) VALUES (1, 'credential', 'warning', 'seed')",
+]
 SEEDS["0005"] = []  # 0005 adds a column with a default; the 0001 user must get it
 CHECKS = {
     "users": 1,
@@ -49,6 +52,7 @@ CHECKS = {
     "projects": 1,
     "documents": 1,
     "chunks": 1,
+    "inbox_items": 1,
 }
 
 

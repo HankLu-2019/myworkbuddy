@@ -87,3 +87,17 @@ def parse_json(body: bytes) -> Any:
     if text.startswith(")]}'"):
         text = text.split("\n", 1)[1] if "\n" in text else ""
     return json.loads(text) if text.strip() else None
+
+
+async def request_tail(
+    c: httpx2.AsyncClient, method: str, url: str, *, keep: int = 256 * 1024, **kw: Any
+) -> tuple[int, bytes]:
+    """(status, last `keep` bytes): for logs, which can be far larger than the cap but only the end matters."""
+    async with asyncio.timeout(TIMEOUT.pool or 60.0):
+        async with c.stream(method, url, **kw) as resp:
+            tail = bytearray()
+            async for chunk in resp.aiter_bytes():
+                tail += chunk
+                if len(tail) > keep:
+                    del tail[: len(tail) - keep]
+            return resp.status_code, bytes(tail)

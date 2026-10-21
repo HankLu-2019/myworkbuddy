@@ -12,8 +12,18 @@ from app.config import get_settings
 from app.errors import AppError
 
 # Resource kinds the Phase 2 k8s tools may read; `secrets` is never allowed (02 §2).
-DEFAULT_K8S_KINDS = ["pods", "deployments", "replicasets", "statefulsets", "daemonsets", "jobs", "cronjobs", "events",
-                     "services", "nodes", "namespaces"]  # fmt: skip
+DEFAULT_K8S_KINDS = [
+    "pods",
+    "deployments",
+    "statefulsets",
+    "daemonsets",
+    "jobs",
+    "cronjobs",
+    "nodes",
+    "events",
+    "services",
+    "ingresses",
+]  # fmt: skip  (design 02 §2)
 FORBIDDEN_K8S_KINDS = {"secrets", "serviceaccounts/token"}
 _DNS_LABEL = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
 MAX_CA_BYTES = 64 * 1024

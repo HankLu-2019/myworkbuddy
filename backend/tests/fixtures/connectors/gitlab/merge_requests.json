@@ -1,0 +1,2 @@
+[{"iid": 81, "title": "Raise executor memory overhead", "state": "opened", "author": {"username": "alice"}, "head_pipeline": {"status": "failed"}, "updated_at": "2026-10-20T08:00:00Z", "web_url": "https://gitlab.example.com/team/etl/-/merge_requests/81"},
+ {"iid": 80, "title": "Bump spark to 3.5", "state": "opened", "author": {"username": "bob"}, "updated_at": "2026-10-19T08:00:00Z", "web_url": "https://gitlab.example.com/team/etl/-/merge_requests/80"}]
