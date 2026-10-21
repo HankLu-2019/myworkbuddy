@@ -235,6 +235,8 @@ Results are written to `system_state['wiki_reconcile']`.
 
 ### History across publish
 
+Page history uses `git log -- <path>` **without** `--follow`. Rename detection makes `--follow` attribute commits of other, similar pages to this one (seen in the H2 investigation: a new page's history showed another page's creation commit). Moves between repos are tracked by the trailer below instead.
+
 Publish/unpublish commits carry a trailer `Moved-From: <repo-relative-dir>@<sha>`. `GET /api/wiki/pages/{id}/history` follows one hop: if the oldest commit for the path has a `Moved-From` trailer, it appends the history from that repo up to that sha. Only the page owner sees private-repo history; other viewers see public history only.
 
 ## H8. Librarian guardrails and per-user nightly time
