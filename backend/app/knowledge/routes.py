@@ -11,7 +11,6 @@ from app.config import get_settings
 from app.deps import DB, CurrentAuth
 from app.errors import DEFAULT_CODES, AppError
 from app.knowledge.acl import (
-    Visibility,
     can_change_visibility,
     can_edit,
     ensure_edit,
@@ -52,7 +51,7 @@ router = APIRouter(prefix="/api", tags=["knowledge"])
 
 
 class VisibilityIn(BaseModel):
-    visibility: Visibility
+    visibility: Literal["private", "public"]
 
 
 # ---------- search ----------
@@ -61,9 +60,9 @@ class VisibilityIn(BaseModel):
 class HitOut(BaseModel):
     document_id: int
     title: str
-    source_type: str
+    source_type: Literal["upload", "wiki", "episode", "code", "repo_doc"]
     source_ref: str
-    visibility: str
+    visibility: Literal["private", "public"]
     owner_id: int
     project_id: int | None
     excerpt: str
@@ -106,9 +105,9 @@ async def search(
 class DocumentOut(BaseModel):
     id: int
     title: str
-    source_type: str
+    source_type: Literal["upload", "wiki", "episode", "code", "repo_doc"]
     source_ref: str
-    visibility: str
+    visibility: Literal["private", "public"]
     owner_id: int
     project_id: int | None
     chunks: int
@@ -216,7 +215,7 @@ class PageSummary(BaseModel):
     id: int
     path: str
     title: str
-    visibility: str
+    visibility: Literal["private", "public"]
     owner_id: int
     updated_at: datetime
     mine: bool
@@ -392,12 +391,27 @@ async def get_page_version(page_id: int, sha: str, auth: CurrentAuth, db: DB) ->
     return VersionOut(sha=sha, content=content)
 
 
+class LibrarianChangeOut(BaseModel):
+    sha: str
+    date: str
+    message: str
+    diff: str
+
+
 @router.get("/wiki/librarian/changes")
-async def librarian_changes(auth: CurrentAuth, days: int = 3) -> list[dict[str, str]]:
+async def librarian_changes(auth: CurrentAuth, days: int = 3) -> list[LibrarianChangeOut]:
     repo = repo_for("private", auth.user.id)
     since = datetime.now(UTC) - timedelta(days=max(1, min(days, 30)))
     commits = [c for c in await repo.log(limit=100, author=LIBRARIAN.email) if datetime.fromisoformat(c.date) >= since]
-    return [{"sha": c.sha, "date": c.date, "message": c.message, "diff": await repo.show(c.sha)} for c in commits]
+    return [LibrarianChangeOut(sha=c.sha, date=c.date, message=c.message, diff=await repo.show(c.sha)) for c in commits]
+
+
+class RejectedPageOut(BaseModel):
+    """A rewrite the guardrails held back (design 01 §H8)."""
+
+    path: str
+    reason: str
+    diff: str = ""
 
 
 class LibrarianRunOut(BaseModel):
@@ -408,7 +422,7 @@ class LibrarianRunOut(BaseModel):
     status: Literal["ok", "partial", "failed", "skipped"]
     episodes: int
     pages_updated: list[str]
-    pages_rejected: list[dict[str, str]]
+    pages_rejected: list[RejectedPageOut]
     error: str | None
 
 
@@ -437,10 +451,10 @@ class ProjectOut(BaseModel):
     id: int
     name: str
     repo_url: str
-    host: str
+    host: Literal["gitlab", "gerrit"]
     branch: str | None
-    visibility: str
-    status: str
+    visibility: Literal["private", "public"]
+    status: Literal["new", "queued", "running", "ready", "failed"]
     error: str | None
     last_ingested_sha: str | None
     progress: str | None

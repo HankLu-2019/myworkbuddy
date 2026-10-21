@@ -168,6 +168,6 @@ test("5. changing the password signs the user out", async ({ browser }) => {
   await alice.getByLabel("Current password").fill(PASSWORD);
   await alice.getByLabel("New password (10+ characters)").fill("member-password-2");
   await alice.getByRole("button", { name: "Change password" }).click();
-  await expect(alice).toHaveURL(/\/login$/);
+  await expect(alice).toHaveURL(/\/login(\?next=%2Fsettings)?$/);
   await signIn(browser, ALICE, "member-password-2");
 });

@@ -1,62 +1,31 @@
-import { NavLink, Navigate, Outlet, Route, Routes } from "react-router-dom";
+import { lazy, Suspense, type ReactNode } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth";
-import LoginPage from "./pages/LoginPage";
-import ChatPage from "./pages/ChatPage";
-import SearchPage from "./pages/SearchPage";
-import DocumentsPage from "./pages/DocumentsPage";
-import WikiPage from "./pages/WikiPage";
-import ProjectsPage from "./pages/ProjectsPage";
-import ImportsPage from "./pages/ImportsPage";
-import SettingsPage from "./pages/SettingsPage";
-import AdminPage from "./pages/AdminPage";
-import FirstPasswordPage from "./pages/FirstPasswordPage";
-import SystemPage from "./pages/SystemPage";
+import Shell from "./app/Shell";
+import { SkeletonRows } from "./components/ui";
+import LoginPage from "./features/auth/LoginPage";
 
-const NAV = [
-  { to: "/chat", label: "Chat" },
-  { to: "/search", label: "Search" },
-  { to: "/wiki", label: "Wiki" },
-  { to: "/projects", label: "Projects" },
-  { to: "/documents", label: "Documents" },
-  { to: "/imports", label: "Imports" },
-];
+// Route-level code splitting (07 §8): each feature is its own chunk, loaded on first visit.
+const ChatPage = lazy(() => import("./features/chat/ChatPage"));
+const SearchPage = lazy(() => import("./features/search/SearchPage"));
+const WikiPage = lazy(() => import("./features/wiki/WikiPage"));
+const SourcesPage = lazy(() => import("./features/sources/SourcesPage"));
+const SettingsPage = lazy(() => import("./features/settings/SettingsPage"));
+const UsersPage = lazy(() => import("./features/admin/UsersPage"));
+const SystemPage = lazy(() => import("./features/admin/SystemPage"));
+const GalleryPage = lazy(() => import("./features/dev/GalleryPage"));
 
-function Layout() {
-  const { user, logout } = useAuth();
-  if (!user) return <Navigate to="/login" replace />;
-  if (user.must_change_password) return <FirstPasswordPage />;
+function Page({ children }: { children: ReactNode }) {
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="brand">MyWorkBuddy</div>
-        <nav>
-          {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to}>
-              {n.label}
-            </NavLink>
-          ))}
-          <div className="nav-sep" />
-          <NavLink to="/settings">Settings</NavLink>
-          {user.role === "admin" && (
-            <>
-              <NavLink to="/admin" end>
-                Users
-              </NavLink>
-              <NavLink to="/admin/system">System</NavLink>
-            </>
-          )}
-        </nav>
-        <div className="sidebar-foot">
-          <span className="who">{user.display_name || user.username}</span>
-          <button className="link" onClick={logout}>
-            Sign out
-          </button>
+    <Suspense
+      fallback={
+        <div className="page">
+          <SkeletonRows />
         </div>
-      </aside>
-      <main className="content">
-        <Outlet />
-      </main>
-    </div>
+      }
+    >
+      {children}
+    </Suspense>
   );
 }
 
@@ -66,18 +35,24 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
-      <Route element={<Layout />}>
-        <Route path="/chat" element={<ChatPage />} />
-        <Route path="/chat/:sessionId" element={<ChatPage />} />
-        <Route path="/search" element={<SearchPage />} />
-        <Route path="/wiki" element={<WikiPage />} />
-        <Route path="/wiki/:pageId" element={<WikiPage />} />
-        <Route path="/projects" element={<ProjectsPage />} />
-        <Route path="/documents" element={<DocumentsPage />} />
-        <Route path="/imports" element={<ImportsPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/admin" element={<AdminPage />} />
-        <Route path="/admin/system" element={<SystemPage />} />
+      <Route element={<Shell />}>
+        <Route path="/" element={<Navigate to="/chat" replace />} />
+        <Route path="/chat" element={<Page><ChatPage /></Page>} />
+        <Route path="/chat/:sessionId" element={<Page><ChatPage /></Page>} />
+        <Route path="/search" element={<Page><SearchPage /></Page>} />
+        <Route path="/wiki" element={<Page><WikiPage /></Page>} />
+        <Route path="/wiki/:pageId" element={<Page><WikiPage /></Page>} />
+        <Route path="/sources" element={<Navigate to="/sources/repos" replace />} />
+        <Route path="/sources/:tab" element={<Page><SourcesPage /></Page>} />
+        {/* Old routes (07 §3.1): Projects, Documents and Imports are tabs of Sources now. */}
+        <Route path="/projects" element={<Navigate to="/sources/repos" replace />} />
+        <Route path="/documents" element={<Navigate to="/sources/documents" replace />} />
+        <Route path="/imports" element={<Navigate to="/sources/imports" replace />} />
+        <Route path="/settings" element={<Page><SettingsPage /></Page>} />
+        <Route path="/admin" element={<Page><UsersPage /></Page>} />
+        <Route path="/admin/system" element={<Page><SystemPage /></Page>} />
+        {/* Component gallery: in dev, and for admins in production so the visual baselines run on the real build. */}
+        <Route path="/dev/components" element={<Page><GalleryPage /></Page>} />
         <Route path="*" element={<Navigate to="/chat" replace />} />
       </Route>
     </Routes>

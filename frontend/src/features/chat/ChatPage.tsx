@@ -1,15 +1,29 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Plus, RotateCcw, Send, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, streamPost, type ChatMessage, type Citation, type Project, type Session } from "../api";
-import { useAuth } from "../auth";
-import { ErrorNote, Markdown, SOURCE_LABELS, VisibilityBadge } from "../components/ui";
+import { api, ApiError, streamPost, type ChatMessage, type Citation, type Project, type Session } from "../../api";
+import { useAuth } from "../../auth";
+import { usePageTitle } from "../../app/pageTitle";
+import {
+  Button,
+  ConfirmDialog,
+  EmptyState,
+  ErrorNote,
+  Markdown,
+  SOURCE_LABELS,
+  Select,
+  TextArea,
+  VisibilityBadge,
+  VisibilityControl,
+  useToast,
+} from "../../components/ui";
 
 export function citationHref(c: Citation): string {
   if (c.source_ref.startsWith("wiki:")) return `/wiki/${c.source_ref.slice(5)}`;
   if (c.source_ref.startsWith("session:")) return `/chat/${c.source_ref.slice(8)}`;
-  if (c.source_type === "upload") return "/documents";
-  return "/projects";
+  if (c.source_type === "upload") return "/sources/documents";
+  return "/sources/repos";
 }
 
 function Citations({ items }: { items: Citation[] }) {
@@ -65,8 +79,11 @@ export function chatErrorText(code: string | undefined, message: string | undefi
 
 export default function ChatPage() {
   const { sessionId } = useParams();
+  const [params, setParams] = useSearchParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const toast = useToast();
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const qc = useQueryClient();
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<Pending | null>(null);
@@ -89,6 +106,7 @@ export default function ChatPage() {
   });
 
   const isOwner = session.data?.owner_id === user?.id;
+  usePageTitle({ label: "Chat", to: "/chat" }, sessionId ? session.data?.title : undefined);
 
   // Braces matter: newer browsers return a Promise from scrollIntoView, and an effect must return a cleanup function
   // or nothing. Returning the Promise crashed React's commit phase and blanked the page mid-reply.
@@ -121,13 +139,25 @@ export default function ChatPage() {
 
   const summarize = useMutation({
     mutationFn: () => api(`/api/chat/sessions/${sessionId}/close`, { method: "POST" }),
+    onSuccess: () => toast({ title: "Summary queued", tone: "success" }),
   });
+
+  // `c` and the "New chat" links open /chat?new=1 (07 §5); create once, even under StrictMode's double effects.
+  const creating = useRef(false);
+  useEffect(() => {
+    if (params.get("new") !== "1" || creating.current) return;
+    creating.current = true;
+    setParams({}, { replace: true });
+    create.mutate(undefined, { onSettled: () => (creating.current = false) });
+  }, [params]);
 
   const remove = useMutation({
     mutationFn: () => api(`/api/chat/sessions/${sessionId}`, { method: "DELETE" }),
     onSuccess: () => {
+      setConfirmDelete(false);
       qc.invalidateQueries({ queryKey: ["sessions"] });
       navigate("/chat");
+      toast({ title: "Chat deleted" });
     },
   });
 
@@ -176,78 +206,110 @@ export default function ChatPage() {
     }
   }
 
-  return (
-    <div className="chat">
-      <section className="chat-list">
-        <button className="primary block" onClick={() => create.mutate()} disabled={create.isPending}>
-          New chat
-        </button>
-        <div className="list-label">Your sessions</div>
-        {sessions.data?.map((s) => (
-          <Link key={s.id} to={`/chat/${s.id}`} className={`list-item ${s.id === sessionId ? "active" : ""}`}>
-            <span className="truncate">{s.title}</span>
-            {s.source === "claude-code" && <span className="tag">CC</span>}
-            {s.visibility === "public" && <span className="tag tag-team">Team</span>}
-          </Link>
-        ))}
-        {!!shared.data?.length && <div className="list-label">Shared by teammates</div>}
-        {shared.data?.map((s) => (
-          <Link key={s.id} to={`/chat/${s.id}`} className={`list-item ${s.id === sessionId ? "active" : ""}`}>
-            <span className="truncate">{s.title}</span>
-          </Link>
-        ))}
-      </section>
+  const visibility = session.data?.visibility ?? "private";
+  const projectOptions: [string, string][] = [
+    ["", "No project in focus"],
+    ...(projects.data ?? []).map((p) => [String(p.id), p.name] as [string, string]),
+  ];
 
-      <section className="chat-main">
+  return (
+    <div className="split">
+      <nav className="split-list" aria-label="Chat sessions">
+        <Button variant="primary" icon={<Plus size={16} aria-hidden />} onClick={() => create.mutate()} pending={create.isPending}>
+          New chat
+        </Button>
+        <ErrorNote error={create.error} />
+        <div className="list-label" id="own-sessions">Your sessions</div>
+        <ul className="stack" aria-labelledby="own-sessions">
+          {sessions.data?.map((s) => (
+            <li key={s.id}>
+              <Link
+                to={`/chat/${s.id}`}
+                className={`list-item ${s.id === sessionId ? "active" : ""}`}
+                aria-current={s.id === sessionId ? "page" : undefined}
+              >
+                <span className="truncate grow">{s.title}</span>
+                {s.source === "claude-code" && <span className="badge badge-neutral" title="Imported from Claude Code">CC</span>}
+                {s.visibility === "public" && <VisibilityBadge visibility="public" />}
+              </Link>
+            </li>
+          ))}
+        </ul>
+        {sessions.data && !sessions.data.length && <p className="muted small">No chats yet.</p>}
+        {!!shared.data?.length && (
+          <>
+            <div className="list-label" id="shared-sessions">Shared by teammates</div>
+            <ul className="stack" aria-labelledby="shared-sessions">
+              {shared.data.map((s) => (
+                <li key={s.id}>
+                  <Link
+                    to={`/chat/${s.id}`}
+                    className={`list-item ${s.id === sessionId ? "active" : ""}`}
+                    aria-current={s.id === sessionId ? "page" : undefined}
+                  >
+                    <span className="truncate">{s.title}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </nav>
+
+      <section className="chat-main" aria-label="Conversation">
         {!sessionId ? (
           <div className="chat-empty">
-            <h2>Ask about your work</h2>
-            <p className="muted">
-              Answers draw on your private knowledge and anything your team has published. Start a new chat, or pick
-              a past session on the left.
-            </p>
+            <EmptyState
+              action={
+                <Button variant="primary" onClick={() => create.mutate()} pending={create.isPending}>
+                  Start a chat
+                </Button>
+              }
+            >
+              <h2>Ask about your work</h2>
+              <p className="muted">
+                Answers draw on your private knowledge and anything your team has published. Start a new chat, or pick
+                a past session.
+              </p>
+            </EmptyState>
           </div>
         ) : (
           <>
             <div className="chat-bar">
-              <div className="chat-title truncate">{session.data?.title}</div>
-              {session.data && <VisibilityBadge visibility={session.data.visibility} />}
+              <h1 className="chat-title truncate">{session.data?.title}</h1>
+              {session.data && <VisibilityBadge visibility={visibility} />}
               {isOwner && (
                 <div className="chat-tools">
-                  <select
-                    aria-label="Project in focus"
-                    value={session.data?.project_id ?? ""}
+                  <Select
+                    label="Project in focus"
+                    hideLabel
+                    value={session.data?.project_id ? String(session.data.project_id) : ""}
+                    options={projectOptions}
                     onChange={(e) => patch.mutate({ project_id: e.target.value ? Number(e.target.value) : null })}
-                  >
-                    <option value="">No project in focus</option>
-                    {projects.data?.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={() =>
-                      patch.mutate({ visibility: session.data?.visibility === "public" ? "private" : "public" })
-                    }
-                  >
-                    {session.data?.visibility === "public" ? "Make private" : "Share with team"}
-                  </button>
-                  <button onClick={() => summarize.mutate()} disabled={summarize.isPending}>
+                  />
+                  <VisibilityControl
+                    visibility={visibility}
+                    size="sm"
+                    pending={patch.isPending}
+                    onChange={(v) => patch.mutate({ visibility: v })}
+                  />
+                  <Button size="sm" onClick={() => summarize.mutate()} pending={summarize.isPending}>
                     {summarize.isSuccess ? "Summary queued" : "Save to memory"}
-                  </button>
-                  <button
-                    className="danger"
-                    onClick={() => window.confirm("Delete this session and its summary?") && remove.mutate()}
-                  >
+                  </Button>
+                  <Button size="sm" variant="danger" icon={<Trash2 size={14} aria-hidden />} onClick={() => setConfirmDelete(true)}>
                     Delete
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
-            <div className="messages">
+            <ErrorNote error={patch.error ?? summarize.error} />
+            <div className="messages" aria-live="polite" aria-busy={streaming}>
               {messages.data?.map((m) => (
-                <div key={m.id} className={`msg msg-${m.role}${m.status && m.status !== "complete" ? ` msg-${m.status}` : ""}`}>
+                <article
+                  key={m.id}
+                  aria-label={m.role === "user" ? "You" : "Assistant"}
+                  className={`msg msg-${m.role}${m.status && m.status !== "complete" ? ` msg-${m.status}` : ""}`}
+                >
                   {m.role === "assistant" && <ToolActivity tools={m.tools} />}
                   {m.status === "failed" ? (
                     <div className="error-text" role="note">
@@ -268,43 +330,63 @@ export default function ChatPage() {
                     </div>
                   )}
                   {m.role === "assistant" && m.status !== "complete" && m.status !== undefined && isOwner && (
-                    <button disabled={streaming} onClick={() => void send(undefined, previousUserText(messages.data ?? [], m.id))}>
+                    <Button
+                      size="sm"
+                      icon={<RotateCcw size={14} aria-hidden />}
+                      disabled={streaming}
+                      onClick={() => void send(undefined, previousUserText(messages.data ?? [], m.id))}
+                    >
                       Retry
-                    </button>
+                    </Button>
                   )}
-                </div>
+                </article>
               ))}
               {pending && (
                 <>
                   {pending.user && (
-                    <div className="msg msg-user">
+                    <article className="msg msg-user" aria-label="You">
                       <Markdown>{pending.user}</Markdown>
-                    </div>
+                    </article>
                   )}
-                  <div className="msg msg-assistant">
+                  <article className="msg msg-assistant" aria-label="Assistant">
                     <ToolActivity tools={pending.tools} />
-                    {pending.text ? <Markdown>{pending.text}</Markdown> : !pending.error && <div className="typing">Thinking…</div>}
+                    {pending.text ? (
+                      <Markdown>{pending.text}</Markdown>
+                    ) : (
+                      !pending.error && <div className="typing" role="status">Thinking…</div>
+                    )}
                     <ErrorNote error={pending.error} />
-                  </div>
+                  </article>
                 </>
               )}
               <div ref={bottom} />
             </div>
             {isOwner && (
               <form className="composer" onSubmit={send}>
-                <textarea
-                  aria-label="Message"
+                <TextArea
+                  label="Message"
+                  hideLabel
                   placeholder="Ask about a project, a past decision, an error… (Enter to send, Shift+Enter for a new line)"
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={onKey}
                   rows={3}
                 />
-                <button className="primary" type="submit" disabled={!draft.trim() || streaming}>
+                <Button variant="primary" type="submit" icon={<Send size={16} aria-hidden />} disabled={!draft.trim() || streaming}>
                   Send
-                </button>
+                </Button>
               </form>
             )}
+            <ConfirmDialog
+              open={confirmDelete}
+              onOpenChange={setConfirmDelete}
+              title="Delete this chat?"
+              body="The chat and its saved summary are removed. This can't be undone."
+              confirmLabel="Delete chat"
+              danger
+              pending={remove.isPending}
+              onConfirm={() => remove.mutate()}
+            />
           </>
         )}
       </section>

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
@@ -35,11 +36,12 @@ class UserOut(BaseModel):
     username: str
     email: str | None
     display_name: str | None
-    role: str
+    role: Literal["admin", "member"]
     is_active: bool
     must_change_password: bool = False
     last_login_at: datetime | None = None
     llm_budget_usd: float | None = None  # None: the default MWB_DEFAULT_USER_BUDGET_USD applies
+    timezone: str | None = None
 
     @classmethod
     def of(cls, u: User) -> "UserOut":
@@ -53,6 +55,7 @@ class UserOut(BaseModel):
             must_change_password=bool(u.must_change_password),
             last_login_at=u.last_login_at,
             llm_budget_usd=float(u.llm_budget_usd) if u.llm_budget_usd is not None else None,
+            timezone=u.timezone,
         )
 
 

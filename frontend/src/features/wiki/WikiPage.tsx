@@ -1,17 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { History, Pencil, Plus, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, type Commit, type Page, type PageSummary, type Visibility } from "../api";
-import { Empty, ErrorNote, Markdown, PageHeader, VisibilityBadge, formatDate } from "../components/ui";
+import { api, ApiError, type Commit, type LibrarianChange, type LibrarianRun, type Page, type PageSummary, type Visibility } from "../../api";
+import { usePageTitle } from "../../app/pageTitle";
+import {
+  Banner,
+  Button,
+  Card,
+  ConfirmDialog,
+  DiffView,
+  EmptyState,
+  ErrorNote,
+  Markdown,
+  PageHeader,
+  SkeletonRows,
+  TextArea,
+  TextField,
+  VisibilityBadge,
+  VisibilityControl,
+  formatDate,
+  useToast,
+} from "../../components/ui";
 
-type LibrarianChange = { sha: string; date: string; message: string; diff: string };
-type LibrarianRun = {
-  id: number;
-  started_at: string;
-  status: "ok" | "partial" | "failed" | "skipped";
-  pages_rejected: { path: string; reason: string; diff: string }[];
-  error: string | null;
-};
 
 const KEEP_OPEN = "<!-- mwb:keep -->";
 const KEEP_CLOSE = "<!-- /mwb:keep -->";
@@ -37,31 +48,24 @@ function PageTree({ pages, current }: { pages: PageSummary[]; current?: number }
     <>
       {groups.map(([label, items]) => (
         <div key={label}>
-          <div className="list-label">{label}</div>
-          {!items.length && <div className="muted small pad">None yet</div>}
-          {items.map((p) => (
-            <Link key={p.id} to={`/wiki/${p.id}`} className={`list-item ${p.id === current ? "active" : ""}`}>
-              <span className="mono small truncate">{p.path}</span>
-            </Link>
-          ))}
+          <div className="list-label" id={`tree-${label}`}>{label}</div>
+          {!items.length && <div className="muted small">None yet</div>}
+          <ul aria-labelledby={`tree-${label}`}>
+            {items.map((p) => (
+              <li key={p.id}>
+                <Link
+                  to={`/wiki/${p.id}`}
+                  className={`list-item ${p.id === current ? "active" : ""}`}
+                  aria-current={p.id === current ? "page" : undefined}
+                >
+                  <span className="mono small truncate">{p.path}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
         </div>
       ))}
     </>
-  );
-}
-
-function Diff({ text }: { text: string }) {
-  return (
-    <pre className="diff">
-      {text.split("\n").map((line, i) => (
-        <div
-          key={i}
-          className={line.startsWith("+") && !line.startsWith("+++") ? "add" : line.startsWith("-") && !line.startsWith("---") ? "del" : ""}
-        >
-          {line || " "}
-        </div>
-      ))}
-    </pre>
   );
 }
 
@@ -77,12 +81,13 @@ function LibrarianPanel() {
   const run = useMutation({ mutationFn: () => api<{ queued: boolean }>("/api/wiki/librarian/run", { method: "POST" }) });
   const heldBack = (runs.data ?? []).flatMap((r) => r.pages_rejected.map((x) => ({ ...x, run: r })));
   const failed = (runs.data ?? []).filter((r) => r.status === "failed");
+  usePageTitle({ label: "Wiki", to: "/wiki" }, "Librarian changes");
   return (
     <div className="page">
       <PageHeader title="What the librarian changed">
-        <button onClick={() => run.mutate()} disabled={run.isPending}>
+        <Button onClick={() => run.mutate()} pending={run.isPending}>
           {run.isSuccess ? "Queued" : "Update from recent sessions now"}
-        </button>
+        </Button>
       </PageHeader>
       <p className="muted lede">
         Each night the librarian folds your session summaries into your private pages (how you work, decisions,
@@ -90,10 +95,10 @@ function LibrarianPanel() {
       </p>
       <ErrorNote error={changes.error || runs.error || run.error} />
       {failed.length > 0 && (
-        <p className="notice" role="status">
+        <Banner tone="warning">
           The last {failed.length === 1 ? "run" : `${failed.length} runs`} failed ({failed[0].error ?? "unknown error"}).
           Your pages were not changed.
-        </p>
+        </Banner>
       )}
       {heldBack.length > 0 && (
         <section aria-labelledby="held-back">
@@ -107,18 +112,19 @@ function LibrarianPanel() {
                 <span className="mono">{h.path}</span> <span>Not applied: {h.reason}</span>{" "}
                 <span className="muted small">{formatDate(h.run.started_at)}</span>
               </summary>
-              <Diff text={h.diff} />
+              <DiffView text={h.diff} />
             </details>
           ))}
         </section>
       )}
-      {changes.data && !changes.data.length && <Empty>No librarian changes in the last 7 days.</Empty>}
+      {changes.isLoading && <SkeletonRows />}
+      {changes.data && !changes.data.length && <EmptyState>No librarian changes in the last 7 days.</EmptyState>}
       {changes.data?.map((c) => (
         <details key={c.sha} className="card change">
           <summary>
             <span>{c.message}</span> <span className="muted small">{formatDate(c.date)}</span>
           </summary>
-          <Diff text={c.diff} />
+          <DiffView text={c.diff} />
         </details>
       ))}
     </div>
@@ -132,27 +138,41 @@ function NewPage({ onCreated }: { onCreated: (p: Page) => void }) {
     mutationFn: () => api<Page>("/api/wiki/pages", { method: "POST", json: { path, content } }),
     onSuccess: onCreated,
   });
+  usePageTitle({ label: "Wiki", to: "/wiki" }, "New page");
   return (
-    <div className="page">
+    <form
+      className="page"
+      onSubmit={(e) => {
+        e.preventDefault();
+        create.mutate();
+      }}
+    >
       <PageHeader title="New page" />
-      <p className="muted lede">New pages are private. Publish a page when you want the team to see it.</p>
-      <label htmlFor="path">Path</label>
-      <input id="path" className="mono" value={path} onChange={(e) => setPath(e.target.value)} placeholder="runbooks/jenkins-oom.md" />
-      <label htmlFor="content">Content (Markdown)</label>
-      <textarea id="content" className="editor" value={content} onChange={(e) => setContent(e.target.value)} />
+      <p className="muted lede">New pages are private. Share a page with the team when you want them to see it.</p>
+      <TextField
+        label="Path"
+        inputClassName="mono"
+        value={path}
+        onChange={(e) => setPath(e.target.value)}
+        placeholder="runbooks/jenkins-oom.md"
+        hint="Folders are created as needed; .md is added if missing."
+      />
+      <TextArea label="Content (Markdown)" inputClassName="editor" value={content} onChange={(e) => setContent(e.target.value)} />
       <ErrorNote error={create.error} />
       <div className="actions">
-        <button className="primary" onClick={() => create.mutate()} disabled={create.isPending}>
+        <Button variant="primary" type="submit" pending={create.isPending}>
           Create page
-        </button>
+        </Button>
       </div>
-    </div>
+    </form>
   );
 }
 
 function PageView({ id }: { id: number }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const toast = useToast();
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [mode, setMode] = useState<"view" | "edit" | "history">("view");
   const [draft, setDraft] = useState("");
   const editor = useRef<HTMLTextAreaElement>(null);
@@ -203,6 +223,7 @@ function PageView({ id }: { id: number }) {
       setMode("view");
       setMessage("");
       refresh();
+      toast({ title: "Page saved", tone: "success" });
     },
   });
   const conflict = save.error instanceof ApiError && save.error.code === "wiki_conflict" ? save.error : null;
@@ -231,21 +252,35 @@ function PageView({ id }: { id: number }) {
   const remove = useMutation({
     mutationFn: () => api(`/api/wiki/pages/${id}`, { method: "DELETE" }),
     onSuccess: () => {
+      setConfirmDelete(false);
       refresh();
       navigate("/wiki");
+      toast({ title: "Page deleted" });
     },
   });
+  usePageTitle({ label: "Wiki", to: "/wiki" }, page.data?.title);
 
-  if (page.error) return <ErrorNote error={page.error} />;
+  if (page.error)
+    return (
+      <div className="page">
+        <ErrorNote error={page.error} />
+      </div>
+    );
   const p = page.data;
-  if (!p) return <div className="muted">Loading…</div>;
+  if (!p)
+    return (
+      <div className="page">
+        <SkeletonRows rows={5} />
+      </div>
+    );
 
   return (
     <div className="page">
       <PageHeader title={p.title}>
         <VisibilityBadge visibility={p.visibility} />
         {p.can_edit && mode === "view" && (
-          <button
+          <Button
+            icon={<Pencil size={16} aria-hidden />}
             onClick={() => {
               setDraft(p.content);
               setBaseSha(p.head_sha ?? "");
@@ -254,29 +289,27 @@ function PageView({ id }: { id: number }) {
             }}
           >
             Edit
-          </button>
+          </Button>
         )}
-        <button onClick={() => setMode(mode === "history" ? "view" : "history")}>
+        <Button icon={<History size={16} aria-hidden />} onClick={() => setMode(mode === "history" ? "view" : "history")}>
           {mode === "history" ? "Back to page" : "History"}
-        </button>
+        </Button>
         {p.mine && (
-          <button onClick={() => publish.mutate(p.visibility === "public" ? "private" : "public")}>
-            {p.visibility === "public" ? "Unpublish" : "Publish to team"}
-          </button>
+          <VisibilityControl visibility={p.visibility} pending={publish.isPending} onChange={(v) => publish.mutate(v)} />
         )}
         {p.can_edit && (
-          <button className="danger" onClick={() => window.confirm(`Delete ${p.path}?`) && remove.mutate()}>
+          <Button variant="danger" icon={<Trash2 size={16} aria-hidden />} onClick={() => setConfirmDelete(true)}>
             Delete
-          </button>
+          </Button>
         )}
       </PageHeader>
       <div className="muted small mono">
         {p.path} · updated {formatDate(p.updated_at)}
       </div>
       <ErrorNote error={(conflict ? null : save.error) || publish.error || remove.error || history.error || diff.error} />
-      {notice && <div className="notice">{notice}</div>}
+      {notice && <Banner tone="info">{notice}</Banner>}
       {conflict && (
-        <div className="conflict card" role="alertdialog" aria-label="Edit conflict">
+        <Card className="conflict" role="alert" aria-label="Edit conflict">
           <strong>This page changed since you opened it.</strong>
           <p className="muted small">Someone (or the librarian) saved a newer version. Your edits were not saved.</p>
           <div className="conflict-columns">
@@ -290,36 +323,42 @@ function PageView({ id }: { id: number }) {
             </div>
           </div>
           <div className="actions">
-            <button className="primary" onClick={() => resolveConflict(true)}>
+            <Button variant="primary" onClick={() => resolveConflict(true)}>
               Copy my text and reload
-            </button>
-            <button onClick={() => resolveConflict(false)}>Discard my edits</button>
+            </Button>
+            <Button onClick={() => resolveConflict(false)}>Discard my edits</Button>
           </div>
-        </div>
+        </Card>
       )}
       {mode === "view" && <Markdown>{p.content}</Markdown>}
       {mode === "edit" && (
         <>
-          <textarea
+          <TextArea
             ref={editor}
-            aria-label="Page content"
-            aria-describedby="keep-hint"
-            className="editor"
+            label="Page content"
+            hideLabel
+            hint="Text inside a Keep block is never changed by the librarian."
+            inputClassName="editor"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
           />
-          <p id="keep-hint" className="muted small">
-            Text inside a Keep block is never changed by the librarian.{" "}
-            <button type="button" className="link" onClick={protect}>
+          <div>
+            <Button variant="link" onClick={protect}>
               Keep block
-            </button>
-          </p>
-          <input aria-label="Change summary" placeholder="What changed (optional)" value={message} onChange={(e) => setMessage(e.target.value)} />
+            </Button>
+          </div>
+          <TextField
+            label="Change summary"
+            hideLabel
+            placeholder="What changed (optional)"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+          />
           <div className="actions">
-            <button className="primary" onClick={() => save.mutate()} disabled={save.isPending}>
+            <Button variant="primary" onClick={() => save.mutate()} pending={save.isPending}>
               Save
-            </button>
-            <button onClick={() => setMode("view")}>Cancel</button>
+            </Button>
+            <Button onClick={() => setMode("view")}>Cancel</Button>
           </div>
         </>
       )}
@@ -328,18 +367,32 @@ function PageView({ id }: { id: number }) {
           <ul className="commits">
             {history.data?.map((c) => (
               <li key={c.sha}>
-                <button className={`link ${diffSha === c.sha ? "active" : ""}`} onClick={() => setDiffSha(c.sha)}>
+                <Button variant="link" aria-pressed={diffSha === c.sha} onClick={() => setDiffSha(c.sha)}>
                   {c.message}
-                </button>
+                </Button>
                 <span className="muted small">
                   {c.author} · {formatDate(c.date)}
                 </span>
               </li>
             ))}
           </ul>
-          {diff.data && <Diff text={diff.data.diff} />}
+          {diff.data && <DiffView text={diff.data.diff} />}
         </div>
       )}
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={`Delete ${p.path}?`}
+        body={
+          p.visibility === "public"
+            ? "The page is removed for you and your teammates. This can't be undone here."
+            : "The page is removed from your wiki. This can't be undone here."
+        }
+        confirmLabel="Delete page"
+        danger
+        pending={remove.isPending}
+        onConfirm={() => remove.mutate()}
+      />
     </div>
   );
 }
@@ -357,15 +410,17 @@ export default function WikiPage() {
 
   return (
     <div className="split">
-      <section className="split-list">
-        <button className="primary block" onClick={() => setCreating(true)}>
+      <nav className="split-list" aria-label="Wiki pages">
+        <Button variant="primary" icon={<Plus size={16} aria-hidden />} onClick={() => setCreating(true)}>
           New page
-        </button>
+        </Button>
         <Link to="/wiki" className={`list-item ${!pageId && !creating ? "active" : ""}`} onClick={() => setCreating(false)}>
           Librarian changes
         </Link>
+        <ErrorNote error={pages.error} />
+        {pages.isLoading && <SkeletonRows />}
         {pages.data && <PageTree pages={pages.data} current={pageId ? Number(pageId) : undefined} />}
-      </section>
+      </nav>
       <section className="split-main">
         {creating ? (
           <NewPage

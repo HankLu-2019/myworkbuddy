@@ -75,10 +75,17 @@ jobs:
       - run: npm run typecheck > ../typecheck.log 2>&1 || { cat ../typecheck.log; exit 1; }
       - run: npx vitest run --coverage > ../vitest.log 2>&1 || { cat ../vitest.log; exit 1; }
       - run: npm run build > ../build.log 2>&1 || { cat ../build.log; exit 1; }
+      - name: Initial JavaScript within budget (07 §8)
+        run: npm run -s size > ../size.log 2>&1; status=$?; cat ../size.log; exit $status
+      - uses: astral-sh/setup-uv@v6
+      - name: Generated API types match the backend (07 §8)
+        run: |
+          (cd ../backend && uv sync --frozen > /dev/null)
+          npm run -s api:check > ../api-types.log 2>&1; status=$?; cat ../api-types.log; exit $status
       - if: failure()
         working-directory: .
         run: |
-          for f in typecheck vitest build; do .github/scripts/annotate-tail.sh "$f" "$f.log" 40; done
+          for f in typecheck vitest build size api-types; do [ -f "$f.log" ] && .github/scripts/annotate-tail.sh "$f" "$f.log" 40; done
 
   images:
     runs-on: ubuntu-24.04
@@ -161,6 +168,8 @@ jobs:
   e2e:
     runs-on: ubuntu-24.04
     needs: [images]
+    permissions:
+      contents: write # only to commit missing visual baselines to the PR branch
     env:
       MWB_E2E_ADMIN_PASSWORD: admin-password-1
     steps:
@@ -206,7 +215,38 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium > /dev/null
-          npx playwright test > ../e2e.log 2>&1; status=$?; cat ../e2e.log; exit $status
+          # Missing visual baselines are written rather than failed here; the next step reports them.
+          npx playwright test --update-snapshots=missing > ../e2e.log 2>&1; status=$?; cat ../e2e.log; exit $status
+      - name: Visual baselines are committed
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          new=$(git status --porcelain --untracked-files=all -- frontend/e2e | grep -- '-snapshots/' | cut -c4- || true)
+          [ -z "$new" ] && exit 0
+          echo "$new"
+          # Baselines must come from CI's Chromium (07 §8). Commit them to the PR branch for review, and fail this
+          # run: the bot's push doesn't start CI, so the next push of the PR compares against them.
+          if [ "$SAME_REPO" = true ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git fetch -q origin "$HEAD_REF"
+            git checkout -q -B baselines "origin/$HEAD_REF"
+            git add -- $new
+            git commit -q -m "Add visual baselines rendered by CI" -m "Review the images in this commit (docs/design/07-ux.md §8)."
+            git push -q origin "HEAD:$HEAD_REF"
+            echo "::error::New visual baselines were committed to $HEAD_REF. Review them in the PR, then push again (or re-run) to compare against them."
+          else
+            echo "::error::New visual baselines were written. Download the visual-baselines artifact and commit it under frontend/e2e/."
+          fi
+          exit 1
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-baselines
+          path: frontend/e2e/*-snapshots/
+          if-no-files-found: ignore
+          retention-days: 14
       - if: failure()
         run: |
           docker compose -f docker-compose.yml -f compose.ci.yml logs --no-log-prefix api worker llm-gateway > all.log 2>&1
