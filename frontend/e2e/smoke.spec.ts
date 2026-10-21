@@ -67,7 +67,7 @@ test("1. admin creates two members", async ({ browser }) => {
 test("2. uploads are private until shared", async ({ browser }) => {
   const alice = await signIn(browser, ALICE);
   await alice.goto("/documents");
-  await alice.locator('input[type="file"]').setInputFiles({
+  await alice.getByLabel("Upload files").setInputFiles({
     name: DOC,
     mimeType: "text/markdown",
     buffer: Buffer.from(`# Notes\n\nThe ${WORD} service restarts every night after the backup job.\n`),

@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type DocumentItem, type Visibility } from "../api";
 import { Empty, ErrorNote, PageHeader, VisibilityBadge, formatDate } from "../components/ui";
@@ -6,6 +6,8 @@ import { Empty, ErrorNote, PageHeader, VisibilityBadge, formatDate } from "../co
 export default function DocumentsPage() {
   const qc = useQueryClient();
   const fileInput = useRef<HTMLInputElement>(null);
+  const replaceInput = useRef<HTMLInputElement>(null);
+  const [replacing, setReplacing] = useState<number | null>(null);
   const docs = useQuery({ queryKey: ["documents"], queryFn: () => api<DocumentItem[]>("/api/knowledge/documents") });
   const refresh = () => qc.invalidateQueries({ queryKey: ["documents"] });
 
@@ -20,6 +22,20 @@ export default function DocumentsPage() {
     onSettled: () => {
       refresh();
       if (fileInput.current) fileInput.current.value = "";
+    },
+  });
+
+  // Replace keeps the document's id and sharing; a new upload with the same name is a separate document.
+  const replace = useMutation({
+    mutationFn: ({ id, file }: { id: number; file: File }) => {
+      const form = new FormData();
+      form.append("file", file);
+      return api(`/api/knowledge/documents/${id}/file`, { method: "PUT", form });
+    },
+    onSettled: () => {
+      setReplacing(null);
+      refresh();
+      if (replaceInput.current) replaceInput.current.value = "";
     },
   });
 
@@ -49,12 +65,23 @@ export default function DocumentsPage() {
           />
         </label>
       </PageHeader>
+      <input
+        ref={replaceInput}
+        type="file"
+        hidden
+        aria-label="Replacement file"
+        accept=".pdf,.md,.markdown,.txt,.rst,.log,.yaml,.yml,.json,.csv"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file && replacing !== null) replace.mutate({ id: replacing, file });
+        }}
+      />
       <p className="muted lede">
         PDFs, Markdown and text files. New uploads are private; share one with the team when it is useful to
         others.
       </p>
-      {upload.isPending && <div className="muted">Uploading and indexing…</div>}
-      <ErrorNote error={upload.error || visibility.error || remove.error || docs.error} />
+      {(upload.isPending || replace.isPending) && <div className="muted">Uploading and indexing…</div>}
+      <ErrorNote error={upload.error || replace.error || visibility.error || remove.error || docs.error} />
       {docs.data && !docs.data.length && <Empty>No documents yet. Upload a runbook, design doc or postmortem.</Empty>}
       {!!docs.data?.length && (
         <div className="table-wrap">
@@ -86,6 +113,14 @@ export default function DocumentsPage() {
                           }
                         >
                           {d.visibility === "public" ? "Make private" : "Share with team"}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setReplacing(d.id);
+                            replaceInput.current?.click();
+                          }}
+                        >
+                          Replace file
                         </button>
                         <button
                           className="danger"

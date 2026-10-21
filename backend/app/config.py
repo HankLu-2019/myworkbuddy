@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     db_pool_size: int = 10
     db_statement_timeout_ms: int = 30_000
     repo_max_file_bytes: int = 200_000
+    repo_cache_max_gb: float = Field(50, gt=0)  # ingest refuses to clone above this (01 §H9)
+    transcript_max_mb: int = Field(50, gt=0)
     allow_http_repos: bool = False
 
     @model_validator(mode="after")

@@ -20,6 +20,7 @@ export type ErrorCode =
   | "llm_unavailable"
   | "unsupported_file"
   | "file_too_large"
+  | "disk_full"
   | "credential_invalid"
   | "password_change_required"
   | "validation_error"
@@ -209,9 +210,13 @@ export interface Project {
   status: string;
   error: string | null;
   last_ingested_sha: string | null;
+  /** What the running ingest is doing, e.g. "Indexing code 40 of 120"; null unless status is running. */
+  progress: string | null;
   owner_id: number;
   updated_at: string;
   mine: boolean;
+  /** Only on create: how the URL was adjusted (e.g. Gerrit /a/ prefix). */
+  notice?: string | null;
 }
 
 export interface SecretStatus {

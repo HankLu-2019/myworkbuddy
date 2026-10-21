@@ -23,6 +23,7 @@ CODES = {
     "llm_unavailable",
     "unsupported_file",
     "file_too_large",
+    "disk_full",
     "credential_invalid",
     "password_change_required",
     "validation_error",

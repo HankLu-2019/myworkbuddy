@@ -143,6 +143,7 @@ describe("knowledge pages", () => {
       "POST /api/knowledge/documents/5/visibility": {},
       "DELETE /api/knowledge/documents/5": undefined,
       "POST /api/knowledge/documents": {},
+      "PUT /api/knowledge/documents/5/file": {},
     });
     const { container } = renderAt("/documents", <DocumentsPage />);
     expect(await screen.findByText("pm.md")).toBeInTheDocument();
@@ -152,6 +153,12 @@ describe("knowledge pages", () => {
     fireEvent.change(input, { target: { files: [new File(["# x"], "new.md")] } });
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/api/knowledge/documents")).toBe(true));
     expect(calls.some((c) => c.method === "DELETE")).toBe(true);
+    // Replace uploads into the same document.
+    fireEvent.click(screen.getByText("Replace file"));
+    fireEvent.change(screen.getByLabelText("Replacement file"), { target: { files: [new File(["# v2"], "pm.md")] } });
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "PUT" && c.path === "/api/knowledge/documents/5/file")).toBe(true),
+    );
   });
 
   it("views, edits, publishes and shows history of a wiki page", async () => {
@@ -252,20 +259,25 @@ describe("knowledge pages", () => {
       ...signedInAs(MEMBER),
       "GET /api/projects": [{ id: 1, name: "etl", repo_url: "https://g/etl.git", host: "gitlab", branch: null,
         visibility: "private", status: "failed", error: "auth required", last_ingested_sha: null, owner_id: 2,
-        updated_at: NOW, mine: true }],
-      "POST /api/projects": {},
+        updated_at: NOW, mine: true, progress: null },
+        { id: 2, name: "api", repo_url: "https://g/api.git", host: "gitlab", branch: null, visibility: "private",
+          status: "running", error: null, last_ingested_sha: null, owner_id: 2, updated_at: NOW, mine: true,
+          progress: "Indexing code 40 of 120" }],
+      "POST /api/projects": { id: 3, notice: "Changed the URL to https://g/a/new: Gerrit needs the /a/ prefix" },
       "POST /api/projects/1/ingest": { queued: true },
       "POST /api/projects/1/visibility": {},
       "DELETE /api/projects/1": undefined,
     });
     renderAt("/projects", <ProjectsPage />);
     expect(await screen.findByText("auth required")).toBeInTheDocument();
+    expect(screen.getByText("Indexing code 40 of 120")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Repository URL"), { target: { value: "https://g/new.git" } });
     fireEvent.change(screen.getByLabelText("Host"), { target: { value: "gerrit" } });
     fireEvent.click(screen.getByText("Add repository"));
-    fireEvent.click(screen.getByText("Re-index"));
-    fireEvent.click(screen.getByText("Share code index"));
-    fireEvent.click(screen.getByText("Remove"));
+    expect(await screen.findByRole("status")).toHaveTextContent("Gerrit needs the /a/ prefix");
+    fireEvent.click(screen.getAllByText("Re-index")[0]);
+    fireEvent.click(screen.getAllByText("Share code index")[0]);
+    fireEvent.click(screen.getAllByText("Remove")[0]);
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
     expect(calls.find((c) => c.method === "POST" && c.path === "/api/projects")?.body).toMatchObject({ host: "gerrit" });
   });
