@@ -9,3 +9,20 @@ services:
     command: ["uvicorn", "tests.fakellm.server:app", "--host", "0.0.0.0", "--port", "4000"]
     env_file: !reset []
     volumes: !reset []
+
+  api:
+    environment:
+      MWB_ENV: dev
+  worker:
+    environment:
+      MWB_ENV: dev
+  migrate:
+    environment:
+      MWB_ENV: dev
+
+  caddy:
+    environment:
+      MWB_HOSTNAME: http://localhost:8080
+      MWB_TLS_MODE: none
+    ports: !override
+      - "8080:8080"

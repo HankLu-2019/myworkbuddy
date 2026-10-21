@@ -7,10 +7,10 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.service import resolve_session
+from app.config import get_settings
 from app.db import get_db
 from app.models import AuthSession, User
 
-SESSION_COOKIE = "mwb_session"
 CSRF_HEADER = "X-CSRF-Token"
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
@@ -24,7 +24,7 @@ class Auth:
 
 
 async def get_auth(request: Request, db: DB) -> Auth:
-    token = request.cookies.get(SESSION_COOKIE)
+    token = request.cookies.get(get_settings().session_cookie)
     resolved = await resolve_session(db, token) if token else None
     if resolved is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not signed in")

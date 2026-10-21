@@ -14,7 +14,7 @@ from app.auth.service import (
     verify_password,
 )
 from app.config import get_settings
-from app.deps import DB, SESSION_COOKIE, CurrentAuth, client_ip
+from app.deps import DB, CurrentAuth, client_ip
 from app.models import AuthSession, User
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -53,7 +53,7 @@ class PasswordChangeIn(BaseModel):
 def _set_cookie(response: Response, token: str) -> None:
     s = get_settings()
     response.set_cookie(
-        SESSION_COOKIE,
+        s.session_cookie,
         token,
         httponly=True,
         secure=s.cookie_secure,
@@ -86,7 +86,8 @@ async def logout(auth: CurrentAuth, response: Response, db: DB) -> None:
     await db.execute(delete(AuthSession).where(AuthSession.id == auth.session.id))
     await audit(db, "logout", user_id=auth.user.id)
     await db.commit()
-    response.delete_cookie(SESSION_COOKIE, path="/")
+    s = get_settings()
+    response.delete_cookie(s.session_cookie, path="/", secure=s.cookie_secure, httponly=True, samesite="lax")
 
 
 @router.get("/me", response_model=MeOut)

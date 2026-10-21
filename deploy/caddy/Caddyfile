@@ -1,0 +1,33 @@
+# Edge proxy (design 01 §H3): TLS, security headers, /api -> api, everything else -> web.
+{
+	admin off
+}
+
+{$MWB_HOSTNAME} {
+	import tls-{$MWB_TLS_MODE}.caddy
+	encode zstd gzip
+	request_body {
+		max_size 60MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		Content-Security-Policy "{$MWB_CSP}"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+	handle /api/* {
+		reverse_proxy api:8000 {
+			# Overwrite, never append: the login rate limit and the audit log key on this address.
+			header_up X-Forwarded-For {remote_host}
+			flush_interval -1
+			transport http {
+				read_timeout 15m
+			}
+		}
+	}
+	handle {
+		reverse_proxy web:80
+	}
+}

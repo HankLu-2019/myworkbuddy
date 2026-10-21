@@ -1,0 +1,1 @@
+# Plain HTTP for dev and CI only (MWB_HOSTNAME must be an http:// address). Refused when MWB_ENV=prod.
