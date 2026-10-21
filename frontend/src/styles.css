@@ -434,3 +434,5 @@ td.num, th.num { font-variant-numeric: tabular-nums; text-align: right; }
 .back-link { font-size: var(--t-sm); display: inline-flex; align-items: center; gap: 4px; }
 .cite-drawer .md { font-size: var(--t-md); }
 .error-action { font-weight: 600; text-decoration: underline; }
+.card.focused { outline: 2px solid var(--accent); outline-offset: 2px; }
+.needs-credential_invalid, .needs-credential_unreadable { border-left-color: var(--st-problem); }

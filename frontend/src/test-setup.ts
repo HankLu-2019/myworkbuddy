@@ -14,3 +14,10 @@ globalThis.Request = class extends NodeRequest {
     super(input, rest);
   }
 } as typeof Request;
+
+// Radix Switch measures its thumb with ResizeObserver, which jsdom lacks.
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+} as unknown as typeof ResizeObserver;

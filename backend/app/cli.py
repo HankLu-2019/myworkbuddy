@@ -268,14 +268,14 @@ def backup_verify() -> None:
     import json
 
     from app.knowledge.wiki import read_page
-    from app.models import UserSecret, WikiPage
+    from app.models import UserCredential, UserSecret, WikiPage
     from app.secrets.service import readable
 
     async def run() -> dict:
         async with get_sessionmaker()() as db:
             users = len(list(await db.scalars(select(User.id))))
             pages = list(await db.scalars(select(WikiPage)))
-            secrets = list(await db.scalars(select(UserSecret)))
+            secrets = list(await db.scalars(select(UserSecret))) + list(await db.scalars(select(UserCredential)))
         files_ok = sum(1 for page in pages if read_page(page))
         good = sum(readable(s.ciphertext) for s in secrets)
         return {

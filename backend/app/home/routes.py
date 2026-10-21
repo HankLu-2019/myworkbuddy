@@ -13,23 +13,22 @@ from pydantic import BaseModel
 from sqlalchemy import exists, func, select
 
 from app.deps import DB, CurrentAuth
+from app.integrations.service import credential_label, state_of
 from app.knowledge.acl import visible_filter
 from app.llm import keys
 from app.logs import log
-from app.models import ChatSession, LibrarianRun, Message, Project, User, UserSecret, WikiPage
-from app.secrets.service import SECRET_KINDS, readable
+from app.models import ChatSession, Integration, LibrarianRun, Message, Project, User, UserCredential, WikiPage
 
 router = APIRouter(prefix="/api", tags=["home"])
 
 BUDGET_WARN_RATIO = 0.8
 LIBRARIAN_RECENT = timedelta(hours=36)  # "last night", wherever the user's night is
-TOKEN_KINDS = {"gitlab_token", "gerrit_password", "jira_token"}
 
 
 class NeedsYou(BaseModel):
     """One card. The same message and fix button wherever the problem shows up (07-ux §5.10)."""
 
-    kind: Literal["ingest_failed", "budget_warning", "budget_exceeded", "credential_unreadable"]
+    kind: Literal["ingest_failed", "budget_warning", "budget_exceeded", "credential_invalid", "credential_unreadable"]
     key: str  # stable id, so the client can tell cards apart
     message: str
     action: str
@@ -122,7 +121,9 @@ async def activity(auth: CurrentAuth, db: DB) -> ActivityOut:
 
 async def _member_steps(db: DB, user: User) -> list[ChecklistStep]:
     own_sessions = select(ChatSession.id).where(ChatSession.owner_id == user.id)
-    has_token = await db.scalar(select(exists().where(UserSecret.user_id == user.id, UserSecret.kind.in_(TOKEN_KINDS))))
+    has_token = await db.scalar(
+        select(exists().where(UserCredential.user_id == user.id, UserCredential.status == "ok"))
+    )
     has_ready_repo = await db.scalar(select(exists().where(Project.owner_id == user.id, Project.status == "ready")))
     has_import = await db.scalar(
         select(exists().where(ChatSession.owner_id == user.id, ChatSession.source == "claude-code"))
@@ -134,7 +135,7 @@ async def _member_steps(db: DB, user: User) -> list[ChecklistStep]:
         ),
         ChecklistStep(
             key="tokens",
-            label="Add your GitLab, Gerrit or Jira token",
+            label="Connect GitLab, Gerrit or Jira and test it",
             href="/settings/integrations",
             done=bool(has_token),
         ),
@@ -207,18 +208,45 @@ async def home(auth: CurrentAuth, db: DB) -> HomeOut:
                 at=p.updated_at,
             )
         )
-    for s in await db.scalars(select(UserSecret).where(UserSecret.user_id == user.id)):
-        if not readable(s.ciphertext):
-            label = SECRET_KINDS.get(s.kind, s.kind)
+    creds = await db.execute(
+        select(UserCredential, Integration)
+        .join(Integration, Integration.id == UserCredential.integration_id)
+        .where(UserCredential.user_id == user.id, Integration.enabled)
+        .order_by(Integration.name, UserCredential.kind)
+    )
+    seen: set[int] = set()
+    for cred, integration in creds.all():
+        if integration.id in seen:
+            continue  # one card per integration, even when several parts are bad
+        focus = f"/settings/integrations?focus={integration.id}"
+        label = credential_label(integration, cred.kind)
+        if state_of(cred) == "unreadable":
+            seen.add(integration.id)
             needs.append(
                 NeedsYou(
                     kind="credential_unreadable",
-                    key=f"secret:{s.kind}",
+                    key=f"credential:{integration.id}",
                     message=f"Your {label} can't be read any more. Enter it again.",
                     action="Update token",
-                    href=f"/settings/integrations?focus={s.kind}",
-                    at=s.updated_at,
-                )
+                    href=focus,
+                    at=cred.updated_at,
+                )  # fmt: skip
+            )
+        elif cred.status == "invalid":
+            seen.add(integration.id)
+            reason = f" ({cred.last_error})" if cred.last_error else ""
+            needs.append(
+                NeedsYou(
+                    kind="credential_invalid",
+                    key=f"credential:{integration.id}",
+                    message=(
+                        f"Your {label} was rejected{reason}. "
+                        f"Anything that needs {integration.name} fails until you update it."
+                    ),
+                    action="Update token",
+                    href=focus,
+                    at=cred.updated_at,
+                )  # fmt: skip
             )
     running = await _running(db, user)
     chats = [

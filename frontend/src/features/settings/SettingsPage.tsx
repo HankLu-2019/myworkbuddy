@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
-import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { useState, type FormEvent, type ReactElement } from "react";
+import { Navigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type SecretStatus, type SignIn, type Usage, type User } from "../../api";
+import { api, type SignIn, type Usage, type User } from "../../api";
+import IntegrationsTab from "./IntegrationsTab";
 import { readTheme, saveTheme, type Theme } from "../../app/theme";
 import { useAuth } from "../../auth";
 import { usePageTitle } from "../../app/pageTitle";
@@ -10,7 +10,6 @@ import {
   Banner,
   Button,
   Card,
-  ConfirmDialog,
   DataTable,
   ErrorNote,
   KeyValue,
@@ -19,104 +18,10 @@ import {
   formatUsd,
   PageHeader,
   SkeletonRows,
-  StatusPill,
   TextField,
   formatDate,
   useToast,
 } from "../../components/ui";
-
-/** Where to create each credential and what it needs (07 §4.12 Integrations). */
-const SECRET_HELP: Record<string, string> = {
-  gitlab_token: "GitLab → Preferences → Access tokens. Scopes: read_api and read_repository.",
-  gerrit_username: "Your Gerrit account name.",
-  gerrit_password: "Gerrit → Settings → HTTP Credentials → Generate new password.",
-  jira_token: "Jira → Profile → Personal Access Tokens. Used from Phase 3.",
-};
-
-function SecretCard({ s, focused }: { s: SecretStatus; focused?: boolean }) {
-  const input = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (focused) {
-      input.current?.scrollIntoView({ block: "center" });
-      input.current?.focus();
-    }
-  }, [focused]);
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [value, setValue] = useState("");
-  const [confirmClear, setConfirmClear] = useState(false);
-  const refresh = () => qc.invalidateQueries({ queryKey: ["secrets"] });
-  const save = useMutation({
-    mutationFn: () => api(`/api/secrets/${s.kind}`, { method: "PUT", json: { value } }),
-    onSuccess: () => {
-      setValue("");
-      refresh();
-      qc.invalidateQueries({ queryKey: ["home"] });
-      toast({ title: `${s.label} saved`, tone: "success" });
-    },
-  });
-  const clear = useMutation({
-    mutationFn: () => api(`/api/secrets/${s.kind}`, { method: "DELETE" }),
-    onSuccess: () => {
-      setConfirmClear(false);
-      refresh();
-    },
-  });
-  const status = s.status === "unreadable" ? "unreadable" : s.is_set ? "set" : "not_set";
-  return (
-    <li>
-      <Card>
-        <form
-          className="inline-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            save.mutate();
-          }}
-        >
-          <TextField
-            ref={input}
-            label={s.label}
-            type={s.kind.endsWith("username") ? "text" : "password"}
-            autoComplete="off"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            placeholder={s.is_set ? "Replace…" : "Enter…"}
-            hint={
-              <>
-                {s.status === "unreadable"
-                  ? "Can't be read any more. Enter it again."
-                  : s.is_set && s.updated_at
-                    ? `Saved ${formatDate(s.updated_at)}. `
-                    : ""}
-                {s.status !== "unreadable" && SECRET_HELP[s.kind]}
-              </>
-            }
-          />
-          <StatusPill status={status} />
-          <Button type="submit" variant="primary" disabled={!value} pending={save.isPending}>
-            Save
-          </Button>
-          {s.is_set && (
-            <Button variant="danger" onClick={() => setConfirmClear(true)}>
-              Clear
-            </Button>
-          )}
-        </form>
-        <ErrorNote error={save.error || clear.error} />
-        <ConfirmDialog
-          open={confirmClear}
-          onOpenChange={setConfirmClear}
-          title={`Clear ${s.label}?`}
-          body="Anything that uses it, such as cloning your repositories, stops working until you enter it again."
-          confirmLabel="Clear"
-          danger
-          pending={clear.isPending}
-          onConfirm={() => clear.mutate()}
-        />
-      </Card>
-    </li>
-  );
-}
 
 function PasswordForm() {
   const { clear } = useAuth();
@@ -346,35 +251,6 @@ function ProfileTab() {
         />
         <p className="muted small">Kept in this browser.</p>
       </Card>
-    </div>
-  );
-}
-
-function IntegrationsTab() {
-  const [params] = useSearchParams();
-  const focus = params.get("focus");
-  const back = params.get("back");
-  const secrets = useQuery({ queryKey: ["secrets"], queryFn: () => api<SecretStatus[]>("/api/secrets") });
-  const safeBack = back && back.startsWith("/") && !back.startsWith("//") ? back : null;
-  return (
-    <div className="stack">
-      {safeBack && (
-        <div>
-          <Link to={safeBack} className="btn btn-secondary">
-            <ArrowLeft size={16} aria-hidden />
-            <span className="btn-label">{safeBack.startsWith("/sources/repos") ? "Back to Add repository" : "Back"}</span>
-          </Link>
-        </div>
-      )}
-      <p className="muted lede">
-        Used to clone your repositories and, later, to push branches as you. Tokens are encrypted at rest and never
-        shown again after saving.
-      </p>
-      <ErrorNote error={secrets.error} />
-      {secrets.isLoading && <SkeletonRows />}
-      <ul className="stack plain-list" aria-label="Access tokens">
-        {secrets.data?.map((s) => <SecretCard key={s.kind} s={s} focused={s.kind === focus} />)}
-      </ul>
     </div>
   );
 }

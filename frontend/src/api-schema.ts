@@ -25,6 +25,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/integrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin List */
+        get: operations["admin_list_api_admin_integrations_get"];
+        put?: never;
+        /** Admin Create */
+        post: operations["admin_create_api_admin_integrations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/integrations/{integration_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Admin Delete */
+        delete: operations["admin_delete_api_admin_integrations__integration_id__delete"];
+        options?: never;
+        head?: never;
+        /** Admin Update */
+        patch: operations["admin_update_api_admin_integrations__integration_id__patch"];
+        trace?: never;
+    };
     "/api/admin/system": {
         parameters: {
             query?: never;
@@ -404,6 +440,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/integrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Integrations */
+        get: operations["list_integrations_api_integrations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/{integration_id}/credentials/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Credential */
+        put: operations["put_credential_api_integrations__integration_id__credentials__kind__put"];
+        post?: never;
+        /** Delete Credential */
+        delete: operations["delete_credential_api_integrations__integration_id__credentials__kind__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/integrations/{integration_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Credential
+         * @description Run the kind's verify call with the caller's credential and record the result (02 §1).
+         */
+        post: operations["test_credential_api_integrations__integration_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/knowledge/documents": {
         parameters: {
             query?: never;
@@ -579,41 +670,6 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/secrets": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Secrets */
-        get: operations["list_secrets_api_secrets_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/secrets/{kind}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Put Secret */
-        put: operations["put_secret_api_secrets__kind__put"];
-        post?: never;
-        /** Delete Secret */
-        delete: operations["delete_secret_api_secrets__kind__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -852,6 +908,37 @@ export interface components {
             /** Items */
             items: components["schemas"]["ActivityItem"][];
         };
+        /** AdminIntegrationOut */
+        AdminIntegrationOut: {
+            /** Base Url */
+            base_url: string;
+            /** Credentials */
+            credentials: number;
+            /** Enabled */
+            enabled: boolean;
+            /** Has Ca Bundle */
+            has_ca_bundle: boolean;
+            /** Id */
+            id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "jira" | "gitlab" | "gerrit" | "jenkins" | "kubernetes" | "feed";
+            /** Name */
+            name: string;
+            /** Projects */
+            projects: number;
+            /** Settings */
+            settings: {
+                [key: string]: unknown;
+            };
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /** Body_import_claude_code_api_imports_claude_code_post */
         Body_import_claude_code_api_imports_claude_code_post: {
             /** Files */
@@ -903,6 +990,29 @@ export interface components {
             message: string;
             /** Sha */
             sha: string;
+        };
+        /** CredentialIn */
+        CredentialIn: {
+            /** Value */
+            value: string;
+        };
+        /** CredentialOut */
+        CredentialOut: {
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Last Error */
+            last_error: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "not_set" | "unverified" | "ok" | "invalid" | "unreadable";
+            /** Updated At */
+            updated_at: string | null;
+            /** Verified At */
+            verified_at: string | null;
         };
         /** DocumentOut */
         DocumentOut: {
@@ -1015,6 +1125,65 @@ export interface components {
             status: "imported" | "unchanged" | "failed";
             /** Title */
             title: string | null;
+        };
+        /** IntegrationCreate */
+        IntegrationCreate: {
+            /** Base Url */
+            base_url: string;
+            /** Ca Bundle */
+            ca_bundle?: string | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "jira" | "gitlab" | "gerrit" | "jenkins" | "kubernetes" | "feed";
+            /** Name */
+            name: string;
+            /**
+             * Settings
+             * @default {}
+             */
+            settings: {
+                [key: string]: unknown;
+            };
+        };
+        /** IntegrationOut */
+        IntegrationOut: {
+            /** Base Url */
+            base_url: string;
+            /** Credentials */
+            credentials: components["schemas"]["CredentialOut"][];
+            /** Help */
+            help: string;
+            /** Id */
+            id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "jira" | "gitlab" | "gerrit" | "jenkins" | "kubernetes" | "feed";
+            /** Name */
+            name: string;
+        };
+        /** IntegrationUpdate */
+        IntegrationUpdate: {
+            /** Base Url */
+            base_url?: string | null;
+            /** Ca Bundle */
+            ca_bundle?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Name */
+            name?: string | null;
+            /** Settings */
+            settings?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** LibrarianChangeOut */
         LibrarianChangeOut: {
@@ -1142,7 +1311,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "ingest_failed" | "budget_warning" | "budget_exceeded" | "credential_unreadable";
+            kind: "ingest_failed" | "budget_warning" | "budget_exceeded" | "credential_invalid" | "credential_unreadable";
             /** Message */
             message: string;
         };
@@ -1254,11 +1423,10 @@ export interface components {
         ProjectCreate: {
             /** Branch */
             branch?: string | null;
-            /**
-             * Host
-             * @enum {string}
-             */
-            host: "gitlab" | "gerrit";
+            /** Host */
+            host?: ("gitlab" | "gerrit") | null;
+            /** Integration Id */
+            integration_id?: number | null;
             /** Name */
             name?: string | null;
             /** Repo Url */
@@ -1286,6 +1454,8 @@ export interface components {
             host: "gitlab" | "gerrit";
             /** Id */
             id: number;
+            /** Integration Id */
+            integration_id?: number | null;
             /** Last Ingested Sha */
             last_ingested_sha: string | null;
             /** Mine */
@@ -1329,6 +1499,8 @@ export interface components {
             host: "gitlab" | "gerrit";
             /** Id */
             id: number;
+            /** Integration Id */
+            integration_id?: number | null;
             /** Last Ingested Sha */
             last_ingested_sha: string | null;
             /** Mine */
@@ -1412,27 +1584,6 @@ export interface components {
             /** Reverted */
             reverted: string[];
         };
-        /** SecretIn */
-        SecretIn: {
-            /** Value */
-            value: string;
-        };
-        /** SecretStatus */
-        SecretStatus: {
-            /** Is Set */
-            is_set: boolean;
-            /** Kind */
-            kind: string;
-            /** Label */
-            label: string;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "set" | "not_set" | "unreadable";
-            /** Updated At */
-            updated_at: string | null;
-        };
         /** SessionCreate */
         SessionCreate: {
             /** Project Id */
@@ -1448,6 +1599,18 @@ export interface components {
             title?: string | null;
             /** Visibility */
             visibility?: ("private" | "public") | null;
+        };
+        /** TestOut */
+        TestOut: {
+            /** Message */
+            message: string;
+            /** Ok */
+            ok: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "not_set" | "unverified" | "ok" | "invalid" | "unreadable";
         };
         /** UsageOut */
         UsageOut: {
@@ -1678,6 +1841,123 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ActivityOut"];
+                };
+            };
+        };
+    };
+    admin_list_api_admin_integrations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminIntegrationOut"][];
+                };
+            };
+        };
+    };
+    admin_create_api_admin_integrations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IntegrationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminIntegrationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_delete_api_admin_integrations__integration_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integration_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_update_api_admin_integrations__integration_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integration_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IntegrationUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminIntegrationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2473,6 +2753,121 @@ export interface operations {
             };
         };
     };
+    list_integrations_api_integrations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrationOut"][];
+                };
+            };
+        };
+    };
+    put_credential_api_integrations__integration_id__credentials__kind__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integration_id: number;
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CredentialIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_credential_api_integrations__integration_id__credentials__kind__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integration_id: number;
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_credential_api_integrations__integration_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                integration_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_documents_api_knowledge_documents_get: {
         parameters: {
             query?: {
@@ -2869,88 +3264,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-        };
-    };
-    list_secrets_api_secrets_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SecretStatus"][];
-                };
-            };
-        };
-    };
-    put_secret_api_secrets__kind__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                kind: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SecretIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_secret_api_secrets__kind__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                kind: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

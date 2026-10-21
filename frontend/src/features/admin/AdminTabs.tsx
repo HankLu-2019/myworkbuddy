@@ -7,6 +7,7 @@ export function AdminTabs() {
       label="Admin"
       tabs={[
         { to: "/admin", label: "Users" },
+        { to: "/admin/integrations", label: "Integrations" },
         { to: "/admin/system", label: "System" },
       ]}
     />

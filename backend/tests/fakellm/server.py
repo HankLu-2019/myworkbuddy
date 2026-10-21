@@ -143,6 +143,15 @@ PLAIN_ANSWER = "This is a test answer from the fake model."
 _MARKER = re.compile(r"\[\[(\w+)(?::([^\]\s]+))?((?:\s+\w+=[^\]\s]+)*)\]\]")
 
 
+@app.get("/api/v4/user")
+async def fake_gitlab_user(request: Request) -> JSONResponse:
+    """A stand-in GitLab for end-to-end runs (02 §1 verify call): tokens starting glpat- are accepted."""
+    token = request.headers.get("PRIVATE-TOKEN", "")
+    if not token.startswith("glpat-"):
+        return JSONResponse({"message": "401 Unauthorized"}, status_code=401)
+    return JSONResponse({"id": 1, "username": "e2e-user"})
+
+
 @app.get("/health/liveliness")
 async def health() -> dict[str, str]:
     return {"status": "ok"}

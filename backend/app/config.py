@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     repo_cache_max_gb: float = Field(50, gt=0)  # ingest refuses to clone above this (01 §H9)
     transcript_max_mb: int = Field(50, gt=0)
     allow_http_repos: bool = False
+    # Integrations (design 02 §1): http:// base URLs only in dev and tests.
+    allow_http_integrations: bool = False
+    # Read once by migration 0006 to move Phase 1 tokens into integrations; not used at runtime.
+    gitlab_url: str = ""
+    gerrit_url: str = ""
+    jira_url: str = ""
 
     @model_validator(mode="after")
     def _production_safety(self) -> "Settings":
@@ -63,6 +69,8 @@ class Settings(BaseSettings):
             problems.append("MWB_HOSTNAME must be an https:// URL")
         if self.tls_mode == "none":
             problems.append("MWB_TLS_MODE=none is only allowed with MWB_ENV=dev")
+        if self.allow_http_integrations:
+            problems.append("MWB_ALLOW_HTTP_INTEGRATIONS would send users' credentials in clear text")
         if problems:
             raise ValueError("Unsafe production configuration: " + "; ".join(problems) + " (or set MWB_ENV=dev)")
         return self

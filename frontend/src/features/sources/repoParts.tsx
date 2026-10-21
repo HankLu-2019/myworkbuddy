@@ -2,26 +2,18 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
-import { api, type Project, type SecretStatus } from "../../api";
+import { api, type Integration, type Project } from "../../api";
+import { missingCredentials } from "../settings/IntegrationsTab";
 import { useAuth } from "../../auth";
 import { draftKey, readDraft, writeDraft } from "../../app/drafts";
 import { Banner, Button, ConfirmDialog, Dialog, ErrorNote, Select, TextField, useToast } from "../../components/ui";
 
-export const HOSTS = [
-  ["gitlab", "GitLab"],
-  ["gerrit", "Gerrit"],
-] as const;
-type Host = (typeof HOSTS)[number][0];
-
-/** The credentials a host needs before a repository can be cloned. */
-export const HOST_SECRETS: Record<Host, string[]> = { gitlab: ["gitlab_token"], gerrit: ["gerrit_username", "gerrit_password"] };
-const HOST_NAME: Record<Host, string> = { gitlab: "GitLab", gerrit: "Gerrit" };
-
-type Form = { host: Host; repo_url: string; branch: string; name: string };
-const EMPTY: Form = { host: "gitlab", repo_url: "", branch: "", name: "" };
+type Form = { integration_id: string; repo_url: string; branch: string; name: string };
+const EMPTY: Form = { integration_id: "", repo_url: "", branch: "", name: "" };
 
 /**
- * Add repository (07 §4.6, §5.3). Checks for a token first and links to it; the fields are kept as a draft, so
+ * Add repository (07 §4.6, §5.3). Repositories live on a GitLab or Gerrit integration an admin added (02 §1);
+ * the dialog checks that you saved credentials for it and links to them. The fields are kept as a draft, so
  * "Back to Add repository" from Settings reopens the dialog with them.
  */
 export function AddRepositoryDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -40,15 +32,24 @@ export function AddRepositoryDialog({ open, onOpenChange }: { open: boolean; onO
     setFormState(next);
     writeDraft(key, JSON.stringify(next));
   };
-  const secrets = useQuery({ queryKey: ["secrets"], queryFn: () => api<SecretStatus[]>("/api/secrets"), enabled: open });
-  const missing =
-    secrets.data &&
-    HOST_SECRETS[form.host].filter((k) => secrets.data.find((s) => s.kind === k)?.status !== "set");
+  const integrations = useQuery({
+    queryKey: ["integrations"],
+    queryFn: () => api<Integration[]>("/api/integrations"),
+    enabled: open,
+  });
+  const git = (integrations.data ?? []).filter((i) => i.kind === "gitlab" || i.kind === "gerrit");
+  const selected = git.find((i) => String(i.id) === form.integration_id) ?? git[0];
+  const missing = selected ? missingCredentials(selected) : [];
   const add = useMutation({
     mutationFn: () =>
       api<Project>("/api/projects", {
         method: "POST",
-        json: { repo_url: form.repo_url.trim(), host: form.host, branch: form.branch || null, name: form.name || null },
+        json: {
+          repo_url: form.repo_url.trim(),
+          integration_id: selected?.id,
+          branch: form.branch || null,
+          name: form.name || null,
+        },
       }),
     onSuccess: (p) => {
       writeDraft(key, "");
@@ -68,7 +69,7 @@ export function AddRepositoryDialog({ open, onOpenChange }: { open: boolean; onO
         onOpenChange(o);
       }}
       title="Add repository"
-      description="MyWorkBuddy clones it with your token, indexes its code and docs, and writes a project card into your private wiki."
+      description="MyWorkBuddy clones it with your credentials, indexes its code and docs, and writes a project card into your private wiki."
     >
       <form
         className="stack"
@@ -77,19 +78,36 @@ export function AddRepositoryDialog({ open, onOpenChange }: { open: boolean; onO
           add.mutate();
         }}
       >
-        <Select label="Host" value={form.host} options={HOSTS} onChange={(e) => setForm({ ...form, host: e.target.value as Host })} />
-        {!!missing?.length && (
+        <ErrorNote error={integrations.error} />
+        {integrations.data && !git.length && (
           <Banner tone="warning">
-            You need a {HOST_NAME[form.host]} {form.host === "gerrit" ? "username and HTTP password" : "token"} first.{" "}
-            <Link to={`/settings/integrations?focus=${missing[0]}&back=${back}`}>Add token</Link>
+            There's no GitLab or Gerrit integration yet. An admin adds one in Admin → Integrations.
+          </Banner>
+        )}
+        {git.length > 0 && (
+          <Select
+            label="Where it lives"
+            value={selected ? String(selected.id) : ""}
+            options={git.map((i) => [String(i.id), `${i.name} (${new URL(i.base_url).host})`] as [string, string])}
+            onChange={(e) => setForm({ ...form, integration_id: e.target.value })}
+          />
+        )}
+        {selected && missing.length > 0 && (
+          <Banner tone="warning">
+            You need your {selected.name} {missing.join(" and ").toLowerCase()} first.{" "}
+            <Link
+              to={`/settings/integrations?focus=${selected.id}:${selected.credentials.find((c) => c.status === "not_set")?.kind}&back=${back}`}
+            >
+              Add token
+            </Link>
           </Banner>
         )}
         <TextField
           label="Repository URL"
-          placeholder="https://gitlab.example.com/team/pipeline.git"
+          placeholder={selected ? `${selected.base_url}/team/pipeline${selected.kind === "gitlab" ? ".git" : ""}` : "https://…"}
           value={form.repo_url}
           onChange={(e) => setForm({ ...form, repo_url: e.target.value })}
-          hint={form.host === "gerrit" ? "Gerrit URLs get the /a/ prefix automatically." : undefined}
+          hint={selected?.kind === "gerrit" ? "Gerrit URLs get the /a/ prefix automatically." : undefined}
           required
         />
         <TextField
@@ -112,7 +130,7 @@ export function AddRepositoryDialog({ open, onOpenChange }: { open: boolean; onO
             type="submit"
             icon={<Plus size={16} aria-hidden />}
             pending={add.isPending}
-            disabled={!form.repo_url.trim() || !!missing?.length}
+            disabled={!form.repo_url.trim() || !selected || missing.length > 0}
           >
             Add repository
           </Button>

@@ -1,5 +1,6 @@
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
@@ -10,6 +11,7 @@ from app.chat.agent import SCOPES
 from app.config import get_settings
 from app.deps import DB, CurrentAuth
 from app.errors import DEFAULT_CODES, AppError
+from app.integrations.service import credential_rows, integration_for_repo
 from app.knowledge.acl import (
     can_change_visibility,
     can_edit,
@@ -21,7 +23,7 @@ from app.knowledge.acl import (
 from app.knowledge.gitrepo import validate_page_path, validate_sha
 from app.knowledge.indexer import set_project_visibility, set_visibility
 from app.knowledge.ingest.files import MAX_UPLOAD_BYTES, ingest_upload
-from app.knowledge.ingest.repos import list_projects, normalize_repo_url, project_name
+from app.knowledge.ingest.repos import list_projects, normalize_repo_url, project_name, validate_repo_url
 from app.knowledge.ingest.transcripts import import_transcript
 from app.knowledge.search import hybrid_search
 from app.knowledge.wiki import (
@@ -38,7 +40,7 @@ from app.knowledge.wiki import (
     save_page,
 )
 from app.knowledge.wiki_writer import WikiWriter
-from app.models import Chunk, Document, LibrarianRun, Project, User, UserSecret, WikiPage
+from app.models import Chunk, Document, Integration, LibrarianRun, Project, User, UserSecret, WikiPage
 from app.tasks.app import (
     build_episode_task,
     cleanup_project_cache,
@@ -513,12 +515,15 @@ class ProjectOut(BaseModel):
     owner_id: int
     updated_at: datetime
     mine: bool
+    integration_id: int | None = None
     notice: str | None = None  # set on create when the URL was adjusted (e.g. Gerrit /a/)
 
 
 class ProjectCreate(BaseModel):
     repo_url: str
-    host: Literal["gitlab", "gerrit"]
+    # The integration to clone through; without it, the enabled integration of `host` serving the URL's host.
+    integration_id: int | None = None
+    host: Literal["gitlab", "gerrit"] | None = None
     branch: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._/-]{1,128}$")
     name: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{1,128}$")
 
@@ -538,6 +543,7 @@ def _project_out(p: Project, user: User) -> ProjectOut:
         owner_id=p.owner_id,
         updated_at=p.updated_at,
         mine=p.owner_id == user.id,
+        integration_id=p.integration_id,
     )
 
 
@@ -575,7 +581,9 @@ HOST_SECRET = {"gitlab": "gitlab_token", "gerrit": "gerrit_password"}
 
 def ingest_hint(project: Project, has_credential: bool) -> FixHint | None:
     host = HOST_LABEL.get(project.host, project.host)
-    focus = f"/settings/integrations?focus={HOST_SECRET.get(project.host, '')}"
+    focus = (
+        f"/settings/integrations?focus={project.integration_id}" if project.integration_id else "/settings/integrations"
+    )
     if not has_credential:
         return FixHint(message=f"Add your {host} token, then re-index.", action="Add token", href=focus)
     if project.status != "failed":
@@ -617,7 +625,10 @@ async def get_project(project_id: int, auth: CurrentAuth, db: DB) -> ProjectDeta
         card = page.id
     mine = project.owner_id == auth.user.id
     has_credential = True
-    if mine:
+    if mine and project.integration_id is not None:
+        rows = await credential_rows(db, auth.user.id, project.integration_id)
+        has_credential = {"gitlab": {"token"}, "gerrit": {"username", "password"}}[project.host] <= set(rows)
+    elif mine:
         kind = HOST_SECRET.get(project.host)
         has_credential = bool(
             await db.scalar(select(func.count()).where(UserSecret.user_id == auth.user.id, UserSecret.kind == kind))
@@ -632,15 +643,41 @@ async def get_project(project_id: int, auth: CurrentAuth, db: DB) -> ProjectDeta
     )
 
 
+async def _integration_for_new_project(db: DB, body: ProjectCreate) -> Integration:
+    """Repository URLs must match an enabled GitLab or Gerrit integration (design 02 §1)."""
+    if body.integration_id is not None:
+        integration = await db.get(Integration, body.integration_id)
+        if integration is None or not integration.enabled or integration.kind not in ("gitlab", "gerrit"):
+            raise AppError(404, "not_found", "No such GitLab or Gerrit integration")
+        return integration
+    if body.host is None:
+        raise AppError(422, "validation_error", "Choose the GitLab or Gerrit integration the repository is on")
+    integration = await integration_for_repo(db, body.host, validate_repo_url(body.repo_url))
+    if integration is None:
+        host = urlparse(body.repo_url.strip()).hostname or body.repo_url
+        label = HOST_LABEL.get(body.host, body.host)
+        raise AppError(
+            422,
+            "validation_error",
+            f"No {label} integration serves {host}. Ask an admin to add it in Admin → Integrations.",
+        )
+    return integration
+
+
 @router.post("/projects", response_model=ProjectOut, status_code=201)
 async def add_project(body: ProjectCreate, auth: CurrentAuth, db: DB) -> ProjectOut:
-    url, notice = normalize_repo_url(body.repo_url, body.host)
+    integration = await _integration_for_new_project(db, body)
+    host = integration.kind
+    url, notice = normalize_repo_url(body.repo_url, host)
+    if urlparse(url).hostname != urlparse(integration.base_url).hostname:
+        raise AppError(422, "validation_error", f"{url} is not on {integration.name} ({integration.base_url})")
     if await db.scalar(select(Project).where(Project.owner_id == auth.user.id, Project.repo_url == url)):
         raise HTTPException(status.HTTP_409_CONFLICT, "You already added this repository")
     project = Project(
         owner_id=auth.user.id,
         repo_url=url,
-        host=body.host,
+        host=host,
+        integration_id=integration.id,
         branch=body.branch,
         name=body.name or project_name(url),
         status="queued",

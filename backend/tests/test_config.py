@@ -15,6 +15,14 @@ def test_prod_requires_secure_cookie_https_and_tls() -> None:
     assert "MWB_TLS_MODE=none" in msg
 
 
+def test_prod_refuses_http_integrations() -> None:
+    with pytest.raises(ValidationError) as exc:
+        Settings(
+            **BASE, env="prod", hostname="https://mwb.example.com", tls_mode="internal", allow_http_integrations=True
+        )
+    assert "MWB_ALLOW_HTTP_INTEGRATIONS" in str(exc.value)
+
+
 def test_valid_prod_and_relaxed_dev() -> None:
     prod = Settings(**BASE, env="prod", cookie_secure=True, hostname="https://mwb.example.com", tls_mode="internal")
     assert prod.session_cookie == "__Host-mwb_session"

@@ -10,6 +10,10 @@ const CAROL = `carol${run}`;
 const DAVE = `dave${run}`;
 const WORD = `quokkafire${run}`;
 const DOC = `carol-${run}.md`;
+// The fake LLM server also answers GitLab's /api/v4/user (backend/tests/fakellm), so "Test" can succeed.
+const FAKE_GITLAB = process.env.MWB_E2E_FAKE_GITLAB ?? "http://llm-gateway:4000";
+const GITLAB = `GitLab ${run}`;
+const GERRIT = `Gerrit ${run}`;
 
 test.describe.configure({ mode: "serial" });
 
@@ -27,6 +31,18 @@ async function adminApi(browser: Browser) {
   expect(login.ok()).toBeTruthy();
   const csrf = (await login.json()).csrf_token as string;
   return { ctx, headers: { "X-CSRF-Token": csrf } };
+}
+
+async function createIntegrations(browser: Browser) {
+  const { ctx, headers } = await adminApi(browser);
+  for (const data of [
+    { kind: "gitlab", name: GITLAB, base_url: FAKE_GITLAB },
+    { kind: "gerrit", name: GERRIT, base_url: `https://gerrit-${run}.invalid` },
+  ]) {
+    const r = await ctx.request.post("/api/admin/integrations", { data, headers });
+    expect(r.ok(), await r.text()).toBeTruthy();
+  }
+  await ctx.close();
 }
 
 /** An admin-created member with their one-time password (07 §5.12 step 1). */
@@ -65,6 +81,7 @@ function step(page: Page, label: string) {
 }
 
 test("5.12 + 5.1: a new member changes the one-time password and works through Getting started", async ({ browser }) => {
+  await createIntegrations(browser);
   const oneTime = await createMember(browser, CAROL);
   await createMember(browser, DAVE).then(async (pw) => {
     // Dave only needs a working password for the sharing flow.
@@ -102,12 +119,17 @@ test("5.12 + 5.1: a new member changes the one-time password and works through G
   await page.getByRole("link", { name: "Back to getting started" }).click();
   await expect(step(page, "Confirm your timezone")).toHaveAttribute("data-done", "true");
 
-  await checklist.getByRole("link", { name: "Add your GitLab, Gerrit or Jira token" }).click();
-  await page.getByLabel("GitLab personal access token").fill("glpat-e2e-not-real");
-  await page.getByRole("listitem").filter({ hasText: "GitLab personal access token" }).getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText("GitLab personal access token saved", { exact: true })).toBeVisible();
+  // 02 §1: credentials are per integration and count once a test call proves them.
+  await checklist.getByRole("link", { name: "Connect GitLab, Gerrit or Jira and test it" }).click();
+  const card = page.getByRole("region", { name: GITLAB });
+  await card.getByLabel(`${GITLAB} personal access token`).fill("glpat-e2e-not-real");
+  await card.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText(`${GITLAB} personal access token saved`, { exact: true })).toBeVisible();
+  await card.getByRole("button", { name: "Test" }).click();
+  await expect(card.getByText("Signed in as e2e-user")).toBeVisible();
+  await expect(card.getByText("Verified", { exact: true })).toBeVisible();
   await page.goto("/");
-  await expect(step(page, "Add your GitLab, Gerrit or Jira token")).toHaveAttribute("data-done", "true");
+  await expect(step(page, "Connect GitLab, Gerrit or Jira and test it")).toHaveAttribute("data-done", "true");
 
   // 5.2 step 1: `c` opens a new chat with the composer focused.
   await page.locator("body").click({ position: { x: 5, y: 5 } });
@@ -145,26 +167,27 @@ test("5.3: adding a repository without a token, and a failed ingest reported whe
   await page.goto("/");
   await page.getByRole("link", { name: "Add repository" }).click();
   const dialog = page.getByRole("dialog", { name: "Add repository" });
-  await dialog.getByLabel("Host").selectOption("gerrit");
-  await dialog.getByLabel("Repository URL").fill(`https://gerrit.invalid/${run}/svc`);
-  await expect(dialog.getByText(/You need a Gerrit username and HTTP password first/)).toBeVisible();
+  await dialog.getByLabel("Where it lives").selectOption({ label: `${GERRIT} (gerrit-${run}.invalid)` });
+  await dialog.getByLabel("Repository URL").fill(`https://gerrit-${run}.invalid/${run}/svc`);
+  await expect(dialog.getByText(`You need your ${GERRIT} username and http password first.`, { exact: false })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Add repository" })).toBeDisabled();
   await dialog.getByRole("link", { name: "Add token" }).click();
 
-  await expect(page).toHaveURL(/\/settings\/integrations\?focus=gerrit_username/);
-  await expect(page.getByLabel("Gerrit username")).toBeFocused();
+  await expect(page).toHaveURL(/\/settings\/integrations\?focus=\d+:username/);
+  await expect(page.getByLabel(`${GERRIT} username`)).toBeFocused();
+  const gerrit = page.getByRole("region", { name: GERRIT });
   for (const [label, value] of [
-    ["Gerrit username", "carol"],
-    ["Gerrit HTTP password", "not-a-real-password"],
+    [`${GERRIT} username`, "carol"],
+    [`${GERRIT} http password`, "not-a-real-password"],
   ]) {
-    await page.getByLabel(label).fill(value);
-    await page.getByRole("listitem").filter({ hasText: label }).getByRole("button", { name: "Save" }).click();
+    await gerrit.getByLabel(label).fill(value);
+    await gerrit.locator("form", { has: page.getByLabel(label) }).getByRole("button", { name: "Save" }).click();
     await expect(page.getByText(`${label} saved`, { exact: true })).toBeVisible();
   }
   await page.getByRole("link", { name: "Back to Add repository" }).click();
   const again = page.getByRole("dialog", { name: "Add repository" });
-  await expect(again.getByLabel("Repository URL")).toHaveValue(`https://gerrit.invalid/${run}/svc`);
-  await expect(again.getByLabel("Host")).toHaveValue("gerrit");
+  await expect(again.getByLabel("Repository URL")).toHaveValue(`https://gerrit-${run}.invalid/${run}/svc`);
+  expect(await again.getByLabel("Where it lives").evaluate((e) => (e as HTMLSelectElement).selectedOptions[0].text)).toContain(GERRIT);
   await again.getByRole("button", { name: "Add repository" }).click();
   await expect(page.getByText("Indexing started", { exact: true })).toBeVisible();
 

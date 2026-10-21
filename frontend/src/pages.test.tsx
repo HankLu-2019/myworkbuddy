@@ -345,10 +345,14 @@ describe("knowledge pages", () => {
       "POST /api/projects/1/ingest": { queued: true },
       "POST /api/projects/1/visibility": {},
       "DELETE /api/projects/1": undefined,
-      "GET /api/secrets": [
-        { kind: "gitlab_token", label: "GitLab personal access token", is_set: true, status: "set", updated_at: NOW },
-        { kind: "gerrit_username", label: "Gerrit username", is_set: false, status: "not_set", updated_at: null },
-        { kind: "gerrit_password", label: "Gerrit HTTP password", is_set: false, status: "not_set", updated_at: null },
+      "GET /api/integrations": [
+        { id: 1, kind: "gitlab", name: "GitLab", base_url: "https://g", help: "PAT",
+          credentials: [{ kind: "token", label: "Personal access token", status: "ok", verified_at: NOW, last_error: null, updated_at: NOW }] },
+        { id: 2, kind: "gerrit", name: "Gerrit", base_url: "https://review", help: "HTTP password",
+          credentials: [
+            { kind: "username", label: "Username", status: "not_set", verified_at: null, last_error: null, updated_at: null },
+            { kind: "password", label: "HTTP password", status: "not_set", verified_at: null, last_error: null, updated_at: null },
+          ] },
       ],
     });
     renderAt("/sources/repos", <ProjectsPage />);
@@ -356,14 +360,14 @@ describe("knowledge pages", () => {
     expect(screen.getByText("Indexing code 40 of 120")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add repository" }));
     const dialog = await screen.findByRole("dialog", { name: "Add repository" });
-    fireEvent.change(within(dialog).getByLabelText("Host"), { target: { value: "gerrit" } });
-    expect(await within(dialog).findByText(/You need a Gerrit username and HTTP password first/)).toBeInTheDocument();
+    fireEvent.change(await within(dialog).findByLabelText("Where it lives"), { target: { value: "2" } });
+    expect(await within(dialog).findByText(/You need your Gerrit username and http password first/)).toBeInTheDocument();
     expect(within(dialog).getByRole("link", { name: "Add token" })).toHaveAttribute(
       "href",
-      "/settings/integrations?focus=gerrit_username&back=%2Fsources%2Frepos%3Fadd%3D1",
+      "/settings/integrations?focus=2:username&back=%2Fsources%2Frepos%3Fadd%3D1",
     );
     expect(within(dialog).getByRole("button", { name: "Add repository" })).toBeDisabled();
-    fireEvent.change(within(dialog).getByLabelText("Host"), { target: { value: "gitlab" } });
+    fireEvent.change(within(dialog).getByLabelText("Where it lives"), { target: { value: "1" } });
     fireEvent.change(within(dialog).getByLabelText("Repository URL"), { target: { value: "https://g/new.git" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Add repository" }));
     expect(await screen.findByText("Indexing started")).toBeInTheDocument();
@@ -379,7 +383,7 @@ describe("knowledge pages", () => {
     fireEvent.click(within(confirm).getByRole("button", { name: "Remove repository" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
     expect(calls.find((c) => c.method === "POST" && c.path === "/api/projects")?.body).toMatchObject({
-      host: "gitlab",
+      integration_id: 1,
       repo_url: "https://g/new.git",
     });
   });
@@ -404,10 +408,16 @@ describe("settings and admin", () => {
   it("saves tokens, lists sign-ins and changes the password", async () => {
     const calls = mockApi({
       ...signedInAs(MEMBER),
-      "GET /api/secrets": [
-        { kind: "gitlab_token", label: "GitLab personal access token", is_set: true, status: "set", updated_at: NOW },
-        { kind: "gerrit_username", label: "Gerrit username", is_set: false, status: "not_set", updated_at: null },
-        { kind: "jira_token", label: "Jira personal access token", is_set: true, status: "unreadable", updated_at: NOW },
+      "GET /api/integrations": [
+        { id: 1, kind: "gitlab", name: "GitLab", base_url: "https://g", help: "Scopes: read_api and read_repository.",
+          credentials: [{ kind: "token", label: "Personal access token", status: "ok", verified_at: NOW, last_error: null, updated_at: NOW }] },
+        { id: 2, kind: "gerrit", name: "Gerrit", base_url: "https://review", help: "HTTP password",
+          credentials: [
+            { kind: "username", label: "Username", status: "not_set", verified_at: null, last_error: null, updated_at: null },
+            { kind: "password", label: "HTTP password", status: "not_set", verified_at: null, last_error: null, updated_at: null },
+          ] },
+        { id: 3, kind: "jira", name: "Jira", base_url: "https://jira", help: "PAT",
+          credentials: [{ kind: "token", label: "Personal access token", status: "unreadable", verified_at: null, last_error: null, updated_at: NOW }] },
       ],
       "GET /api/auth/sessions": [
         { id: 1, created_at: NOW, last_seen_at: NOW, expires_at: NOW, ip: "10.0.0.1", current: true,
@@ -417,18 +427,27 @@ describe("settings and admin", () => {
       ],
       "POST /api/auth/sessions/sign-out-others": { signed_out: 1 },
       "GET /api/usage": { user_id: 2, spend_usd: 12.5, budget_usd: 50, budget_reset_at: NOW, fetched_at: NOW, chat_usd_month: 0.42 },
-      "PUT /api/secrets/gerrit_username": undefined,
-      "DELETE /api/secrets/gitlab_token": undefined,
+      "PUT /api/integrations/2/credentials/username": undefined,
+      "DELETE /api/integrations/1/credentials/token": undefined,
+      "POST /api/integrations/1/test": { ok: false, status: "invalid", message: "GitLab rejected the credential (401)" },
       "POST /api/auth/password": undefined,
     });
-    const { router } = renderAt("/settings/integrations?focus=gerrit_username", <SettingsPage />, "/settings/:tab");
+    const { router } = renderAt("/settings/integrations?focus=2", <SettingsPage />, "/settings/:tab");
     const gerrit = await screen.findByLabelText("Gerrit username");
     await waitFor(() => expect(gerrit).toHaveFocus());
     expect(screen.getByText(/Scopes: read_api and read_repository/)).toBeInTheDocument();
+    const gerritCard = screen.getByRole("region", { name: "Gerrit" });
+    expect(within(gerritCard).getByRole("button", { name: "Test" })).toBeDisabled();
+    expect(within(gerritCard).getByText("Save username and http password first.")).toBeInTheDocument();
     fireEvent.change(gerrit, { target: { value: "alice" } });
-    fireEvent.click(screen.getAllByRole("button", { name: "Save" })[1]);
-    fireEvent.click(screen.getAllByRole("button", { name: "Clear" })[0]);
-    const clear = await screen.findByRole("dialog", { name: "Clear GitLab personal access token?" });
+    fireEvent.click(within(gerritCard).getAllByRole("button", { name: "Save" })[0]);
+    await waitFor(() => expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ value: "alice" }));
+    const gitlabCard = screen.getByRole("region", { name: "GitLab" });
+    expect(within(gitlabCard).getByText("Verified")).toBeInTheDocument();
+    fireEvent.click(within(gitlabCard).getByRole("button", { name: "Test" }));
+    expect(await within(gitlabCard).findByText("GitLab rejected the credential (401)")).toBeInTheDocument();
+    fireEvent.click(within(gitlabCard).getByRole("button", { name: "Clear" }));
+    const clear = await screen.findByRole("dialog", { name: "Clear your GitLab personal access token?" });
     fireEvent.click(within(clear).getByRole("button", { name: "Clear" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
     expect(screen.getByText("Can't be read any more. Enter it again.")).toBeInTheDocument();
@@ -449,7 +468,6 @@ describe("settings and admin", () => {
     fireEvent.change(screen.getByLabelText("New password (10+ characters)"), { target: { value: "new-password-1" } });
     fireEvent.click(screen.getByRole("button", { name: "Change password" }));
     await waitFor(() => expect(calls.some((c) => c.path === "/api/auth/password")).toBe(true));
-    expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ value: "alice" });
   });
 
   it("adds users with a one-time password, resets and disables", async () => {

@@ -198,7 +198,7 @@ async def test_sweep_skips_empty_sessions(make_user):
         assert await sessions_needing_episodes(db) == []
 
 
-async def test_episode_survives_project_removal(client_for):
+async def test_episode_survives_project_removal(client_for, git_integrations):
     alice = await client_for("alice")
     bob = await client_for("bob")
     pid = (

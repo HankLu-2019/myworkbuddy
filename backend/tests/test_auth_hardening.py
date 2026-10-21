@@ -6,7 +6,6 @@ import sys
 import time
 from datetime import UTC, datetime, timedelta
 
-import pytest
 from cryptography.fernet import Fernet
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select, update
@@ -228,26 +227,28 @@ async def test_old_key_still_decrypts_and_rotation_moves_to_the_new_key(make_use
         assert await get_secret(db, alice.id, "gitlab_token") == "glpat-1"
 
 
-async def test_unreadable_secret_is_reported_not_500(client_for, monkeypatch) -> None:
+async def test_unreadable_credential_is_reported_not_500(client_for, git_integrations, monkeypatch) -> None:
     alice = await client_for("alice")
-    assert (await alice.put("/api/secrets/gitlab_token", json={"value": "glpat-1"})).status_code == 204
+    gitlab = git_integrations["gitlab"]
+    url = f"/api/integrations/{gitlab}/credentials/token"
+    assert (await alice.put(url, json={"value": "glpat-1"})).status_code == 204
     monkeypatch.setattr(get_settings(), "secret_keys", Fernet.generate_key().decode())  # the old key is gone
-    listed = {s["kind"]: s for s in (await alice.get("/api/secrets")).json()}
-    assert listed["gitlab_token"]["status"] == "unreadable" and listed["jira_token"]["status"] == "not_set"
+    listed = {i["kind"]: i for i in (await alice.get("/api/integrations")).json()}
+    assert listed["gitlab"]["credentials"][0]["status"] == "unreadable"
+    assert listed["gerrit"]["credentials"][0]["status"] == "not_set"
+    test = (await alice.post(f"/api/integrations/{gitlab}/test")).json()
+    assert test["status"] == "unreadable" and "Enter it again" in test["message"]
     async with get_sessionmaker()() as db:
-        with pytest.raises(Exception) as err:
-            await get_secret(db, alice.user_id, "gitlab_token")
-        assert err.value.code == "credential_invalid" and "Re-enter it in Settings" in err.value.detail
         assert await rotate_secrets(db) == {"rotated": 0, "unreadable": 1}
-    assert (await alice.put("/api/secrets/gitlab_token", json={"value": "glpat-2"})).status_code == 204
-    listed = {s["kind"]: s for s in (await alice.get("/api/secrets")).json()}
-    assert listed["gitlab_token"]["status"] == "set"
+    assert (await alice.put(url, json={"value": "glpat-2"})).status_code == 204
+    listed = {i["kind"]: i for i in (await alice.get("/api/integrations")).json()}
+    assert listed["gitlab"]["credentials"][0]["status"] == "unverified"
 
 
 # ---------- offboarding ----------
 
 
-async def test_offboarding_preview_and_transfer(client_for, task_queue) -> None:
+async def test_offboarding_preview_and_transfer(client_for, task_queue, git_integrations) -> None:
     admin = await client_for("root", role="admin")
     alice = await client_for("alice")
     # Public and private documents.
@@ -262,11 +263,15 @@ async def test_offboarding_preview_and_transfer(client_for, task_queue) -> None:
     await alice.post(f"/api/wiki/pages/{team['id']}/visibility", json={"visibility": "public"})
     await alice.post("/api/wiki/pages", json={"path": "me/notes.md", "content": "# Notes"})
     # Projects: shared, private, and a shared one whose repo the admin also added.
-    for url, share in [("https://g/shared.git", True), ("https://g/private.git", False), ("https://g/both.git", True)]:
+    for url, share in [
+        ("https://gitlab.example.com/shared.git", True),
+        ("https://gitlab.example.com/private.git", False),
+        ("https://gitlab.example.com/both.git", True),
+    ]:
         p = (await alice.post("/api/projects", json={"repo_url": url, "host": "gitlab"})).json()
         if share:
             await alice.post(f"/api/projects/{p['id']}/visibility", json={"visibility": "public"})
-    await admin.post("/api/projects", json={"repo_url": "https://g/both.git", "host": "gitlab"})
+    await admin.post("/api/projects", json={"repo_url": "https://gitlab.example.com/both.git", "host": "gitlab"})
     # Chats: one shared, one private.
     async with get_sessionmaker()() as db:
         db.add_all(
@@ -276,7 +281,10 @@ async def test_offboarding_preview_and_transfer(client_for, task_queue) -> None:
             ]
         )
         await db.commit()
-    await alice.put("/api/secrets/gitlab_token", json={"value": "glpat-1"})
+    gitlab = git_integrations["gitlab"]
+    assert (
+        await alice.put(f"/api/integrations/{gitlab}/credentials/token", json={"value": "glpat-1"})
+    ).status_code == 204
     private_repo = get_settings().wiki_dir / "users" / str(alice.user_id)
     assert private_repo.exists()
 
@@ -314,7 +322,10 @@ async def test_offboarding_preview_and_transfer(client_for, task_queue) -> None:
         pages = list(await db.scalars(select(WikiPage)))
         assert [(p.path, p.owner_id) for p in pages] == [("team/runbook.md", admin.user_id)]
         projects = {p.repo_url: p.owner_id for p in await db.scalars(select(Project))}
-        assert projects == {"https://g/shared.git": admin.user_id, "https://g/both.git": admin.user_id}
+        assert projects == {
+            "https://gitlab.example.com/shared.git": admin.user_id,
+            "https://gitlab.example.com/both.git": admin.user_id,
+        }
         assert len(projects) == 2
         chats = list(await db.scalars(select(ChatSession)))
         assert [(c.title, c.owner_id) for c in chats] == [("shared chat", admin.user_id)]

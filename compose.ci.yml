@@ -13,9 +13,11 @@ services:
   api:
     environment:
       MWB_ENV: dev
+      MWB_ALLOW_HTTP_INTEGRATIONS: "true"  # the fake GitLab is the fake gateway over plain HTTP
   worker:
     environment:
       MWB_ENV: dev
+      MWB_ALLOW_HTTP_INTEGRATIONS: "true"
   migrate:
     environment:
       MWB_ENV: dev

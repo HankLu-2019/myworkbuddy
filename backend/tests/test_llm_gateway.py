@@ -48,9 +48,8 @@ async def test_creating_a_user_creates_a_key_with_the_budget(client_for) -> None
     async with get_sessionmaker()() as db:
         assert (await get_secret(db, created["id"], "gateway_key")) == rec["token"]
 
-    # The key is a system secret: not listed, not settable through the secrets API.
-    kinds = [s["kind"] for s in (await admin.get("/api/secrets")).json()]
-    assert "gateway_key" not in kinds
+    # The key is a system secret: no API lists or sets it (the Phase 1 secrets API is gone, 02 §1).
+    assert (await admin.get("/api/secrets")).status_code == 404
     assert (await admin.put("/api/secrets/gateway_key", json={"value": "x"})).status_code == 404
 
     r = await admin.patch(f"/api/admin/users/{created['id']}", json={"llm_budget_usd": "12.50"})

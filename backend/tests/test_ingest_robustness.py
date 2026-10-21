@@ -102,7 +102,7 @@ async def test_clone_uses_no_tags_and_no_symlinks(make_user, monkeypatch) -> Non
     alice = await make_user("alice")
     calls: list[tuple[str, ...]] = []
 
-    async def fake_git(*args, cwd, auth_header=None):
+    async def fake_git(*args, cwd, auth_header=None, ca_file=None):
         calls.append(args)
         return ""
 
@@ -138,7 +138,7 @@ def test_gerrit_urls_get_the_authenticated_prefix() -> None:
     )
 
 
-async def test_gerrit_rewrite_is_reported_by_the_api(client_for) -> None:
+async def test_gerrit_rewrite_is_reported_by_the_api(client_for, git_integrations) -> None:
     alice = await client_for("alice")
     r = await alice.post("/api/projects", json={"repo_url": "https://gerrit.example.com/team/app", "host": "gerrit"})
     assert r.status_code == 201
@@ -154,7 +154,7 @@ async def test_gerrit_rewrite_is_reported_by_the_api(client_for) -> None:
 # ---------- cache lifecycle ----------
 
 
-async def test_deleting_a_project_removes_its_cache(client_for, task_queue) -> None:
+async def test_deleting_a_project_removes_its_cache(client_for, task_queue, git_integrations) -> None:
     alice = await client_for("alice")
     pid = (
         await alice.post("/api/projects", json={"repo_url": "https://gitlab.example.com/t/etl.git", "host": "gitlab"})

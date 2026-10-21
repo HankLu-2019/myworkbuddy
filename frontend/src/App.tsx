@@ -14,6 +14,7 @@ const WikiPage = lazy(() => import("./features/wiki/WikiPage"));
 const SourcesPage = lazy(() => import("./features/sources/SourcesPage"));
 const SettingsPage = lazy(() => import("./features/settings/SettingsPage"));
 const UsersPage = lazy(() => import("./features/admin/UsersPage"));
+const IntegrationsAdminPage = lazy(() => import("./features/admin/IntegrationsAdminPage"));
 const SystemPage = lazy(() => import("./features/admin/SystemPage"));
 const GalleryPage = lazy(() => import("./features/dev/GalleryPage"));
 
@@ -55,6 +56,7 @@ export default function App() {
         <Route path="/settings" element={<Navigate to="/settings/profile" replace />} />
         <Route path="/settings/:tab" element={<Page><SettingsPage /></Page>} />
         <Route path="/admin" element={<Page><UsersPage /></Page>} />
+        <Route path="/admin/integrations" element={<Page><IntegrationsAdminPage /></Page>} />
         <Route path="/admin/system" element={<Page><SystemPage /></Page>} />
         {/* Component gallery: in dev, and for admins in production so the visual baselines run on the real build. */}
         <Route path="/dev/components" element={<Page><GalleryPage /></Page>} />
