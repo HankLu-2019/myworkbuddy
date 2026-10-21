@@ -1,10 +1,11 @@
 """Rule R6 envelope (design 00 §5)."""
 
-from app.chat.agent import ChatDeps, get_session, search_knowledge
+from app.chat.agent import ChatDeps
 from app.db import get_sessionmaker
 from app.knowledge import prompts
 from app.llm.untrusted import UNTRUSTED_NOTICE, with_notice, wrap
 from app.models import ChatSession, Message, User
+from app.tools.knowledge import get_session, search_knowledge
 
 
 def test_wrap_marks_and_truncates() -> None:

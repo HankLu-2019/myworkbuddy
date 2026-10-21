@@ -47,7 +47,7 @@ cd frontend && npm ci && npx tsc -b && npx vitest run && npm run build   # `npm 
 ## Testing conventions
 
 - LLM: `app.llm.models.set_model_override(TestModel/FunctionModel)`; embeddings: `HashEmbedder`. Never call Bedrock in tests.
-- External HTTP: `respx` with recorded fixtures under `backend/tests/fixtures/`.
+- External HTTP: recorded fixtures under `backend/tests/fixtures/`, replayed with `httpx2.MockTransport` via `app.integrations.http.set_transport` (`respx` doesn't patch `httpx2`). Patch `app.connectors.base.sleep` so retries don't wait.
 - Every acceptance criterion in the plan becomes at least one test.
 - Playwright: wait for the saved state with roles or `exact: true` text. `getByText` matches case-insensitive substrings, so a button label can satisfy a wait before the save has landed.
 

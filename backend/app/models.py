@@ -132,6 +132,23 @@ class UserCredential(Base):
     updated_at: Mapped[datetime] = _updated()
 
 
+class InboxItem(Base):
+    """Something the user should see later (design 02 §5). S2 writes credential notices; S5 adds the API and
+    email, S4 adds run links."""
+
+    __tablename__ = "inbox_items"
+    __table_args__ = (Index("inbox_owner_unread", "owner_id", "created_at", postgresql_where=text("read_at IS NULL")),)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(Text)
+    severity: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    body_md: Mapped[str] = mapped_column(Text, default="", server_default="")
+    link: Mapped[str | None] = mapped_column(Text)  # in-app path only, e.g. /settings/integrations?focus=3
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _now()
+
+
 class Project(Base):
     __tablename__ = "projects"
     __table_args__ = (UniqueConstraint("owner_id", "repo_url"),)

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>Security</title>
+<entry><title>CVE in log4j-like lib</title><link href="https://sec.example.com/cve"/><updated>__ISO_RECENT__</updated><summary>Patch by Friday.</summary></entry>
+</feed>

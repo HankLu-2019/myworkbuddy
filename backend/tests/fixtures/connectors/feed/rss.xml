@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<rss version="2.0"><channel><title>Platform news</title>
+<item><title>Kubernetes 1.32 rollout</title><link>https://news.example.com/k8s-132</link><pubDate>__RFC822_RECENT__</pubDate><description>&lt;p&gt;Clusters move to &lt;b&gt;1.32&lt;/b&gt; next week.&lt;/p&gt;</description></item>
+<item><title>Old news</title><link>https://news.example.com/old</link><pubDate>Mon, 01 Jan 2024 10:00:00 +0000</pubDate><description>old</description></item>
+</channel></rss>

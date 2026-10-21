@@ -119,8 +119,9 @@ Design: [02-schedules-connectors.md](design/02-schedules-connectors.md).
 - [x] **S1 Integrations and credentials** (02 §1): migration 0006 with secret migration; admin CRUD; user credentials with verify; kubeconfig validation; repo URLs must match an integration host.
   - Acceptance: migration moves existing tokens when integration URLs are configured; credential APIs are write-only; kubeconfig with `exec`, `auth-provider`, file paths or a non-allowed server is rejected with a specific message; `test` updates status and `last_error`; CA bundle is used for TLS (test with a self-signed server).
   - Done with the changes recorded in 02 §1 ("Changed while building S1"): migration 0006, adoption of unmoved tokens, `/api/secrets` removed, and Settings → Integrations and Admin → Integrations brought forward from S7.
-- [ ] **S2 Connectors and tool registry** (02 §2): one module per kind; `ToolSpec` registry; `toolset_for`; untrusted wrapping; error codes; retries; size caps.
+- [x] **S2 Connectors and tool registry** (02 §2): one module per kind; `ToolSpec` registry; `toolset_for`; untrusted wrapping; error codes; retries; size caps.
   - Acceptance: recorded-fixture tests per connector (success, 401 → credential invalid + inbox item, 404, 429 then success, oversize, pagination cap); `k8s_get` refuses `secrets`; every tool with `untrusted_output` returns the envelope; `toolset_for` excludes tools without a verified credential and tools above the agent's tier.
+  - Done with the changes recorded in 02 §2 ("Changed while building S2"): fixtures replay through `httpx2.MockTransport`, `inbox_items` created early (migration 0007), an optional `integration` argument when a kind has several, and chat's tools moved into the registry.
 - [ ] **S3 Agents and run executor** (02 §3): `agents` table, seed loader, `RunReport`, fingerprint verification, shared `execute_agent_run()` used by schedules.
   - Acceptance: seeds are idempotent and update prompts on change; invented fingerprints are marked unverified and excluded from change detection; server recomputes report status.
 - [ ] **S4 Schedules, tick and runs** (02 §4).

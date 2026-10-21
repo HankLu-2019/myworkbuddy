@@ -113,7 +113,19 @@ Default `allowed_kinds`: `pods, deployments, statefulsets, daemonsets, jobs, cro
 
 **Error handling.** Connectors never raise into the agent. They return `{"error": code, "message": ...}` with codes `auth_failed` (also sets the credential `status='invalid'` and adds an inbox item "Your Jira token was rejected"), `not_found`, `forbidden`, `timeout`, `unavailable`, `too_large`. Retries: 2 retries with backoff on 429/502/503/504 and transport errors, honouring `Retry-After` up to 30 s.
 
-**Testing.** Every connector has recorded-fixture tests using `respx` (fixtures in `tests/fixtures/connectors/<kind>/`), covering success, 401, 404, 429-then-success, pagination cap, oversize response. A manual `compose.testenv.yml` (Jira DC trial, GitLab CE, Gerrit, Jenkins, kind cluster) exists for exploratory testing but is not a CI gate.
+**Testing.** Every connector has recorded-fixture tests (fixtures in `tests/fixtures/connectors/<kind>/`), covering success, 401, 404, 429-then-success, pagination cap, oversize response. A manual `compose.testenv.yml` (Jira DC trial, GitLab CE, Gerrit, Jenkins, kind cluster) exists for exploratory testing but is not a CI gate.
+
+*Changed while building S2:*
+
+- **Fixtures replay through `httpx2.MockTransport`**, installed with `app.integrations.http.set_transport`, not `respx`: `respx` only patches `httpx`, and every outbound call here uses `httpx2`.
+- **`inbox_items` is created now** (migration 0007, the §5 columns without `run_id`) so a rejected credential can add its inbox item. The item is added only when the credential wasn't already `invalid`, so repeated failures produce one item. Links must be in-app paths (`/…`, not `//…`). S4 adds `run_id`; S5 adds the API, unread counts and email.
+- **Several integrations of one kind:** every connector tool takes an optional `integration` (its name, case-insensitive). Without it the tool uses the only enabled integration the user has credentials for; with several it returns `invalid_args` listing their names. Two more error codes: `not_configured` (no matching integration or credential) and `invalid_args` (bad paths such as `..`, unknown kinds).
+- **Verified means every part:** a kind counts as verified for `toolset_for` only when every credential part the kind needs is `ok` (Gerrit needs username and password). Feeds need none. An unknown tool name in an agent definition raises, so a typo in a seed fails loudly.
+- **Untrusted output** is wrapped with source `<kind>:<tool>` and capped at the tool's `max_output_chars` (20 000 for lists, 40 000 for log tails); trusted output over the cap comes back as `{"result": "<cut text>", "truncated": true}`. An unexpected exception in a connector is logged and returned as `unavailable`, so one bug doesn't end the run.
+- **Chat's tools moved to the registry:** `search_knowledge` and `get_session` live in `app/tools/knowledge.py`, and the chat agent takes them from the registry (`CHAT_TOOLS`). Chat still has no connector tools; Phase 2 agents get them through `toolset_for`.
+- **Kubernetes:** `k8s_get` returns at most 100 items; when `allowed_namespaces` is set, a namespace is required. `configmaps`, when allowed, return key names only, never values. Pod summaries include `OOMKilled` from the last terminated state.
+- **Feeds** are parsed with `defusedxml`, so DTDs and entity expansion are refused (`unavailable`); at most 30 items, summaries stripped of HTML.
+- Recording tool calls in `tool_calls` for agent runs comes with the run executor (S3).
 
 ## 3. Agents
 

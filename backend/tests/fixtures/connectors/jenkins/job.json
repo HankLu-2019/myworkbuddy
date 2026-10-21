@@ -1,0 +1,1 @@
+{"name": "main", "url": "https://ci.example.com/job/team/job/payments/job/main/", "lastBuild": {"number": 412, "result": "FAILURE", "timestamp": 1761030000000, "url": "https://ci.example.com/job/team/job/payments/job/main/412/", "building": false, "culprits": [{"fullName": "Alice Andersson"}]}}

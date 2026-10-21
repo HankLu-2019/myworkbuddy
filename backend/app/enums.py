@@ -82,6 +82,21 @@ class CredentialStatus(StrEnum):
     unreadable = "unreadable"
 
 
+class InboxKind(StrEnum):
+    run = "run"
+    alert = "alert"
+    recovered = "recovered"
+    system = "system"
+    credential = "credential"
+    proposal = "proposal"
+
+
+class Severity(StrEnum):
+    info = "info"
+    warning = "warning"
+    alert = "alert"
+
+
 def check(column: str, enum: type[StrEnum]) -> str:
     """SQL for a CHECK constraint that keeps `column` within `enum`."""
     values = ", ".join(f"'{e.value}'" for e in enum)
