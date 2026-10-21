@@ -128,8 +128,9 @@ Design: [02-schedules-connectors.md](design/02-schedules-connectors.md).
 - [x] **S4 Schedules, tick and runs** (02 §4).
   - Acceptance: two concurrent ticks create exactly one run per fire time; missed fires produce at most one catch-up run; DST spring-forward and fall-back tests in `Europe/Stockholm`; minimum interval and per-user limits enforced; notify-mode table covered case by case; 3 failures auto-disable with inbox + email; `budget_exceeded` disables immediately; queued runs older than 5 min are re-deferred without duplicates; run sessions are excluded from episodes.
   - Done with the changes recorded in 02 §4 ("Changed while building S4"): `paused_reason`, the outbox table created early (sending is S5), interrupted-run cleanup, and run sessions kept out of the chat list.
-- [ ] **S5 Inbox and email** (02 §5).
+- [x] **S5 Inbox and email** (02 §5).
   - Acceptance: outbox send with retry/backoff against a fake SMTP server (aiosmtpd in tests); dedupe key prevents duplicates; daily cap suppresses and notifies once; email body contains no links except the MyWorkBuddy run URL; unread count endpoint.
+  - Done with the changes recorded in 02 §5 ("Changed while building S5"): claim/lease sending, immediate failure on permanent refusals, the cap counted per local day, `email_notifications` on `PATCH /api/auth/me`, and the outbox on Admin → System.
 - [ ] **S6 Chat → schedule proposals** (02 §6).
   - Acceptance: invalid proposals return the error to the model; the SSE `proposal` event renders a card; accept creates exactly the stored payload; expired or foreign proposals 404; the model has no path to create a schedule (toolset test).
 - [ ] **S7 Frontend** (02 §8, 07 §4.2, §4.7, §4.8, §5.6, §5.7, §5.10): Inbox, Schedules, editor with presets, inputs form, cron preview and test run, Run result with "Investigate in chat", chat context attachments, proposal card, Home sections for alerts and paused schedules (Settings → Integrations, Admin → Integrations and the invalid-credential Home card came with S1).

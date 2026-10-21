@@ -48,6 +48,7 @@ Then sign in at `https://$MWB_HOSTNAME`, create integrations (Phase 2+), create 
 | `MWB_SESSION_TTL_HOURS` / `MWB_SESSION_IDLE_HOURS` | `72` / `12` | |
 | `MWB_LOGIN_MAX_ATTEMPTS` / `_IP` / `_USER`, `MWB_LOGIN_WINDOW_MINUTES` | `5` / `30` / `20`, `15` | Failed sign-ins per username+IP, per IP, per username |
 | `MWB_SMTP_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_FROM`, `_STARTTLS` | — / 587 / — / — / — / true | Phase 2 |
+| `MWB_SMTP_TIMEOUT_S`, `MWB_MAX_EMAILS_PER_DAY` | 30 / 30 | Phase 2; the cap is per user per local day |
 | `MWB_MAX_EMAILS_PER_DAY` | `30` | Per user |
 | `MWB_SCHEDULE_MIN_INTERVAL_MIN` | `15` | Members |
 | `MWB_MAX_SCHEDULES_PER_USER` | `20` | |

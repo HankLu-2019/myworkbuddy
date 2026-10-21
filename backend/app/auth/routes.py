@@ -44,6 +44,7 @@ class UserOut(BaseModel):
     llm_budget_usd: float | None = None  # None: the default MWB_DEFAULT_USER_BUDGET_USD applies
     timezone: str | None = None
     timezone_confirmed: bool = False
+    email_notifications: bool = True
 
     @classmethod
     def of(cls, u: User) -> "UserOut":
@@ -59,6 +60,7 @@ class UserOut(BaseModel):
             llm_budget_usd=float(u.llm_budget_usd) if u.llm_budget_usd is not None else None,
             timezone=u.timezone,
             timezone_confirmed=bool(u.timezone_confirmed),
+            email_notifications=bool(u.email_notifications),
         )
 
 
@@ -73,6 +75,7 @@ class ProfileIn(BaseModel):
     display_name: str | None = Field(default=None, max_length=128)
     email: str | None = Field(default=None, max_length=255, pattern=r"^$|^[^@\s]+@[^@\s]+\.[^@\s]+$")
     timezone: str | None = Field(default=None, max_length=64)
+    email_notifications: bool | None = None  # Settings → Notifications (02 §7)
 
 
 class PasswordChangeIn(BaseModel):
@@ -141,6 +144,8 @@ async def update_profile(body: ProfileIn, auth: CurrentAuth, db: DB) -> UserOut:
         user.display_name = (body.display_name or "").strip() or None
     if "email" in changed:
         user.email = (body.email or "").strip() or None
+    if body.email_notifications is not None:
+        user.email_notifications = body.email_notifications
     await audit(db, "profile.update", user_id=user.id, detail={"fields": sorted(changed)})
     await db.commit()
     return UserOut.of(user)

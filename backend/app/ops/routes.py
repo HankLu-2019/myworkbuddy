@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.db import get_sessionmaker
 from app.deps import DB, AdminAuth, client_ip
 from app.errors import AppError
+from app.inbox.sender import outbox_status
 from app.knowledge.indexer import MAX_EMBED_ATTEMPTS
 from app.models import AuditLog, Chunk, User
 from app.ops import backup, health
@@ -99,8 +100,14 @@ async def _spend() -> dict[str, Any]:
     }
 
 
-def _alerts(state: dict[str, dict[str, Any]], checks: dict[str, str], stuck: int, disk: dict[str, Any]) -> list[str]:
+def _alerts(
+    state: dict[str, dict[str, Any]], checks: dict[str, str], stuck: int, disk: dict[str, Any], outbox: dict[str, Any]
+) -> list[str]:
     alerts = [v for v in checks.values() if v != "ok"]
+    if outbox["failed_24h"]:
+        alerts.append(f"{outbox['failed_24h']} email(s) couldn't be delivered in the last 24 hours")
+    if outbox["pending"] and not outbox["configured"]:
+        alerts.append(f"{outbox['pending']} email(s) are waiting: set MWB_SMTP_HOST to send them")
     if problem := backup.status_problem(state.get(backup.STATE_KEY)):
         alerts.append(problem)
     guard = state.get("disk_guard")
@@ -145,6 +152,7 @@ async def system(auth: AdminAuth, db: DB) -> dict[str, Any]:
             .limit(25)
         )
     ]
+    outbox = await outbox_status(db)
     await db.commit()  # rule R1: the gateway checks below are network calls
     checks, spend = await asyncio.gather(health.readiness(), _spend())
     disk = _disk()
@@ -152,7 +160,8 @@ async def system(auth: AdminAuth, db: DB) -> dict[str, Any]:
     age = health.heartbeat_age(hb)
     return {
         "checks": checks,
-        "alerts": _alerts(states, checks, stuck, disk),
+        "alerts": _alerts(states, checks, stuck, disk, outbox),
+        "outbox": outbox,
         "worker": {"heartbeat": hb, "age_s": int(age.total_seconds()) if age else None},
         "jobs": jobs,
         "backup": states.get(backup.STATE_KEY) or {"status": "not_configured"},
