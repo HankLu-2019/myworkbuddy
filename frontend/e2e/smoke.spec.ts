@@ -10,8 +10,14 @@ const WORD = `zebracorn${run}`;
 const DOC = `notes-${run}.md`;
 
 let lastPage: Page | undefined;
+const cspViolations: string[] = [];
 
 // On failure, print what the user was looking at; CI turns this into a check annotation.
+test.afterEach(async () => {
+  // The strict CSP (H3) must never block our own app.
+  expect(cspViolations, "CSP violations").toEqual([]);
+});
+
 test.afterEach(async ({}, testInfo) => {
   if (testInfo.status !== testInfo.expectedStatus && lastPage && !lastPage.isClosed()) {
     const text = await lastPage.locator("body").innerText().catch(() => "(page text unavailable)");
@@ -25,7 +31,11 @@ async function signIn(browser: Browser, username: string, password = PASSWORD): 
   // Browser-side events, printed in CI output to explain failures.
   page.on("requestfailed", (r) => console.log(`[${username}] request failed: ${r.method()} ${r.url()} ${r.failure()?.errorText}`));
   page.on("framenavigated", (f) => f === page.mainFrame() && console.log(`[${username}] navigated: ${f.url()}`));
-  page.on("console", (m) => m.type() === "error" && console.log(`[${username}] console error: ${m.text()}`));
+  page.on("console", (m) => {
+    if (m.type() !== "error") return;
+    console.log(`[${username}] console error: ${m.text()}`);
+    if (m.text().includes("Content Security Policy")) cspViolations.push(m.text());
+  });
   page.on("pageerror", (e) => console.log(`[${username}] page error: ${e.message}\n${(e.stack ?? "").split("\n").slice(0, 6).join("\n")}`));
   await page.goto("/login");
   await page.getByLabel("Username").fill(username);
