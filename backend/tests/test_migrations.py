@@ -44,6 +44,10 @@ SEEDS: dict[str, list[str]] = {
 SEEDS["0007"] = [
     "INSERT INTO inbox_items (owner_id, kind, severity, title) VALUES (1, 'credential', 'warning', 'seed')",
 ]
+SEEDS["0008"] = [
+    "INSERT INTO agents (slug, name, description, model_alias, system_prompt, tools) "
+    "VALUES ('seed-agent', 'Seed', 'd', 'fast', 'p', ARRAY['jira_search'])",
+]
 SEEDS["0005"] = []  # 0005 adds a column with a default; the 0001 user must get it
 CHECKS = {
     "users": 1,
@@ -53,6 +57,7 @@ CHECKS = {
     "documents": 1,
     "chunks": 1,
     "inbox_items": 1,
+    "agents": 1,
 }
 
 

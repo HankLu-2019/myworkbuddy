@@ -10,7 +10,6 @@ import functools
 import json
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Any, Protocol
 
 from pydantic_ai import RunContext
@@ -19,16 +18,10 @@ from sqlalchemy import select
 
 from app.connectors.base import ConnectorError
 from app.db import get_sessionmaker
+from app.enums import Tier
 from app.llm.untrusted import wrap
 from app.logs import log
 from app.models import Integration, User, UserCredential
-
-
-class Tier(StrEnum):
-    read = "read"
-    sandbox_write = "sandbox_write"  # Phase 4: only inside job sandboxes
-    external_write = "external_write"  # Phase 4+: only via approvals (rule R5)
-
 
 TIER_ORDER = {Tier.read: 0, Tier.sandbox_write: 1, Tier.external_write: 2}
 
@@ -44,7 +37,7 @@ class ToolSpec:
 
 
 class AgentLike(Protocol):
-    """What toolset_for needs from an agent (the `agents` table arrives in S3)."""
+    """What toolset_for needs from an agent: an `app.models.Agent` row, or a stand-in in tests."""
 
     tools: Iterable[str]
     max_tier: str

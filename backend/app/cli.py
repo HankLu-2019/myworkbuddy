@@ -131,6 +131,20 @@ def db_bootstrap() -> None:
         typer.echo(line)
 
 
+@cli.command("sync-agents")
+def sync_agents() -> None:
+    """Create or update the system agents from app/agents/seed (design 02 §3). Runs in `migrate` after Alembic."""
+    from app.agents.seeds import sync_system_agents
+
+    async def run() -> dict[str, int]:
+        async with get_sessionmaker()() as db:
+            counts = await sync_system_agents(db)
+            await db.commit()
+            return counts
+
+    typer.echo("agents: " + ", ".join(f"{k} {v}" for k, v in asyncio.run(run()).items()))
+
+
 @cli.command("wiki-reconcile")
 def wiki_reconcile(dry_run: bool = typer.Option(False, "--dry-run", help="Report only; change nothing")) -> None:
     """Repair drift between the wiki git repos and the database (design 01 §H7)."""

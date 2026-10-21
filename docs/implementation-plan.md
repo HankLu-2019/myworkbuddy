@@ -122,8 +122,9 @@ Design: [02-schedules-connectors.md](design/02-schedules-connectors.md).
 - [x] **S2 Connectors and tool registry** (02 §2): one module per kind; `ToolSpec` registry; `toolset_for`; untrusted wrapping; error codes; retries; size caps.
   - Acceptance: recorded-fixture tests per connector (success, 401 → credential invalid + inbox item, 404, 429 then success, oversize, pagination cap); `k8s_get` refuses `secrets`; every tool with `untrusted_output` returns the envelope; `toolset_for` excludes tools without a verified credential and tools above the agent's tier.
   - Done with the changes recorded in 02 §2 ("Changed while building S2"): fixtures replay through `httpx2.MockTransport`, `inbox_items` created early (migration 0007), an optional `integration` argument when a kind has several, and chat's tools moved into the registry.
-- [ ] **S3 Agents and run executor** (02 §3): `agents` table, seed loader, `RunReport`, fingerprint verification, shared `execute_agent_run()` used by schedules.
+- [x] **S3 Agents and run executor** (02 §3): `agents` table, seed loader, `RunReport`, fingerprint verification, shared `execute_agent_run()` used by schedules.
   - Acceptance: seeds are idempotent and update prompts on change; invented fingerprints are marked unverified and excluded from change detection; server recomputes report status.
+  - Done with the changes recorded in 02 §3 ("Changed while building S3"): seeding by `mwb sync-agents` in the `migrate` service, the exact fingerprint check, `GET /api/agents` brought forward from S7, and first versions of the four prompts.
 - [ ] **S4 Schedules, tick and runs** (02 §4).
   - Acceptance: two concurrent ticks create exactly one run per fire time; missed fires produce at most one catch-up run; DST spring-forward and fall-back tests in `Europe/Stockholm`; minimum interval and per-user limits enforced; notify-mode table covered case by case; 3 failures auto-disable with inbox + email; `budget_exceeded` disables immediately; queued runs older than 5 min are re-deferred without duplicates; run sessions are excluded from episodes.
 - [ ] **S5 Inbox and email** (02 §5).

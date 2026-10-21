@@ -97,6 +97,22 @@ class Severity(StrEnum):
     alert = "alert"
 
 
+class Tier(StrEnum):
+    """What a tool may do (design 02 §2). An agent's `max_tier` caps the tools it gets."""
+
+    read = "read"
+    sandbox_write = "sandbox_write"  # Phase 4: only inside job sandboxes
+    external_write = "external_write"  # Phase 4+: only via approvals (rule R5)
+
+
+class AgentModel(StrEnum):
+    """Model aliases an agent may use (design 02 §3); `coder` is for Phase 4 jobs only."""
+
+    chat = "chat"
+    fast = "fast"
+    planner = "planner"
+
+
 def check(column: str, enum: type[StrEnum]) -> str:
     """SQL for a CHECK constraint that keeps `column` within `enum`."""
     values = ", ".join(f"'{e.value}'" for e in enum)
