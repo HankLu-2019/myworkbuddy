@@ -115,6 +115,10 @@ jobs:
           docker compose -f docker-compose.yml -f compose.ci.yml logs --no-log-prefix api worker llm-gateway > all.log 2>&1
           grep -E 'chat|Traceback|Error|error|exception|completions|embeddings|"level": "(warning|error)"' all.log | grep -v '"status": 200' > services.log || true
           grep -A30 Traceback all.log > tracebacks.log || true
+          awk '/POST \/api\/chat\/sessions\/.*\/messages/{f=1} f' all.log | grep -v -E '"GET /api/(chat|knowledge)' | head -40 > after-chat.log || true
+          .github/scripts/annotate-tail.sh "after chat request" after-chat.log 40
+          docker compose -f docker-compose.yml -f compose.ci.yml exec -T postgres psql -U mwb -d mwb -c "select pid, state, wait_event_type, wait_event, now()-xact_start as xact_age, left(query,120) from pg_stat_activity where datname='mwb' and pid <> pg_backend_pid()" > pg.log 2>&1 || true
+          .github/scripts/annotate-tail.sh "pg_stat_activity" pg.log 40
           .github/scripts/annotate-tail.sh "tracebacks" tracebacks.log 80
           .github/scripts/annotate-tail.sh "stack" stack.log 60
           .github/scripts/annotate-tail.sh "playwright" e2e.log 80
