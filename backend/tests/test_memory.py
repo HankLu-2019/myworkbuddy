@@ -8,7 +8,7 @@ from app.knowledge.librarian import update_user_wiki
 from app.knowledge.wiki import LIBRARIAN, find_page, read_page, save_page
 from app.llm.models import set_model_override
 from app.models import ChatSession, Episode, Message, Project, User
-from app.tasks.app import episode_sweep, librarian_nightly
+from app.tasks.app import episode_sweep
 from tests.helpers import scripted_model
 
 SUMMARY = {
@@ -128,9 +128,6 @@ async def test_librarian_updates_private_pages_only(make_user, task_queue):
         await db.commit()
         set_model_override(scripted_model("# How I work\n\n- Newer fact\n"))
         assert "me/how-i-work.md" in await update_user_wiki(db, alice)
-
-    await librarian_nightly(timestamp=0)
-    assert [j["task_name"] for j in task_queue.jobs.values()] == ["librarian_user"]
 
 
 async def test_librarian_changes_api(client_for):

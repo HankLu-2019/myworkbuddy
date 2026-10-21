@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
@@ -36,7 +36,7 @@ from app.knowledge.wiki import (
     save_page,
 )
 from app.knowledge.wiki_writer import WikiWriter
-from app.models import Chunk, Document, Project, User, WikiPage
+from app.models import Chunk, Document, LibrarianRun, Project, User, WikiPage
 from app.tasks.app import build_episode_task, defer_once, ingest_project_task, librarian_user_task
 
 router = APIRouter(prefix="/api", tags=["knowledge"])
@@ -377,6 +377,31 @@ async def librarian_changes(auth: CurrentAuth, days: int = 3) -> list[dict[str, 
     since = datetime.now(UTC) - timedelta(days=max(1, min(days, 30)))
     commits = [c for c in await repo.log(limit=100, author=LIBRARIAN.email) if datetime.fromisoformat(c.date) >= since]
     return [{"sha": c.sha, "date": c.date, "message": c.message, "diff": await repo.show(c.sha)} for c in commits]
+
+
+class LibrarianRunOut(BaseModel):
+    id: int
+    started_at: datetime
+    finished_at: datetime | None
+    local_date: date
+    status: Literal["ok", "partial", "failed", "skipped"]
+    episodes: int
+    pages_updated: list[str]
+    pages_rejected: list[dict[str, str]]
+    error: str | None
+
+
+@router.get("/wiki/librarian/runs")
+async def librarian_runs(auth: CurrentAuth, db: DB, days: int = 7) -> list[LibrarianRunOut]:
+    """The caller's recent librarian runs, newest first, with rejected rewrites (reason + diff)."""
+    since = datetime.now(UTC) - timedelta(days=max(1, min(days, 30)))
+    rows = await db.scalars(
+        select(LibrarianRun)
+        .where(LibrarianRun.user_id == auth.user.id, LibrarianRun.started_at >= since)
+        .order_by(LibrarianRun.started_at.desc())
+        .limit(100)
+    )
+    return [LibrarianRunOut.model_validate(r, from_attributes=True) for r in rows]
 
 
 @router.post("/wiki/librarian/run", status_code=202)

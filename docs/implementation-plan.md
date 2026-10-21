@@ -76,7 +76,7 @@ Design: [01-hardening.md](design/01-hardening.md) and, for H15–H16, [07-ux.md]
 - [x] **H7 Wiki consistency** (01 §H7). Also fixes review M16 (history no longer uses `git log --follow`). Reconcile also runs before the worker starts (non-blocking). The librarian already refuses to overwrite a page edited during its run (skips it); H8 adds the retry.
   - Acceptance: concurrent edits with the same `base_sha` → one 200, one `409 wiki_conflict` with current content; a DB failure injected after the git commit leaves git HEAD unchanged (compensation); publish with an injected DB failure leaves the file in the private repo; reconcile fixes each of the four situations in its table (one test each); history after publish includes pre-publish commits for the owner only; UI conflict dialog (vitest).
 
-- [ ] **H8 Librarian guardrails, per-user time** (01 §H8)
+- [x] **H8 Librarian guardrails, per-user time** (01 §H8)
   - Acceptance: each rejection rule has a test (shrink, keep-block changed, headings lost, too large); a user edit between librarian read and write is preserved (conflict → retry → no overwrite); `librarian_tick` fires for a user at 02:00 in their timezone exactly once per local day, including across a DST change; `librarian_runs` rows record outcomes; wiki editor "Keep" button wraps the selection.
 
 - [ ] **H9 Ingestion robustness** (01 §H9)

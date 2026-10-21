@@ -242,7 +242,7 @@ Publish/unpublish commits carry a trailer `Moved-From: <repo-relative-dir>@<sha>
 
 ## H8. Librarian guardrails and per-user nightly time
 
-**Scheduling.** Replace the fixed `0 2 * * *` periodic with an hourly periodic `librarian_tick`. For each active user whose local hour (users.timezone) is `MWB_LIBRARIAN_LOCAL_HOUR` (default 2) and who has no `librarian_runs` row for today's local date, defer `librarian_user` with `lock=f"librarian:{user_id}"`.
+**Scheduling.** Replace the fixed `0 2 * * *` periodic with an hourly periodic `librarian_tick` (minute 5). A user is due when today's local `MWB_LIBRARIAN_LOCAL_HOUR`:00 (default 2, in `users.timezone`, falling back to `MWB_DEFAULT_TIMEZONE`, then UTC) has passed and no `librarian_runs` row has `started_at` at or after that instant. For due users, defer `librarian_user` with `queueing_lock=f"librarian:{user_id}"`. Comparing against the instant (not "local hour equals 2" or the local date) means a missed tick, a worker restart or a DST change still runs once: on spring-forward days the non-existent 02:00 maps to 03:00; on fall-back days the first 02:00 counts. A run that fails still records a `failed` row, so the user isn't retried every hour; "Update now" in the Wiki retries on demand.
 
 **Per page algorithm** (no transaction during the LLM call):
 
@@ -256,9 +256,11 @@ Publish/unpublish commits carry a trailer `Moved-From: <repo-relative-dir>@<sha>
    - the new page is > 3× the current length or > 60 000 chars.
 5. Write through the WikiWriter with `expect(path, head_sha)`. On `wiki_conflict`, retry once from step 1; on a second conflict, skip the page.
 
-Record a `librarian_runs` row with updated pages and rejected pages (path + reason). The Wiki "Changed last night" panel shows rejections with a link to the would-be diff (stored as an artifact for 14 days).
+The heading rule only applies to pages over 500 chars, like the shrink rule, so a stub's title may change. The size and keep-block rules also apply to new pages (built from a template).
 
-Users protect hand-written content with `<!-- mwb:keep -->` blocks. The wiki editor has a toolbar button that wraps the selection.
+Record a `librarian_runs` row: status `ok`, `partial` (some pages rejected), `skipped` (no new episodes) or `failed`; `pages_updated`; `pages_rejected` as `[{path, reason, diff}]`, where `diff` is the unified diff of the would-be change capped at 20 000 chars. The diff lives in the row rather than an artifact store, which doesn't exist until Phase 4. `GET /api/wiki/librarian/runs?days=7` returns the caller's runs. The Wiki librarian panel lists them under "Not applied" (reason plus diff, 07 §4 wording) and a notice when a run failed. Rows are small (one per user per day), so they are kept.
+
+Users protect hand-written content with `<!-- mwb:keep -->` … `<!-- /mwb:keep -->` blocks. In the editor, "Keep block" wraps the selection (or the current line) in the markers; it moves into the editor toolbar in H15.
 
 ## H9. Ingestion robustness
 

@@ -1,10 +1,32 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, type Commit, type Page, type PageSummary, type Visibility } from "../api";
 import { Empty, ErrorNote, Markdown, PageHeader, VisibilityBadge, formatDate } from "../components/ui";
 
 type LibrarianChange = { sha: string; date: string; message: string; diff: string };
+type LibrarianRun = {
+  id: number;
+  started_at: string;
+  status: "ok" | "partial" | "failed" | "skipped";
+  pages_rejected: { path: string; reason: string; diff: string }[];
+  error: string | null;
+};
+
+const KEEP_OPEN = "<!-- mwb:keep -->";
+const KEEP_CLOSE = "<!-- /mwb:keep -->";
+
+/** Wrap the selected text (or the current line) in keep markers, so the librarian must leave it as is. */
+export function wrapInKeep(text: string, start: number, end: number): { text: string; cursor: number } {
+  if (start === end) {
+    start = text.lastIndexOf("\n", start - 1) + 1;
+    const eol = text.indexOf("\n", end);
+    end = eol === -1 ? text.length : eol;
+  }
+  const inner = text.slice(start, end).replace(/^\n+|\n+$/g, "");
+  const block = `${KEEP_OPEN}\n${inner}\n${KEEP_CLOSE}`;
+  return { text: text.slice(0, start) + block + text.slice(end), cursor: start + block.length };
+}
 
 function PageTree({ pages, current }: { pages: PageSummary[]; current?: number }) {
   const groups: [string, PageSummary[]][] = [
@@ -48,7 +70,13 @@ function LibrarianPanel() {
     queryKey: ["librarian"],
     queryFn: () => api<LibrarianChange[]>("/api/wiki/librarian/changes?days=7"),
   });
+  const runs = useQuery({
+    queryKey: ["librarian-runs"],
+    queryFn: () => api<LibrarianRun[]>("/api/wiki/librarian/runs?days=7"),
+  });
   const run = useMutation({ mutationFn: () => api<{ queued: boolean }>("/api/wiki/librarian/run", { method: "POST" }) });
+  const heldBack = (runs.data ?? []).flatMap((r) => r.pages_rejected.map((x) => ({ ...x, run: r })));
+  const failed = (runs.data ?? []).filter((r) => r.status === "failed");
   return (
     <div className="page">
       <PageHeader title="What the librarian changed">
@@ -60,7 +88,30 @@ function LibrarianPanel() {
         Each night the librarian folds your session summaries into your private pages (how you work, decisions,
         project cards). Every change is a git commit, so you can review it here and edit anything it got wrong.
       </p>
-      <ErrorNote error={changes.error || run.error} />
+      <ErrorNote error={changes.error || runs.error || run.error} />
+      {failed.length > 0 && (
+        <p className="notice" role="status">
+          The last {failed.length === 1 ? "run" : `${failed.length} runs`} failed ({failed[0].error ?? "unknown error"}).
+          Your pages were not changed.
+        </p>
+      )}
+      {heldBack.length > 0 && (
+        <section aria-labelledby="held-back">
+          <h2 id="held-back">Not applied</h2>
+          <p className="muted small">
+            The librarian wanted to make these changes but they looked unsafe, so your pages were left as they are.
+          </p>
+          {heldBack.map((h, i) => (
+            <details key={`${h.run.id}-${i}`} className="card change">
+              <summary>
+                <span className="mono">{h.path}</span> <span>Not applied: {h.reason}</span>{" "}
+                <span className="muted small">{formatDate(h.run.started_at)}</span>
+              </summary>
+              <Diff text={h.diff} />
+            </details>
+          ))}
+        </section>
+      )}
       {changes.data && !changes.data.length && <Empty>No librarian changes in the last 7 days.</Empty>}
       {changes.data?.map((c) => (
         <details key={c.sha} className="card change">
@@ -104,6 +155,17 @@ function PageView({ id }: { id: number }) {
   const navigate = useNavigate();
   const [mode, setMode] = useState<"view" | "edit" | "history">("view");
   const [draft, setDraft] = useState("");
+  const editor = useRef<HTMLTextAreaElement>(null);
+  const protect = () => {
+    const el = editor.current;
+    if (!el) return;
+    const { text, cursor } = wrapInKeep(draft, el.selectionStart, el.selectionEnd);
+    setDraft(text);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(cursor, cursor);
+    });
+  };
   const [message, setMessage] = useState("");
   const [diffSha, setDiffSha] = useState<string | null>(null);
   const [baseSha, setBaseSha] = useState("");
@@ -238,7 +300,20 @@ function PageView({ id }: { id: number }) {
       {mode === "view" && <Markdown>{p.content}</Markdown>}
       {mode === "edit" && (
         <>
-          <textarea aria-label="Page content" className="editor" value={draft} onChange={(e) => setDraft(e.target.value)} />
+          <textarea
+            ref={editor}
+            aria-label="Page content"
+            aria-describedby="keep-hint"
+            className="editor"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <p id="keep-hint" className="muted small">
+            Text inside a Keep block is never changed by the librarian.{" "}
+            <button type="button" className="link" onClick={protect}>
+              Keep block
+            </button>
+          </p>
           <input aria-label="Change summary" placeholder="What changed (optional)" value={message} onChange={(e) => setMessage(e.target.value)} />
           <div className="actions">
             <button className="primary" onClick={() => save.mutate()} disabled={save.isPending}>

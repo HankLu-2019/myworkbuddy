@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     repo_max_files: int = 300
     ingest_max_summary_files: int = 150
+    librarian_local_hour: int = Field(2, ge=0, le=23)  # local hour of the nightly librarian run (01 §H8)
     db_pool_size: int = 10
     db_statement_timeout_ms: int = 30_000
     repo_max_file_bytes: int = 200_000
