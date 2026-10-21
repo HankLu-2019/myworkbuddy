@@ -56,7 +56,7 @@ Design: [01-hardening.md](design/01-hardening.md) and, for H15–H16, [07-ux.md]
   - Acceptance: `docker compose -f docker-compose.yml build` succeeds; prod backend image has no `pytest` (`docker run … python -c "import pytest"` fails); `api` starts only after `migrate` exits 0; a test-file type error does not break `npm run build` but does fail `npm run typecheck`.
 
 - [ ] **H2 CI** (01 §H2)
-  - `.github/workflows/ci.yml` jobs: backend-lint, backend-test (ParadeDB service), frontend, images, e2e (fake LLM + Playwright smoke), migration-upgrade.
+  - `.github/workflows/ci.yml` jobs: backend-lint, backend-test (ParadeDB service, incl. step-by-step migration test), frontend, images, e2e (fake LLM + Playwright smoke).
   - `backend/tests/fakellm/` server; `compose.ci.yml`.
   - Acceptance: all jobs green on the PR; introducing a deliberate type error, failing test, or broken Dockerfile in a scratch branch turns CI red (*manual once*); Playwright smoke covers the 5 flows in 01 §H2.
 

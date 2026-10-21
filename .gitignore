@@ -7,3 +7,6 @@ node_modules/
 dist/
 frontend/coverage/
 *.tsbuildinfo
+e2e-results.json
+test-results/
+playwright-report/

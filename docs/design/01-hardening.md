@@ -45,9 +45,11 @@ Task IDs match [`docs/implementation-plan.md`](../implementation-plan.md), which
 | `backend-lint` | `uv sync --frozen`, `ruff check`, `ruff format --check` |
 | `backend-test` | Service container `paradedb/paradedb` (same digest as compose). `pytest --cov=app --cov-fail-under=80` with `MWB_TEST_DATABASE_URL` |
 | `frontend` | `npm ci`, `npm run typecheck`, `npx vitest run --coverage`, `npm run build` |
-| `images` | `docker build` of backend `prod` and `dev` targets and the frontend `prod` target |
+| `images` | `docker build` of backend `prod` and `dev` targets and the frontend `prod` target; checks the prod image has no pytest and imports the app |
 | `e2e` | `docker compose -f docker-compose.yml -f compose.ci.yml up -d --wait`, then Playwright smoke tests (below) |
-| `migration-upgrade` | Start a database at the previous release tag, seed it with `tests/fixtures/seed.sql`, run `alembic upgrade head` from this commit, run `pytest tests/test_migrations.py` |
+| (in `backend-test`) | `tests/test_migrations.py` upgrades a scratch database one revision at a time, inserting seed rows after each, checks they survive, and compares models with the migrated schema. Once release tags exist, add a job that upgrades a database created at the previous tag. |
+
+Failing steps post the tail of their log as a check annotation (`.github/scripts/annotate-tail.sh`), so failures can be read from the checks API without log access.
 
 **Fake LLM for CI and local e2e.** `backend/tests/fakellm/server.py` is a tiny FastAPI app implementing the parts of the OpenAI API the gateway is used for:
 
@@ -338,7 +340,7 @@ def limits_for(purpose: Purpose) -> UsageLimits                    # per purpose
 async def embedder_for(user_id: int) -> Embedder                   # GatewayEmbedder with the user's key
 ```
 
-The OpenAI provider is built with a shared `httpx.AsyncClient` whose response event hook reads `x-litellm-response-cost` and adds it to a `contextvars` accumulator (`app.llm.usage.current_cost()`). Callers read the accumulator after a run and store it (`messages.cost_usd`, `runs.cost_usd`, `jobs.cost_usd`).
+The OpenAI provider is built with a shared HTTP client (pydantic-ai 2.58 deprecates `httpx.AsyncClient` here in favour of `httpx2.AsyncClient`; use whichever the pinned version expects) whose response event hook reads `x-litellm-response-cost` and adds it to a `contextvars` accumulator (`app.llm.usage.current_cost()`). Callers read the accumulator after a run and store it (`messages.cost_usd`, `runs.cost_usd`, `jobs.cost_usd`).
 
 | Purpose | Alias | request_limit | total_tokens_limit | timeout |
 |---|---|---|---|---|

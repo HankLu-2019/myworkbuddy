@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep in step with docker-compose.yml.
+  PARADEDB_IMAGE: paradedb/paradedb:0.26.0-pg17
+
+jobs:
+  backend-lint:
+    runs-on: ubuntu-24.04
+    defaults: { run: { working-directory: backend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --group dev
+      - run: uv run --frozen ruff check . > ../lint.log 2>&1 || { cat ../lint.log; exit 1; }
+      - run: uv run --frozen ruff format --check . > ../format.log 2>&1 || { cat ../format.log; exit 1; }
+      - if: failure()
+        working-directory: .
+        run: |
+          .github/scripts/annotate-tail.sh "ruff check" lint.log
+          .github/scripts/annotate-tail.sh "ruff format" format.log
+
+  backend-test:
+    runs-on: ubuntu-24.04
+    defaults: { run: { working-directory: backend } }
+    services:
+      postgres:
+        image: paradedb/paradedb:0.26.0-pg17
+        env: { POSTGRES_USER: mwb, POSTGRES_PASSWORD: mwb, POSTGRES_DB: mwb }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U mwb -d mwb" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      MWB_DATABASE_URL: postgresql://mwb:mwb@localhost:5432/mwb
+      MWB_SECRET_KEY: ci-placeholder-overridden-by-conftest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --group dev
+      - run: git config --global user.email ci@example.com && git config --global user.name CI
+      - name: pytest
+        run: uv run --frozen pytest --cov=app --cov-report=term --cov-fail-under=80 -p no:cacheprovider > ../pytest.log 2>&1; status=$?; tail -n 80 ../pytest.log; exit $status
+      - if: failure()
+        working-directory: .
+        run: .github/scripts/annotate-tail.sh "pytest" pytest.log 80
+
+  frontend:
+    runs-on: ubuntu-24.04
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - run: npm ci
+      - run: npm run typecheck > ../typecheck.log 2>&1 || { cat ../typecheck.log; exit 1; }
+      - run: npx vitest run --coverage > ../vitest.log 2>&1 || { cat ../vitest.log; exit 1; }
+      - run: npm run build > ../build.log 2>&1 || { cat ../build.log; exit 1; }
+      - if: failure()
+        working-directory: .
+        run: |
+          for f in typecheck vitest build; do .github/scripts/annotate-tail.sh "$f" "$f.log" 40; done
+
+  images:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build images
+        run: |
+          set -o pipefail
+          { docker build --target prod -t mwb-backend:prod backend \
+            && docker build --target dev -t mwb-backend:dev backend \
+            && docker build --target prod -t mwb-web:prod frontend; } > images.log 2>&1 || { tail -n 80 images.log; exit 1; }
+      - name: Prod backend image has no dev tooling
+        run: |
+          if docker run --rm mwb-backend:prod python -c "import pytest" 2>/dev/null; then echo "pytest found in prod image" > images.log; exit 1; fi
+          docker run --rm mwb-backend:prod python -c "import app.main" > images.log 2>&1 || { cat images.log; exit 1; }
+      - if: failure()
+        run: .github/scripts/annotate-tail.sh "images" images.log 80
+
+  e2e:
+    runs-on: ubuntu-24.04
+    needs: [images]
+    env:
+      MWB_E2E_ADMIN_PASSWORD: admin-password-1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write .env
+        run: |
+          cp .env.example .env
+          key=$(python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
+          sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=ci-postgres|; s|^MWB_SECRET_KEY=.*|MWB_SECRET_KEY=$key|; s|^MWB_COOKIE_SECURE=.*|MWB_COOKIE_SECURE=false|; s|^LITELLM_MASTER_KEY=.*|LITELLM_MASTER_KEY=sk-ci|" .env
+      - name: Start stack with the fake LLM
+        run: docker compose -f docker-compose.yml -f compose.ci.yml up -d --build --wait --wait-timeout 300 api worker web > stack.log 2>&1 || { cat stack.log; docker compose -f docker-compose.yml -f compose.ci.yml logs --tail 100 >> stack.log; exit 1; }
+      - name: Create admin
+        run: docker compose -f docker-compose.yml -f compose.ci.yml exec -T -e MWB_ADMIN_PASSWORD=$MWB_E2E_ADMIN_PASSWORD api mwb create-admin --username admin --email admin@example.com
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - name: Playwright
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium > /dev/null
+          npx playwright test > ../e2e.log 2>&1; status=$?; cat ../e2e.log; exit $status
+      - if: failure()
+        run: |
+          docker compose -f docker-compose.yml -f compose.ci.yml logs --tail 60 api worker llm-gateway > services.log 2>&1
+          .github/scripts/annotate-tail.sh "stack" stack.log 60
+          .github/scripts/annotate-tail.sh "playwright" e2e.log 80
+          .github/scripts/annotate-tail.sh "service logs" services.log 80
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: frontend/test-results
+          retention-days: 7
