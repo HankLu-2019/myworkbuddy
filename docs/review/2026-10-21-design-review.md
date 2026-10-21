@@ -72,6 +72,8 @@ Each finding names the task that fixes it.
 | M13 | Concurrent messages in one chat session interleave. A slow reply has no keep-alive, so proxies may cut idle SSE streams. | `app/chat/routes.py:229-285` | H13 |
 | M14 | Only the API has a healthcheck. The worker has none, and nothing reports a stuck queue or a failed nightly job. | `docker-compose.yml` | H14 |
 | M15 | No user offboarding. A deactivated user's public content stays owned by them, and private data, wiki repo, repo caches and keys are never removed. | `app/users/routes.py` | H11 |
+| M16 | Wiki history uses `git log --follow`, whose rename detection can show another page's commits (found while building CI). | `app/knowledge/gitrepo.py:103-116` | H7 |
+| M17 | Sending a chat message blanked the page in current Chromium: an effect returned `scrollIntoView()`'s new Promise to React. Found by the H2 end-to-end test; **fixed in the H2 PR**. | `frontend/src/pages/ChatPage.tsx:72` | H2 (done) |
 
 ### Low
 

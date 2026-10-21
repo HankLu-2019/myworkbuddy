@@ -185,7 +185,7 @@ function PageView({ id }: { id: number }) {
       <div className="muted small mono">
         {p.path} · updated {formatDate(p.updated_at)}
       </div>
-      <ErrorNote error={save.error || publish.error || remove.error} />
+      <ErrorNote error={save.error || publish.error || remove.error || history.error || diff.error} />
       {mode === "view" && <Markdown>{p.content}</Markdown>}
       {mode === "edit" && (
         <>
@@ -227,7 +227,9 @@ export default function WikiPage() {
   const [creating, setCreating] = useState(false);
   const pages = useQuery({ queryKey: ["wiki-pages"], queryFn: () => api<PageSummary[]>("/api/wiki/pages") });
 
-  useEffect(() => setCreating(false), [pageId]);
+  useEffect(() => {
+    setCreating(false);
+  }, [pageId]);
 
   return (
     <div className="split">

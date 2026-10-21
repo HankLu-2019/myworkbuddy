@@ -1,0 +1,11 @@
+# CI and local end-to-end runs: the LLM gateway is replaced by a deterministic fake (backend/tests/fakellm).
+#   docker compose -f docker-compose.yml -f compose.ci.yml up -d --build --wait
+services:
+  llm-gateway:
+    image: myworkbuddy-backend:dev
+    build:
+      context: ./backend
+      target: dev
+    command: ["uvicorn", "tests.fakellm.server:app", "--host", "0.0.0.0", "--port", "4000"]
+    env_file: !reset []
+    volumes: !reset []

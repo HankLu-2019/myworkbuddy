@@ -69,7 +69,11 @@ export default function ChatPage() {
 
   const isOwner = session.data?.owner_id === user?.id;
 
-  useEffect(() => bottom.current?.scrollIntoView({ block: "end" }), [messages.data, pending]);
+  // Braces matter: newer browsers return a Promise from scrollIntoView, and an effect must return a cleanup function
+  // or nothing. Returning the Promise crashed React's commit phase and blanked the page mid-reply.
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ block: "end" });
+  }, [messages.data, pending]);
 
   // Switching sessions drops any in-flight reply and stale error from the previous one.
   useEffect(() => {
