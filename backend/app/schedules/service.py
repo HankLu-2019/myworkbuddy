@@ -1,6 +1,6 @@
 """Schedules and runs (design 02 §4).
 
-- `validate_schedule()`: the one validation for create, update and (S6) chat proposals and test runs.
+- Validation lives in `app.schedules.validation` (no agent or tool imports, so chat tools can use it).
 - `tick()`: due schedules → one `queued` run per fire time (FOR UPDATE SKIP LOCKED + a unique key), at most
   one catch-up run after downtime; re-defers runs stuck in `queued`; fails runs stuck in `running`.
 - `execute_run()`: the `run_schedule` task body: short transaction to start, `execute_agent_run()` with no
@@ -8,21 +8,18 @@
   schedule, re-checking what it read.
 """
 
-import json
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import status
-from jsonschema import Draft202012Validator
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.executor import RunOutcome, execute_agent_run
-from app.config import get_settings
 from app.db import get_sessionmaker
 from app.enums import NotifyMode, RunStatus, RunTrigger
 from app.errors import AppError
@@ -31,99 +28,12 @@ from app.inbox.service import add_item
 from app.logs import log
 from app.models import Agent, ChatSession, Run, Schedule, User
 from app.schedules import cron
+from app.schedules.validation import ScheduleFields, now, validate_schedule
 
-MAX_INPUT_BYTES = 16_000
 TICK_BATCH = 100
 REQUEUE_AFTER = timedelta(minutes=5)
 STUCK_GRACE = timedelta(minutes=10)  # beyond max_runtime_s, a `running` run whose worker died is failed
 PAUSE_AFTER_FAILURES = 3
-
-
-def now() -> datetime:  # patched in tests
-    return datetime.now(UTC)
-
-
-def _invalid(message: str, field: str) -> AppError:
-    return AppError(status.HTTP_422_UNPROCESSABLE_CONTENT, "validation_error", message, field=field)
-
-
-# ---------- validation ----------
-
-
-@dataclass
-class ScheduleFields:
-    name: str
-    agent: str  # slug
-    cron: str
-    timezone: str | None = None  # default: the user's
-    prompt: str = ""
-    inputs: dict[str, Any] | None = None
-    enabled: bool = True
-    notify_mode: str = NotifyMode.on_change
-    notify_email: bool = True
-    max_runtime_s: int = 300
-
-
-async def usable_agent(db: AsyncSession, user: User, slug: str) -> Agent:
-    agent = await db.scalar(select(Agent).where(Agent.slug == slug, Agent.enabled, Agent.report))
-    if agent is None or (agent.owner_id is not None and agent.owner_id != user.id):
-        raise _invalid(f"There is no agent called {slug!r}.", "agent")
-    return agent
-
-
-def min_interval(user: User) -> int:
-    s = get_settings()
-    return s.schedule_min_interval_admin_min if user.is_admin else s.schedule_min_interval_min
-
-
-async def validate_schedule(
-    db: AsyncSession, user: User, f: ScheduleFields, *, exclude: uuid.UUID | None = None
-) -> dict[str, Any]:
-    """Column values for a schedule, or AppError(validation_error, field=...) / AppError(conflict) on the limit."""
-    name = " ".join(f.name.split())
-    if not 1 <= len(name) <= 120:
-        raise _invalid("Give the schedule a name of 1–120 characters.", "name")
-    if len(f.prompt) > 4000:
-        raise _invalid("Instructions can be at most 4000 characters.", "prompt")
-    if f.notify_mode not in NotifyMode.__members__:
-        raise _invalid(f"notify_mode must be one of {', '.join(NotifyMode)}.", "notify_mode")
-    if not 30 <= f.max_runtime_s <= 1800:
-        raise _invalid("Maximum run time must be between 30 and 1800 seconds.", "max_runtime_s")
-    agent = await usable_agent(db, user, f.agent)
-    inputs = f.inputs or {}
-    if len(json.dumps(inputs)) > MAX_INPUT_BYTES:
-        raise _invalid("Inputs are too large.", "inputs")
-    errors = sorted(Draft202012Validator(agent.inputs_schema or {}).iter_errors(inputs), key=lambda e: list(e.path))
-    if errors:
-        where = ".".join(str(p) for p in errors[0].absolute_path) or "inputs"
-        raise _invalid(f"{where}: {errors[0].message}", f"inputs.{where}" if where != "inputs" else "inputs")
-    tz = f.timezone or user.timezone
-    try:
-        expr = cron.check(f.cron, tz, min_interval_min=min_interval(user), now=now())
-    except cron.CronError as exc:
-        raise _invalid(str(exc), "timezone" if "timezone" in str(exc) else "cron") from None
-    if f.enabled:
-        q = select(func.count()).select_from(Schedule).where(Schedule.owner_id == user.id, Schedule.enabled)
-        if exclude is not None:
-            q = q.where(Schedule.id != exclude)
-        limit = get_settings().max_schedules_per_user
-        if (await db.scalar(q) or 0) >= limit:
-            raise AppError(
-                status.HTTP_409_CONFLICT, "conflict", f"You can have at most {limit} active schedules.", field="enabled"
-            )
-    return {
-        "name": name,
-        "agent_id": agent.id,
-        "prompt": f.prompt,
-        "inputs": inputs,
-        "cron": expr,
-        "timezone": tz,
-        "enabled": f.enabled,
-        "notify_mode": f.notify_mode,
-        "notify_email": f.notify_email,
-        "max_runtime_s": f.max_runtime_s,
-        "next_run_at": cron.next_after(expr, tz, now()) if f.enabled else None,
-    }
 
 
 def snapshot(s: Schedule, agent: Agent) -> dict[str, Any]:
@@ -233,6 +143,42 @@ async def create_manual_run(db: AsyncSession, s: Schedule) -> Run:
     run = Run(
         schedule_id=s.id, owner_id=s.owner_id, agent_id=agent.id, trigger=RunTrigger.manual,
         config=snapshot(s, agent), scheduled_for=now(), status=RunStatus.queued,
+    )  # fmt: skip
+    db.add(run)
+    await db.flush()
+    return run
+
+
+MAX_ACTIVE_TEST_RUNS = 3
+
+
+async def create_test_run(db: AsyncSession, user: User, f: ScheduleFields) -> Run:
+    """A run of an unsaved schedule (02 §6): same validation as create, no schedule, never notifies."""
+    f.enabled = False  # the per-user limit is about saved schedules
+    values = await validate_schedule(db, user, f)
+    active = await db.scalar(
+        select(func.count())
+        .select_from(Run)
+        .where(
+            Run.owner_id == user.id,
+            Run.schedule_id.is_(None),
+            Run.status.in_([RunStatus.queued, RunStatus.running]),
+        )
+    )
+    if (active or 0) >= MAX_ACTIVE_TEST_RUNS:
+        raise AppError(
+            status.HTTP_429_TOO_MANY_REQUESTS, "rate_limited", "Wait for your other test runs to finish first."
+        )
+    agent = await db.get(Agent, values["agent_id"])
+    assert agent is not None
+    config = {
+        "schedule_id": None, "name": values["name"], "agent_id": agent.id, "agent_slug": agent.slug,
+        "prompt": values["prompt"], "inputs": values["inputs"], "notify_mode": values["notify_mode"],
+        "notify_email": False, "max_runtime_s": values["max_runtime_s"],
+    }  # fmt: skip
+    run = Run(
+        owner_id=user.id, agent_id=agent.id, trigger=RunTrigger.manual, config=config, scheduled_for=now(),
+        status=RunStatus.queued,
     )  # fmt: skip
     db.add(run)
     await db.flush()

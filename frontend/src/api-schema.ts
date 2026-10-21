@@ -812,6 +812,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/schedules/proposals/{proposal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Proposal */
+        get: operations["get_proposal_api_schedules_proposals__proposal_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schedules/proposals/{proposal_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept Proposal */
+        post: operations["accept_proposal_api_schedules_proposals__proposal_id__accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schedules/proposals/{proposal_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dismiss Proposal */
+        post: operations["dismiss_proposal_api_schedules_proposals__proposal_id__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schedules/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Run
+         * @description Run an unsaved schedule once ("Run once now to test", 02 §6). Poll GET /api/runs/{id}.
+         */
+        post: operations["test_run_api_schedules_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/schedules/{schedule_id}": {
         parameters: {
             query?: never;
@@ -1067,6 +1138,32 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AcceptIn
+         * @description Empty for Create; the edited form for Edit → Save (02 §6).
+         */
+        AcceptIn: {
+            /** Cron */
+            cron?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Inputs */
+            inputs?: {
+                [key: string]: unknown;
+            } | null;
+            /** Max Runtime S */
+            max_runtime_s?: number | null;
+            /** Name */
+            name?: string | null;
+            /** Notify Email */
+            notify_email?: boolean | null;
+            /** Notify Mode */
+            notify_mode?: ("always" | "on_change" | "on_alert") | null;
+            /** Prompt */
+            prompt?: string | null;
+            /** Timezone */
+            timezone?: string | null;
+        };
         /** ActivityItem */
         ActivityItem: {
             /** Href */
@@ -1215,6 +1312,16 @@ export interface components {
             message: string;
             /** Sha */
             sha: string;
+        };
+        /** ContextRef */
+        ContextRef: {
+            /** Id */
+            id: string;
+            /**
+             * Type
+             * @constant
+             */
+            type: "run";
         };
         /** CredentialIn */
         CredentialIn: {
@@ -1545,6 +1652,13 @@ export interface components {
             error_code?: string | null;
             /** Id */
             id: number;
+            /**
+             * Proposals
+             * @default []
+             */
+            proposals: {
+                [key: string]: unknown;
+            }[];
             /** Role */
             role: string;
             /**
@@ -1817,6 +1931,52 @@ export interface components {
              * @enum {string}
              */
             visibility: "private" | "public";
+        };
+        /** ProposalOut */
+        ProposalOut: {
+            /** Agent */
+            agent: string;
+            /** Cron */
+            cron: string;
+            /** Description */
+            description: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Inputs */
+            inputs: {
+                [key: string]: unknown;
+            };
+            /** Name */
+            name: string;
+            /** Next Runs */
+            next_runs: string[];
+            /**
+             * Notify Mode
+             * @enum {string}
+             */
+            notify_mode: "always" | "on_change" | "on_alert";
+            /** Prompt */
+            prompt: string;
+            /**
+             * Proposal Id
+             * Format: uuid
+             */
+            proposal_id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "accepted" | "dismissed" | "expired";
+            /** Timezone */
+            timezone: string;
         };
         /** RecentChat */
         RecentChat: {
@@ -2146,6 +2306,11 @@ export interface components {
         };
         /** SessionCreate */
         SessionCreate: {
+            /**
+             * Context
+             * @default []
+             */
+            context: components["schemas"]["ContextRef"][];
             /** Project Id */
             project_id?: number | null;
             /** Title */
@@ -2153,6 +2318,8 @@ export interface components {
         };
         /** SessionUpdate */
         SessionUpdate: {
+            /** Context */
+            context?: components["schemas"]["ContextRef"][] | null;
             /** Project Id */
             project_id?: number | null;
             /** Title */
@@ -2359,6 +2526,11 @@ export interface components {
         };
         /** SessionOut */
         app__chat__routes__SessionOut: {
+            /**
+             * Context
+             * @default []
+             */
+            context: components["schemas"]["ContextRef"][];
             /**
              * Created At
              * Format: date-time
@@ -4083,6 +4255,134 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PreviewOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_proposal_api_schedules_proposals__proposal_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProposalOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_proposal_api_schedules_proposals__proposal_id__accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AcceptIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dismiss_proposal_api_schedules_proposals__proposal_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_run_api_schedules_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunStarted"];
                 };
             };
             /** @description Validation Error */

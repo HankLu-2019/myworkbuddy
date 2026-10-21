@@ -141,6 +141,13 @@ class EmailStatus(StrEnum):
     suppressed = "suppressed"
 
 
+class ProposalStatus(StrEnum):
+    pending = "pending"
+    accepted = "accepted"
+    dismissed = "dismissed"
+    expired = "expired"
+
+
 def check(column: str, enum: type[StrEnum]) -> str:
     """SQL for a CHECK constraint that keeps `column` within `enum`."""
     values = ", ".join(f"'{e.value}'" for e in enum)

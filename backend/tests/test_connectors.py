@@ -336,7 +336,15 @@ def test_every_untrusted_tool_returns_the_envelope_and_read_is_the_only_tier() -
         *("jira_search", "jira_get_issue", "jira_my_open_issues"),
         *("gitlab_list_mrs", "gitlab_pipeline_status", "gitlab_job_log_tail", "gerrit_query"),
         *("jenkins_job_status", "jenkins_failed_builds", "jenkins_build_log_tail"),
-        *("k8s_get", "k8s_events", "k8s_pod_logs", "feed_latest", "search_knowledge", "get_session"),
+        *(
+            "k8s_get",
+            "k8s_events",
+            "k8s_pod_logs",
+            "feed_latest",
+            "search_knowledge",
+            "get_session",
+            "propose_schedule",
+        ),
     }
     assert names == expected
     assert {s.tier for s in REGISTRY.values()} == {Tier.read}  # Phase 2 adds no write tools (02 intro)

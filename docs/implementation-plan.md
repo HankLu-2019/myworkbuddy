@@ -131,8 +131,9 @@ Design: [02-schedules-connectors.md](design/02-schedules-connectors.md).
 - [x] **S5 Inbox and email** (02 §5).
   - Acceptance: outbox send with retry/backoff against a fake SMTP server (aiosmtpd in tests); dedupe key prevents duplicates; daily cap suppresses and notifies once; email body contains no links except the MyWorkBuddy run URL; unread count endpoint.
   - Done with the changes recorded in 02 §5 ("Changed while building S5"): claim/lease sending, immediate failure on permanent refusals, the cap counted per local day, `email_notifications` on `PATCH /api/auth/me`, and the outbox on Admin → System.
-- [ ] **S6 Chat → schedule proposals** (02 §6).
+- [x] **S6 Chat → schedule proposals** (02 §6).
   - Acceptance: invalid proposals return the error to the model; the SSE `proposal` event renders a card; accept creates exactly the stored payload; expired or foreign proposals 404; the model has no path to create a schedule (toolset test).
+  - Done with the changes recorded in 02 §6 ("Changed while building S6"): context sent in the user's turn (R6), accept with optional edits, `schedule_proposals.schedule_id`, and limits on open proposals and test runs.
 - [ ] **S7 Frontend** (02 §8, 07 §4.2, §4.7, §4.8, §5.6, §5.7, §5.10): Inbox, Schedules, editor with presets, inputs form, cron preview and test run, Run result with "Investigate in chat", chat context attachments, proposal card, Home sections for alerts and paused schedules (Settings → Integrations, Admin → Integrations and the invalid-credential Home card came with S1).
   - Acceptance: vitest for each page's states (loading, empty, error, populated); Playwright flows 07 §5.6 and §5.7 (email link → login → run → chat with context); axe clean on new pages.
 - [ ] **S8 System tasks and agent prompts** (02 §3, §9): `projects_refresh`, `runs_retention`, prompts for the four agents with fingerprint conventions, eval fixtures (recorded tool outputs → expected fingerprints) run nightly against real Bedrock (not a CI gate).

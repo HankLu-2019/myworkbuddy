@@ -26,6 +26,7 @@ from starlette.background import BackgroundTask
 
 from app.audit.service import audit
 from app.chat.agent import ChatDeps, build_agent
+from app.chat.context import context_message, validate_refs
 from app.db import get_engine, get_sessionmaker
 from app.deps import DB, CurrentAuth
 from app.enums import MessageStatus
@@ -35,13 +36,18 @@ from app.knowledge.indexer import set_visibility
 from app.llm import client as llm
 from app.llm import usage
 from app.logs import log
-from app.models import ChatSession, Document, Episode, Message, Project, ToolCall, User
+from app.models import ChatSession, Document, Episode, Message, Project, ScheduleProposal, ToolCall, User
 from app.tasks.app import build_episode_task, defer_once
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 HISTORY_RUNS = 20
 HISTORY_CHARS = 200_000
+
+
+class ContextRef(BaseModel):
+    type: Literal["run"]
+    id: str
 
 
 class SessionOut(BaseModel):
@@ -51,6 +57,7 @@ class SessionOut(BaseModel):
     visibility: Literal["private", "public"]
     project_id: int | None
     owner_id: int
+    context: list[ContextRef] = []
     created_at: datetime
     updated_at: datetime
 
@@ -58,12 +65,14 @@ class SessionOut(BaseModel):
 class SessionCreate(BaseModel):
     title: str | None = None
     project_id: int | None = None
+    context: list[ContextRef] = Field(default=[], max_length=5)
 
 
 class SessionUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     project_id: int | None = None
     visibility: Literal["private", "public"] | None = None
+    context: list[ContextRef] | None = Field(default=None, max_length=5)
 
 
 class MessageOut(BaseModel):
@@ -76,6 +85,7 @@ class MessageOut(BaseModel):
     status: Literal["complete", "partial", "failed"] = "complete"
     error_code: str | None = None  # why a partial or failed reply stopped
     cost_usd: float | None = None
+    proposals: list[dict[str, Any]] = []  # schedule proposals made in this reply (02 §6), with their status
 
 
 class MessageIn(BaseModel):
@@ -90,6 +100,7 @@ def _out(s: ChatSession) -> SessionOut:
         visibility=s.visibility,
         project_id=s.project_id,
         owner_id=s.owner_id,
+        context=[ContextRef(**r) for r in (s.context or [])],
         created_at=s.created_at,
         updated_at=s.updated_at,
     )
@@ -121,7 +132,10 @@ async def list_sessions(auth: CurrentAuth, db: DB, source: str | None = None, li
 @router.post("/sessions", response_model=SessionOut, status_code=201)
 async def create_session(body: SessionCreate, auth: CurrentAuth, db: DB) -> SessionOut:
     await _check_project(db, body.project_id, auth.user)
-    session = ChatSession(owner_id=auth.user.id, title=body.title or "New chat", project_id=body.project_id)
+    context = await validate_refs(db, auth.user, [r.model_dump() for r in body.context])
+    session = ChatSession(
+        owner_id=auth.user.id, title=body.title or "New chat", project_id=body.project_id, context=context
+    )
     db.add(session)
     await db.commit()
     await db.refresh(session)
@@ -143,6 +157,8 @@ async def update_session(session_id: uuid.UUID, body: SessionUpdate, auth: Curre
     if "project_id" in body.model_fields_set:
         await _check_project(db, body.project_id, auth.user)
         session.project_id = body.project_id
+    if body.context is not None:
+        session.context = await validate_refs(db, auth.user, [r.model_dump() for r in body.context])
     if body.visibility and body.visibility != session.visibility:
         session.visibility = body.visibility
         # The session's summary follows the session into (or out of) the team space.
@@ -187,6 +203,21 @@ async def list_messages(session_id: uuid.UUID, auth: CurrentAuth, db: DB) -> lis
     session = await db.get(ChatSession, session_id)
     ensure_view(session, auth.user)
     messages = list(await db.scalars(select(Message).where(Message.session_id == session_id).order_by(Message.id)))
+    proposals: dict[int, list[dict[str, Any]]] = {}
+    if session.owner_id == auth.user.id:  # a shared session's viewers don't see the owner's proposals
+        for p in await db.scalars(
+            select(ScheduleProposal)
+            .where(ScheduleProposal.session_id == session_id)
+            .order_by(ScheduleProposal.created_at)
+        ):
+            proposals.setdefault(p.message_id or 0, []).append(
+                {
+                    "proposal_id": str(p.id),
+                    "status": "expired" if p.status == "pending" and p.expires_at <= datetime.now(UTC) else p.status,
+                    "expires_at": p.expires_at.isoformat(),
+                    **p.payload,
+                }
+            )
     tools: dict[int, list[dict[str, Any]]] = {}
     for t in await db.scalars(select(ToolCall).where(ToolCall.session_id == session_id).order_by(ToolCall.id)):
         tools.setdefault(t.message_id or 0, []).append({"name": t.tool_name, "args": t.args, "status": t.status})
@@ -201,6 +232,7 @@ async def list_messages(session_id: uuid.UUID, auth: CurrentAuth, db: DB) -> lis
             status=m.status,
             error_code=(m.meta or {}).get("error_code"),
             cost_usd=float(m.cost_usd) if m.cost_usd is not None else None,
+            proposals=proposals.get(m.id, []),
         )
         for m in messages
     ]
@@ -309,8 +341,25 @@ async def _with_pings(events: AsyncIterator[Any]) -> AsyncIterator[Any]:
 async def _stream(session: ChatSession, user: User, content: str, lock: ReplyLock | None = None) -> AsyncIterator[str]:
     structlog.contextvars.bind_contextvars(session_id=str(session.id))
     maker = get_sessionmaker()
+    prompt: str | list[str] = content
     async with maker() as db:
-        db.add(Message(session_id=session.id, role="user", content=content))
+        refs = list(session.context or [])
+        last = await db.scalar(
+            select(Message.meta)
+            .where(Message.session_id == session.id, Message.role == "user")
+            .order_by(Message.id.desc())
+            .limit(1)
+        )
+        sent = (last or {}).get("context", [])
+        meta: dict[str, Any] = {}
+        if refs != sent:  # attachments changed since the model last saw them
+            block = await context_message(db, user, refs) if refs else None
+            if block:
+                prompt = [block, content]
+            meta["context"] = refs
+        elif refs:
+            meta["context"] = refs
+        db.add(Message(session_id=session.id, role="user", content=content, meta=meta))
         values: dict[str, Any] = {"updated_at": datetime.now(UTC)}
         if session.title == "New chat":
             values["title"] = " ".join(content.split())[:80]
@@ -331,7 +380,7 @@ async def _stream(session: ChatSession, user: User, content: str, lock: ReplyLoc
             async with (
                 asyncio.timeout(llm.timeout_for("chat_turn")),
                 agent.run_stream_events(
-                    content, message_history=history, deps=deps, usage_limits=llm.limits_for("chat_turn")
+                    prompt, message_history=history, deps=deps, usage_limits=llm.limits_for("chat_turn")
                 ) as events,
             ):
                 async for ev in _with_pings(events):
@@ -365,6 +414,8 @@ async def _stream(session: ChatSession, user: User, content: str, lock: ReplyLoc
                             )
                             await db.commit()
                         yield _sse("tool_result", {"name": ev.part.tool_name})
+                        while deps.proposals:
+                            yield _sse("proposal", deps.proposals.pop(0))
                     elif isinstance(ev, AgentRunResultEvent):
                         result = ev.result
     except AppError as exc:
@@ -439,6 +490,11 @@ async def _save_assistant(
         await db.flush()
         if tool_ids:
             await db.execute(update(ToolCall).where(ToolCall.id.in_(tool_ids)).values(message_id=msg.id))
+        await db.execute(
+            update(ScheduleProposal)
+            .where(ScheduleProposal.session_id == session_id, ScheduleProposal.message_id.is_(None))
+            .values(message_id=msg.id)
+        )
         await db.execute(update(ChatSession).where(ChatSession.id == session_id).values(updated_at=datetime.now(UTC)))
         await db.commit()
         if tracked.unpriced_call_ids:  # streamed calls: the gateway's spend log has their cost a bit later
