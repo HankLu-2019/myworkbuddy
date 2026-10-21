@@ -56,6 +56,10 @@ SEEDS["0009"] = [
     "INSERT INTO outbound_emails (owner_id, to_addr, subject, body_text, dedupe_key) "
     "VALUES (1, 'a@example.com', 's', 'b', 'seed')",
 ]
+SEEDS["0010"] = [
+    "INSERT INTO schedule_proposals (owner_id, session_id, payload, expires_at) "
+    "VALUES (1, '00000000-0000-0000-0000-000000000001', '{}', now())",
+]
 SEEDS["0005"] = []  # 0005 adds a column with a default; the 0001 user must get it
 CHECKS = {
     "users": 1,
@@ -69,6 +73,7 @@ CHECKS = {
     "schedules": 1,
     "runs": 1,
     "outbound_emails": 1,
+    "schedule_proposals": 1,
 }
 
 

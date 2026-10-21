@@ -376,6 +376,14 @@ async def propose_schedule(ctx, name: str, agent: AgentSlug, cron: str, prompt: 
 
 The schedule form's "Run once now to test" calls `POST /api/schedules/test` with the unsaved form payload (same validation as create). It creates a run with `schedule_id = null`, `trigger = 'manual'`, executes it like any run, never notifies, and returns the run id; the form shows the result in a drawer by polling `GET /api/runs/{id}`.
 
+*Changed while building S6:*
+
+- **Attached context goes in the user's turn, not `_instructions`.** Rule R6 keeps untrusted text out of system prompts, and a run report is built from untrusted tool output. The wrapped blocks are sent as the first part of the user message on the first turn after the attachments change (the user message's `meta.context` records what was sent), and stay in the history from then on, so they aren't repeated every turn. Refs are re-checked on every turn; a deleted run is skipped. At most 5 refs.
+- **`schedule_proposals.schedule_id`** (new column) links an accepted proposal to the schedule it created. `message_id` is filled when the reply is saved. Proposals are shown with their message in `GET /api/chat/sessions/{id}/messages` (`proposals`, owner only, with `status`, expired ones reported as `expired`).
+- **Accept takes the edited form** (`POST …/accept` with an optional body of field overrides), so Edit → Save and Create are one endpoint; it re-validates (limits, cron rules) and leaves the proposal pending if that fails. Dismissed, expired, accepted and foreign proposals are 404.
+- **The tool** is `propose_schedule(name, agent, cron, prompt, inputs, timezone, notify_mode)`; a validation error returns `{"error": "invalid_args", "field", "message"}`, and an unknown agent lists the available agents with their inputs. At most 10 pending proposals per chat. The chat prompt tells the model it only proposes.
+- **Test runs:** at most 3 queued or running per user (`429 rate_limited`); validation skips the active-schedule limit. They're locked per run, not per schedule.
+
 ## 7. API
 
 All endpoints require auth; unsafe methods require CSRF; owned resources return 404 to non-owners.

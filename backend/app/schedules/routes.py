@@ -14,8 +14,15 @@ from app.audit.service import audit
 from app.deps import DB, CurrentAuth, client_ip
 from app.errors import AppError
 from app.models import Agent, Run, Schedule, User
-from app.schedules import cron
-from app.schedules.service import ScheduleFields, create_manual_run, min_interval, now, validate_schedule
+from app.schedules import cron, proposals
+from app.schedules.service import (
+    ScheduleFields,
+    create_manual_run,
+    create_test_run,
+    min_interval,
+    now,
+    validate_schedule,
+)
 
 router = APIRouter(prefix="/api", tags=["schedules"])
 
@@ -208,6 +215,97 @@ async def preview_cron(body: PreviewIn, auth: CurrentAuth) -> PreviewOut:
         body.cron, body.timezone or auth.user.timezone, min_interval_min=min_interval(auth.user), now=now()
     )
     return PreviewOut(valid=p.valid, error=p.error, description=p.description, next=p.next)
+
+
+class ProposalOut(BaseModel):
+    proposal_id: uuid.UUID
+    status: Literal["pending", "accepted", "dismissed", "expired"]
+    name: str
+    agent: str
+    cron: str
+    timezone: str
+    prompt: str
+    inputs: dict[str, Any]
+    notify_mode: NotifyModeT
+    description: str
+    next_runs: list[str]
+    expires_at: datetime
+    session_id: uuid.UUID
+
+
+class AcceptIn(BaseModel):
+    """Empty for Create; the edited form for Edit → Save (02 §6)."""
+
+    name: str | None = Field(default=None, max_length=200)
+    cron: str | None = Field(default=None, max_length=200)
+    timezone: str | None = Field(default=None, max_length=64)
+    prompt: str | None = Field(default=None, max_length=4000)
+    inputs: dict[str, Any] | None = None
+    enabled: bool | None = None
+    notify_mode: NotifyModeT | None = None
+    notify_email: bool | None = None
+    max_runtime_s: int | None = Field(default=None, ge=30, le=1800)
+
+
+# ---------- proposals (before /schedules/{id} so the paths don't collide) ----------
+
+
+async def _proposal_out(db: DB, p: Any) -> ProposalOut:
+    payload = p.payload
+    tz = cron.zone(payload["timezone"])
+    return ProposalOut(
+        proposal_id=p.id, status=p.status, name=payload["name"], agent=payload["agent"], cron=payload["cron"],
+        timezone=payload["timezone"], prompt=payload.get("prompt", ""), inputs=payload.get("inputs", {}),
+        notify_mode=payload.get("notify_mode", "on_change"), description=cron.describe(payload["cron"]),
+        next_runs=[t.astimezone(tz).isoformat() for t in cron.occurrences(payload["cron"], tz, now(), 3)],
+        expires_at=p.expires_at, session_id=p.session_id,
+    )  # fmt: skip
+
+
+@router.get("/schedules/proposals/{proposal_id}", response_model=ProposalOut)
+async def get_proposal(proposal_id: uuid.UUID, auth: CurrentAuth, db: DB) -> ProposalOut:
+    return await _proposal_out(db, await proposals.owned_pending(db, proposal_id, auth.user))
+
+
+@router.post("/schedules/proposals/{proposal_id}/accept", response_model=ScheduleOut, status_code=201)
+async def accept_proposal(
+    proposal_id: uuid.UUID, auth: CurrentAuth, db: DB, request: Request, body: AcceptIn | None = None
+) -> ScheduleOut:
+    p = await proposals.owned_pending(db, proposal_id, auth.user, lock=True)
+    overrides = body.model_dump(exclude_unset=True, exclude_none=True) if body else {}
+    schedule = await proposals.accept(db, p, auth.user, overrides)
+    await audit(
+        db, "schedule.create", user_id=auth.user.id, target_type="schedule", target_id=str(schedule.id),
+        detail={"proposal_id": str(p.id), "edited": sorted(overrides)}, ip=client_ip(request),
+    )  # fmt: skip
+    await db.commit()
+    return await _schedule_out(db, schedule)
+
+
+@router.post("/schedules/proposals/{proposal_id}/dismiss", status_code=204)
+async def dismiss_proposal(proposal_id: uuid.UUID, auth: CurrentAuth, db: DB, request: Request) -> None:
+    p = await proposals.owned_pending(db, proposal_id, auth.user, lock=True)
+    p.status = "dismissed"
+    await audit(
+        db, "schedule_proposal.dismiss", user_id=auth.user.id, target_type="schedule_proposal",
+        target_id=str(p.id), ip=client_ip(request),
+    )  # fmt: skip
+    await db.commit()
+
+
+@router.post("/schedules/test", response_model=RunStarted, status_code=202)
+async def test_run(body: ScheduleIn, auth: CurrentAuth, db: DB, request: Request) -> RunStarted:
+    """Run an unsaved schedule once ("Run once now to test", 02 §6). Poll GET /api/runs/{id}."""
+    from app.tasks.app import defer_run
+
+    run = await create_test_run(db, auth.user, ScheduleFields(**body.model_dump()))
+    await audit(
+        db, "schedule.test", user_id=auth.user.id, target_type="run", target_id=str(run.id),
+        detail={"agent": body.agent}, ip=client_ip(request),
+    )  # fmt: skip
+    await db.commit()
+    await defer_run(run.id, None)
+    return RunStarted(run_id=run.id)
 
 
 @router.get("/schedules/{schedule_id}", response_model=ScheduleOut)

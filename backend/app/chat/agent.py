@@ -14,7 +14,7 @@ from app.tools.knowledge import SCOPES  # noqa: E402,F401  (re-exported for app.
 from app.tools.registry import tool_function
 
 CONTEXT_PAGE_LIMIT = 6000
-CHAT_TOOLS = ("search_knowledge", "get_session")
+CHAT_TOOLS = ("search_knowledge", "get_session", "propose_schedule")
 
 
 @dataclass
@@ -23,6 +23,7 @@ class ChatDeps:
     session_id: uuid.UUID
     project_id: int | None
     citations: list[dict[str, Any]] = field(default_factory=list)
+    proposals: list[dict[str, Any]] = field(default_factory=list)  # cards for this turn's SSE `proposal` events
 
 
 async def _instructions(ctx: RunContext[ChatDeps]) -> str:

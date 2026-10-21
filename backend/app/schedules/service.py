@@ -239,6 +239,42 @@ async def create_manual_run(db: AsyncSession, s: Schedule) -> Run:
     return run
 
 
+MAX_ACTIVE_TEST_RUNS = 3
+
+
+async def create_test_run(db: AsyncSession, user: User, f: ScheduleFields) -> Run:
+    """A run of an unsaved schedule (02 §6): same validation as create, no schedule, never notifies."""
+    f.enabled = False  # the per-user limit is about saved schedules
+    values = await validate_schedule(db, user, f)
+    active = await db.scalar(
+        select(func.count())
+        .select_from(Run)
+        .where(
+            Run.owner_id == user.id,
+            Run.schedule_id.is_(None),
+            Run.status.in_([RunStatus.queued, RunStatus.running]),
+        )
+    )
+    if (active or 0) >= MAX_ACTIVE_TEST_RUNS:
+        raise AppError(
+            status.HTTP_429_TOO_MANY_REQUESTS, "rate_limited", "Wait for your other test runs to finish first."
+        )
+    agent = await db.get(Agent, values["agent_id"])
+    assert agent is not None
+    config = {
+        "schedule_id": None, "name": values["name"], "agent_id": agent.id, "agent_slug": agent.slug,
+        "prompt": values["prompt"], "inputs": values["inputs"], "notify_mode": values["notify_mode"],
+        "notify_email": False, "max_runtime_s": values["max_runtime_s"],
+    }  # fmt: skip
+    run = Run(
+        owner_id=user.id, agent_id=agent.id, trigger=RunTrigger.manual, config=config, scheduled_for=now(),
+        status=RunStatus.queued,
+    )  # fmt: skip
+    db.add(run)
+    await db.flush()
+    return run
+
+
 # ---------- executing a run ----------
 
 

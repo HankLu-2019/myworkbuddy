@@ -236,6 +236,25 @@ class Run(Base):
     created_at: Mapped[datetime] = _now()
 
 
+class ScheduleProposal(Base):
+    """A schedule the chat model suggested (design 02 §6). Only the user's click turns it into a schedule."""
+
+    __tablename__ = "schedule_proposals"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chat_sessions.id", ondelete="CASCADE")
+    )
+    message_id: Mapped[int | None] = mapped_column(ForeignKey("messages.id", ondelete="SET NULL"))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending")
+    schedule_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("schedules.id", ondelete="SET NULL")
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _now()
+
+
 class OutboundEmail(Base):
     """The email outbox (design 02 §5). S4 queues rows; the sender (`send_emails`) arrives with S5."""
 
@@ -289,6 +308,8 @@ class ChatSession(Base):
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Things the user attached for the model to see, e.g. [{"type": "run", "id": "<uuid>"}] (design 02 §6).
+    context: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, server_default="[]")
 
 
 class Message(Base):

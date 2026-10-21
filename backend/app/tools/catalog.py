@@ -10,6 +10,7 @@ from pydantic_ai import RunContext
 
 from app.connectors import feed, gerrit, gitlab, jenkins, jira, kubernetes
 from app.connectors.base import Connection, connect
+from app.schedules.proposals import propose_schedule
 from app.tools.knowledge import get_session, search_knowledge
 from app.tools.registry import Tier, ToolSpec, register
 
@@ -250,6 +251,7 @@ def _spec(fn, kind: str | None, untrusted: bool, chars: int = LIST_CHARS) -> Too
 # Internal tools wrap untrusted text per hit themselves.
 _spec(search_knowledge, None, False)
 _spec(get_session, None, False, 40_000)
+_spec(propose_schedule, None, False, 4_000)  # creates nothing; the user's click does (02 §6)
 _spec(jira_search, "jira", True)
 _spec(jira_get_issue, "jira", True, 30_000)
 _spec(jira_my_open_issues, "jira", True)
