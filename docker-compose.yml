@@ -55,7 +55,7 @@ services:
   api:
     <<: *backend
     networks: [default, edge]
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=172.30.0.2"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=172.30.0.200"]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -102,7 +102,7 @@ services:
     networks:
       edge:
         # uvicorn trusts X-Forwarded-For only from this address (--forwarded-allow-ips).
-        ipv4_address: 172.30.0.2
+        ipv4_address: 172.30.0.200
     depends_on:
       api:
         condition: service_healthy
@@ -116,6 +116,8 @@ networks:
     ipam:
       config:
         - subnet: 172.30.0.0/24
+          # Automatic addresses come from the lower half, so Caddy's fixed .200 is never taken.
+          ip_range: 172.30.0.0/25
 
 volumes:
   pgdata:
