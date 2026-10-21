@@ -26,6 +26,7 @@ async function signIn(browser: Browser, username: string, password = PASSWORD): 
   page.on("requestfailed", (r) => console.log(`[${username}] request failed: ${r.method()} ${r.url()} ${r.failure()?.errorText}`));
   page.on("framenavigated", (f) => f === page.mainFrame() && console.log(`[${username}] navigated: ${f.url()}`));
   page.on("console", (m) => m.type() === "error" && console.log(`[${username}] console error: ${m.text()}`));
+  page.on("pageerror", (e) => console.log(`[${username}] page error: ${e.message}\n${(e.stack ?? "").split("\n").slice(0, 6).join("\n")}`));
   await page.goto("/login");
   await page.getByLabel("Username").fill(username);
   await page.getByLabel("Password").fill(password);
