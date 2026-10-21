@@ -1,3 +1,4 @@
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
@@ -5,7 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.knowledge.indexer import commit_before_network
-from app.llm.embeddings import get_embedder
+from app.llm.embeddings import embed_model_id, get_embedder
 from app.logs import log
 from app.models import User
 
@@ -28,6 +29,22 @@ class Hit:
     score: float
 
 
+def _is_han(ch: str) -> bool:
+    return "CJK UNIFIED IDEOGRAPH" in unicodedata.name(ch, "") or "\u3400" <= ch <= "\u9fff"
+
+
+def chinese_query(query: str) -> str | None:
+    """The query for the Jieba field (`content_zh`), or None when the query has no Chinese characters.
+
+    Jieba indexes whitespace and punctuation as tokens, so they are removed from the query; otherwise any
+    multi-word query would match nearly every chunk through that field.
+    """
+    if not any(_is_han(ch) for ch in query):
+        return None
+    kept = "".join(ch for ch in query if not (ch.isspace() or unicodedata.category(ch).startswith("P")))
+    return kept or None
+
+
 def _filters(source_types: list[str] | None, project_id: int | None) -> str:
     clauses = []
     if source_types:
@@ -46,7 +63,11 @@ async def hybrid_search(
     project_id: int | None = None,
     limit: int = 12,
 ) -> list[Hit]:
-    """Vector + BM25 candidates, each restricted to what the user may see, fused by reciprocal rank."""
+    """Vector + BM25 candidates, each restricted to what the user may see, fused by reciprocal rank.
+
+    BM25 searches the ICU-tokenized content, plus the Jieba-tokenized alias for Chinese queries (migration
+    0004). Vectors from another embedding model than the query's are ignored (design 01 §H10).
+    """
     query = query.strip()
     if not query:
         return []
@@ -57,12 +78,16 @@ async def hybrid_search(
         log.warning("search.embed_failed", error=str(exc))
         qvec = None
     extra = _filters(source_types, project_id)
+    qzh = chinese_query(query)
+    lex_match = (
+        "(c.content ||| :qtext OR c.content::pdb.alias('content_zh') ||| :qzh)" if qzh else "c.content ||| :qtext"
+    )
     acl = "(c.visibility = 'public' OR c.owner_id = :uid)"
     sem = (
         f"""
         SELECT c.id, row_number() OVER (ORDER BY c.embedding <=> CAST(:qvec AS vector)) AS r
         FROM chunks c JOIN documents d ON d.id = c.document_id
-        WHERE {acl} AND c.embedding IS NOT NULL {extra}
+        WHERE {acl} AND c.embedding IS NOT NULL AND c.embed_model = :emodel {extra}
         ORDER BY c.embedding <=> CAST(:qvec AS vector)
         LIMIT :k"""
         if qvec
@@ -73,7 +98,7 @@ async def hybrid_search(
     ), lex AS (
         SELECT c.id, row_number() OVER (ORDER BY paradedb.score(c.id) DESC) AS r
         FROM chunks c JOIN documents d ON d.id = c.document_id
-        WHERE c.content ||| :qtext AND {acl} {extra}
+        WHERE {lex_match} AND {acl} {extra}
         ORDER BY paradedb.score(c.id) DESC
         LIMIT :k
     ), fused AS (
@@ -97,6 +122,9 @@ async def hybrid_search(
     }
     if qvec:
         params["qvec"] = "[" + ",".join(f"{v:.6f}" for v in qvec) + "]"
+        params["emodel"] = embed_model_id()
+    if qzh:
+        params["qzh"] = qzh
     if source_types:
         params["types"] = source_types
     if project_id is not None:

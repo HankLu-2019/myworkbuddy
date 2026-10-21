@@ -10,14 +10,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import get_settings
 from app.db import get_sessionmaker
 from app.knowledge.acl import Visibility
 from app.knowledge.chunking import ChunkIn
-from app.llm.embeddings import get_embedder
+from app.llm.embeddings import current_embed_model, embed_model_id, get_embedder, is_permanent_failure
 from app.logs import log
 from app.models import Chunk, Document, Project
 
@@ -85,9 +84,14 @@ def prepare_document(
 async def embed_prepared(p: PreparedDoc) -> Embedded:
     """Reuse stored vectors for unchanged chunks (one short read in its own session), embed the rest.
 
-    Embedding failures leave None for those chunks; embed_missing() fills them later.
+    Only vectors from the current embedding model are reused (design 01 §H10). Embedding failures leave None
+    for those chunks; embed_missing() fills them later.
     """
-    model = get_settings().embed_model
+    try:
+        model: str | None = await current_embed_model()
+    except Exception as exc:  # gateway down: store without vectors, backfill later
+        log.warning("index.embed_deferred", chunks=len(p.chunks), error=str(exc))
+        model = None
     known: dict[str, list[float]] = {}
     if p.source_ref is not None:
         async with get_sessionmaker()() as db:
@@ -99,14 +103,16 @@ async def embed_prepared(p: PreparedDoc) -> Embedded:
                 )
             )
             if doc is not None and doc.content_hash == p.digest:
-                return Embedded(vectors=[], model=model, unchanged=True)
-            if doc is not None:
+                return Embedded(vectors=[], model=model or embed_model_id(), unchanged=True)
+            if doc is not None and model is not None:
                 rows = await db.execute(
                     select(Chunk.content_hash, Chunk.embedding).where(
                         Chunk.document_id == doc.id, Chunk.embed_model == model, Chunk.embedding.is_not(None)
                     )
                 )
                 known = {h: list(v) for h, v in rows if h}
+    if model is None:
+        return Embedded(vectors=[None] * len(p.chunks), model=embed_model_id())
     todo = [i for i, h in enumerate(p.chunk_hashes) if h not in known]
     fresh: list[Vector] = [None] * len(todo)
     if todo:
@@ -211,13 +217,22 @@ async def upsert_document(
     return await write_document(db, p, emb, visibility=visibility, project_id=project_id, meta=meta)
 
 
+MAX_EMBED_ATTEMPTS = 5
+
+
 async def embed_missing(db: AsyncSession, batch: int = 256) -> int:
-    """Fill vectors for chunks stored without one. Read, commit, embed, then write in a new transaction."""
+    """Fill vectors for chunks stored without one. Read, commit, embed, then write in a new transaction.
+
+    If the batch fails, each chunk is retried on its own once, so one bad chunk can't block the others. A chunk
+    whose input is refused (4xx) gets `embed_attempts += 1` and `embed_error`; after MAX_EMBED_ATTEMPTS it is no
+    longer selected (the System page lists it). Outages (timeouts, 5xx, 429) don't count against chunks.
+    Returns the number of chunks embedded.
+    """
     rows = (
         await db.execute(
             select(Chunk.id, Chunk.content, Document.title, Chunk.meta)
             .join(Document, Document.id == Chunk.document_id)
-            .where(Chunk.embedding.is_(None))
+            .where(Chunk.embedding.is_(None), Chunk.embed_attempts < MAX_EMBED_ATTEMPTS)
             .order_by(Chunk.id)
             .limit(batch)
         )
@@ -226,16 +241,94 @@ async def embed_missing(db: AsyncSession, batch: int = 256) -> int:
     if not rows:
         return 0
     texts = [_embed_text(r.title, ChunkIn(r.content, r.meta or {})) for r in rows]
-    vectors = await get_embedder().embed(texts)
-    model = get_settings().embed_model
-    for r, text, v in zip(rows, texts, vectors, strict=True):
-        await db.execute(
-            update(Chunk)
-            .where(Chunk.id == r.id, Chunk.embedding.is_(None))
-            .values(embedding=v, embed_model=model, content_hash=hashlib.sha256(text.encode()).hexdigest())
+    vectors: list[Vector] = [None] * len(rows)
+    errors: dict[int, str] = {}
+    try:
+        vectors = list(await get_embedder().embed(texts))
+    except Exception as exc:
+        if not is_permanent_failure(exc):
+            log.warning("index.embed_missing_unavailable", chunks=len(rows), error=str(exc)[:300])
+            return 0
+        for i, t in enumerate(texts):
+            try:
+                [vectors[i]] = await get_embedder().embed([t])
+            except Exception as one:
+                if not is_permanent_failure(one):  # the service went away mid-way: stop, retry next tick
+                    log.warning("index.embed_missing_unavailable", error=str(one)[:300])
+                    break
+                errors[i] = str(one)[:1000]
+    model = embed_model_id()
+    done = 0
+    for i, r in enumerate(rows):
+        if vectors[i] is not None:
+            await db.execute(
+                update(Chunk)
+                .where(Chunk.id == r.id, Chunk.embedding.is_(None))
+                .values(
+                    embedding=vectors[i],
+                    embed_model=model,
+                    embed_error=None,
+                    content_hash=hashlib.sha256(texts[i].encode()).hexdigest(),
+                )
+            )
+            done += 1
+        elif i in errors:
+            await db.execute(
+                update(Chunk)
+                .where(Chunk.id == r.id)
+                .values(embed_attempts=Chunk.embed_attempts + 1, embed_error=errors[i])
+            )
+    if errors:
+        log.warning("index.embed_rejected", chunks=len(errors))
+    log.info("index.embedded_missing", chunks=done)
+    return done
+
+
+async def reembed(db: AsyncSession, *, dry_run: bool) -> dict[str, Any]:
+    """Clear vectors from other embedding models so embed_missing() refills them (design 01 §H10).
+
+    Search ignores such vectors anyway (keyword search still finds those chunks). Clears in batches of
+    5 000 rows, each in its own short transaction. The caller must have committed (the model probe is a
+    network call).
+    """
+    await commit_before_network(db)
+    model = await current_embed_model()
+    by_model = dict(
+        (
+            await db.execute(
+                select(Chunk.embed_model, func.count())
+                .where(Chunk.embedding.is_not(None), Chunk.embed_model.is_distinct_from(model))
+                .group_by(Chunk.embed_model)
+            )
+        ).all()
+    )
+    report: dict[str, Any] = {
+        "current_model": model,
+        "other_models": {str(k): v for k, v in by_model.items()},
+        "missing": await db.scalar(
+            select(func.count()).where(Chunk.embedding.is_(None), Chunk.embed_attempts < MAX_EMBED_ATTEMPTS)
+        ),
+        "failed": await db.scalar(select(func.count()).where(Chunk.embed_attempts >= MAX_EMBED_ATTEMPTS)),
+        "cleared": 0,
+    }
+    await db.commit()
+    if dry_run:
+        return report
+    while True:
+        ids = (
+            select(Chunk.id).where(Chunk.embedding.is_not(None), Chunk.embed_model.is_distinct_from(model)).limit(5000)
         )
-    log.info("index.embedded_missing", chunks=len(rows))
-    return len(rows)
+        result = await db.execute(
+            update(Chunk)
+            .where(Chunk.id.in_(ids.scalar_subquery()))
+            .values(embedding=None, embed_model=None, embed_attempts=0, embed_error=None)
+        )
+        await db.commit()
+        report["cleared"] += result.rowcount
+        if result.rowcount == 0:
+            break
+    log.info("index.reembed", **{k: v for k, v in report.items() if k != "other_models"})
+    return report
 
 
 async def set_visibility(db: AsyncSession, doc: Document, visibility: Visibility, *, actor_id: int) -> None:

@@ -286,11 +286,21 @@ Users protect hand-written content with `<!-- mwb:keep -->` … `<!-- /mwb:keep 
 - Swedish: a chunk containing `driftsättningen misslyckades` is found by `driftsättningen`.
 - Mixed: a chunk mixing Chinese and an English error name is found by either.
 
-**Embedding provenance.** Every chunk records `embed_model` (the resolved model id, e.g. `amazon.titan-embed-text-v2:0`, read from the gateway's response `model` field) and `content_hash`. Search only uses vectors whose `embed_model` equals the current model; others count as missing.
+**Decision (verified against pg_search 0.26.0).** Tokenizer output on the test strings:
 
-`mwb reembed [--dry-run]` clears vectors whose `embed_model` differs from the current one, in batches, and lets `embed_missing` refill them. During re-embedding, search degrades to BM25 for affected chunks (already supported).
+| Tokenizer | `部署失败，镜像拉取超时` | `Driftsättningen` | `OOMKilled SPIN-4412` |
+|---|---|---|---|
+| default (unicode words) | one token per character | `driftsättningen` | `oomkilled`, `spin`, `4412` |
+| `pdb.icu` | `部署`, `失败`, then `镜`, `像`, `拉`, `取`… (partial) | `driftsättningen` | `oomkilled`, `spin`, `4412` |
+| `pdb.jieba` | `部署`, `失败`, `，`, `镜像`, `拉取`, `超时` | `drifts`, `ä`, `ttningen` (broken) | `oomkilled`, `" "`, `spin-4412` |
 
-**Poison chunks.** `embed_missing` selects `embedding is null and embed_attempts < 5 order by id`, increments `embed_attempts` and stores `embed_error` on failure. On batch failure it retries each chunk individually once, so one bad chunk doesn't block 255 good ones. The System page lists chunks with 5 failed attempts.
+ICU alone doesn't segment Chinese well enough, and Jieba alone breaks Swedish, so migration 0004 indexes `content` twice: `(content::pdb.icu)` and `(content::pdb.jieba('alias=content_zh'))`. Jieba also indexes whitespace and punctuation as tokens, so a multi-word query against `content_zh` would match almost every chunk. Search therefore queries `content_zh` only when the query contains Han characters, with whitespace and punctuation removed (`chinese_query()`): `content ||| :q OR content::pdb.alias('content_zh') ||| :qzh`. pg_search 0.26 takes the key from the first indexed column; `key_field` is a deprecated no-op.
+
+**Embedding provenance.** Every chunk records `embed_model` (the resolved model id, e.g. `amazon.titan-embed-text-v2:0`, read from the gateway's response `model` field) and `content_hash`. Search only uses vectors whose `embed_model` equals the current model; others count as missing. The embedder resolves the model on first use (one tiny probe call), and refuses vectors when a later response names a different model (`EmbedModelChanged`, e.g. a LiteLLM fallback): those chunks stay without a vector and are retried, rather than being stored under the wrong label. Re-indexing reuses a stored vector only when its `embed_model` is the current one. Test embedders report `hash-<dims>`.
+
+`mwb reembed [--dry-run]` clears vectors whose `embed_model` differs from the current one, in batches, and lets `embed_missing` refill them. During re-embedding, search degrades to BM25 for affected chunks (already supported). It reports the current model, the count per other model, chunks waiting for a vector and chunks that failed 5 times. Clearing happens in batches of 5 000 rows, each in its own transaction. It is never run automatically: a transient fallback at startup must not wipe every vector. Run it after changing `MWB_EMBED_MODEL_ID` or the gateway route, and once after upgrading to this release, because older rows carry the configured alias rather than the resolved id (06 §7).
+
+**Poison chunks.** `embed_missing` selects `embedding is null and embed_attempts < 5 order by id` (partial index `chunks_missing_embedding`, rebuilt in 0004). On batch failure it retries each chunk individually once, so one bad chunk doesn't block 255 good ones. Only input errors count as attempts (HTTP 4xx except 401/403/404/408/409/429, or a malformed response): the chunk gets `embed_attempts += 1` and `embed_error`. Outages (connection errors, timeouts, 5xx, 429) stop the tick without counting, so a gateway outage can't mark every chunk as failed. The System page (H14) lists chunks with 5 failed attempts; `mwb reembed --dry-run` shows the count.
 
 ## H11. Auth, sessions, secrets, offboarding
 

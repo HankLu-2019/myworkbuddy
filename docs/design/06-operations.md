@@ -107,6 +107,8 @@ Rollback: `git checkout <previous tag>` and `up -d` works only if the release no
 
 **Upgrading Procrastinate.** Read its release notes for new migration SQL files. Add an Alembic migration that executes those files in order (vendored into `backend/alembic/procrastinate/<version>/`), bump the exact pin, and run the CI `migration-upgrade` job.
 
+**Release with H10 (search quality).** After the upgrade, run `docker compose exec api mwb reembed --dry-run`, then `mwb reembed`. Vectors written before H10 are labelled with the configured alias instead of the resolved model, so search ignores them (keyword search still works) until the worker has re-embedded them. Migration 0004 rebuilds the BM25 index, which takes minutes for a team-sized index.
+
 **Upgrading ParadeDB / pg_search.** Major pg_search versions may require `REINDEX` of `chunks_bm25`. Follow ParadeDB's upgrade notes; run `ALTER EXTENSION pg_search UPDATE` in a migration; reindex during a maintenance window.
 
 **Upgrading Claude Code in the sandbox image (Phase 4).** Bump the pinned version, rebuild the image in CI, run the agent-preset smoke test against the fake LLM, then update the digest in runner config.

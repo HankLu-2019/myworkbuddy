@@ -204,8 +204,9 @@ class Chunk(Base):
             postgresql_using="hnsw",
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
+        # Defined in migration 0004 (ICU + Jieba tokenizers); expression columns aren't expressible here.
         Index("chunks_bm25", "id", "content", "owner_id", "visibility", postgresql_using="bm25"),
-        Index("chunks_missing_embedding", "id", postgresql_where=text("embedding IS NULL")),
+        Index("chunks_missing_embedding", "id", postgresql_where=text("embedding IS NULL AND embed_attempts < 5")),
     )
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
