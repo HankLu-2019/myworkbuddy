@@ -140,7 +140,7 @@ describe("top bar", () => {
     renderApp("/chat");
     const box = await screen.findByRole("searchbox", { name: "Search everything" });
     fireEvent.change(box, { target: { value: "spark oom" } });
-    fireEvent.submit(box);
+    fireEvent.submit(box.closest("form")!);
     await waitFor(() => expect(where()).toBe("/search?q=spark%20oom"));
     expect(await screen.findByLabelText<HTMLInputElement>("Search query")).toHaveValue("spark oom");
     await waitFor(() => expect(calls.some((c) => c.path === "/api/knowledge/search")).toBe(true));
