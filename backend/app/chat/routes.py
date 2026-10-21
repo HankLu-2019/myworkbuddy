@@ -324,6 +324,9 @@ async def _save_assistant(
 @router.post("/sessions/{session_id}/messages")
 async def post_message(session_id: uuid.UUID, body: MessageIn, auth: CurrentAuth, db: DB) -> StreamingResponse:
     session = await _owned(db, session_id, auth.user)
+    # The request's session stays checked out while the reply streams; end its read transaction now so it isn't
+    # "idle in transaction" for minutes (rule R1; the server ends such sessions after 60 s).
+    await db.commit()
     return StreamingResponse(
         _stream(session, auth.user, body.content),
         media_type="text/event-stream",

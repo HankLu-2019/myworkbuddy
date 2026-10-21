@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.knowledge import prompts
 from app.knowledge.episodes import EpisodeSummary, render_episode
+from app.knowledge.indexer import commit_before_network
 from app.knowledge.wiki import LIBRARIAN, find_page, read_page, save_page
 from app.llm.models import get_chat_model
 from app.logs import log
@@ -60,6 +61,7 @@ async def update_user_wiki(db: AsyncSession, user: User) -> list[str]:
     for path, (page, items) in targets.items():
         current = read_page(page) if page else prompts.LIBRARIAN_NEW_PAGES[path]
         notes = "\n\n---\n\n".join(render_episode(s) for s in items[-MAX_EPISODES_PER_PAGE:])
+        await commit_before_network(db)  # rule R1: no transaction open during the LLM call
         new = (await agent.run(f"Current page ({path}):\n\n{current}\n\nNew session summaries:\n\n{notes}")).output
         if new.strip() and new.strip() != current.strip():
             await save_page(

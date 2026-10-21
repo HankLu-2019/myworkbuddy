@@ -9,7 +9,14 @@ from app.config import get_settings
 from app.knowledge.acl import Visibility, can_change_visibility
 from app.knowledge.chunking import chunk_markdown
 from app.knowledge.gitrepo import Author, GitRepo, validate_page_path
-from app.knowledge.indexer import set_visibility, upsert_document
+from app.knowledge.indexer import (
+    PreparedDoc,
+    commit_before_network,
+    embed_prepared,
+    prepare_document,
+    set_visibility,
+    write_document,
+)
 from app.models import Document, User, WikiPage
 
 LIBRARIAN = Author("MyWorkBuddy Librarian", "librarian@myworkbuddy.local")
@@ -41,17 +48,9 @@ async def find_page(db: AsyncSession, owner_id: int, visibility: str, path: str)
     return await db.scalar(q)
 
 
-async def _index(db: AsyncSession, page: WikiPage, content: str) -> None:
-    doc = await upsert_document(
-        db,
-        owner_id=page.owner_id,
-        source_type="wiki",
-        source_ref=f"wiki:{page.id}",
-        title=page.title,
-        chunks=chunk_markdown(content),
-        visibility=page.visibility,
-        meta={"path": page.path},
-    )
+async def _write_index(db: AsyncSession, page: WikiPage, p: PreparedDoc, emb) -> None:
+    p.source_ref = f"wiki:{page.id}"
+    doc = await write_document(db, p, emb, visibility=page.visibility, meta={"path": page.path})
     page.document_id = doc.id
 
 
@@ -65,19 +64,33 @@ async def save_page(
     message: str | None = None,
     page: WikiPage | None = None,
 ) -> WikiPage:
-    """Create a private page for `owner`, or update `page` in whichever repo it lives in."""
+    """Create a private page for `owner`, or update `page` in whichever repo it lives in.
+
+    Commits the caller's session before embedding (rule R1); the caller commits the page write.
+    """
     path = validate_page_path(path)
     if page is None:
         page = await find_page(db, owner.id, "private", path)
+    title = title_of(path, content)
+    prepared = prepare_document(
+        owner_id=page.owner_id if page else owner.id,
+        source_type="wiki",
+        source_ref=f"wiki:{page.id}" if page else None,
+        title=title,
+        chunks=chunk_markdown(content),
+    )
+    await commit_before_network(db)
+    emb = await embed_prepared(prepared)
+
     if page is None:
-        page = WikiPage(owner_id=owner.id, visibility="private", path=path, title=title_of(path, content))
+        page = WikiPage(owner_id=owner.id, visibility="private", path=path, title=title)
         db.add(page)
         await db.flush()
     repo = repo_for(page.visibility, page.owner_id)
     await _lock(db, repo)
-    page.title = title_of(path, content)
+    page.title = title
     page.head_sha = await repo.write(path, content, author, message or f"Update {path}")
-    await _index(db, page, content)
+    await _write_index(db, page, prepared, emb)
     return page
 
 

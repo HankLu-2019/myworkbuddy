@@ -6,7 +6,7 @@ x-backend: &backend
     target: prod
   image: myworkbuddy-backend:latest
   env_file: .env
-  environment:
+  environment: &backend-env
     MWB_DATABASE_URL: postgresql://mwb:${POSTGRES_PASSWORD}@postgres:5432/mwb
     MWB_GATEWAY_URL: http://llm-gateway:4000
     MWB_GATEWAY_KEY: ${LITELLM_MASTER_KEY}
@@ -69,6 +69,11 @@ services:
 
   worker:
     <<: *backend
+    environment:
+      <<: *backend-env
+      # Background tasks run longer statements and need fewer connections than the API (design 01 §H6).
+      MWB_DB_STATEMENT_TIMEOUT_MS: "300000"
+      MWB_DB_POOL_SIZE: "6"
     command: ["sh", "-c", "mwb check-config && exec procrastinate --app=app.tasks.app.app worker --concurrency=4"]
     depends_on:
       migrate:

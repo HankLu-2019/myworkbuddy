@@ -69,7 +69,7 @@ Design: [01-hardening.md](design/01-hardening.md) and, for H15–H16, [07-ux.md]
 - [x] **H5 Schema 0003, config validation, error format** (01 §H5). Also: `MultiFernet` already decrypts with any key in `MWB_SECRET_KEYS` (rotation CLI remains in H11); `mwb check-config` runs before the worker; `idle_in_transaction_session_timeout` set in 0003.
   - Acceptance: migration adds every column/constraint/table listed; inserting an invalid enum value fails at the DB; each config check in the table refuses startup with its message (unit tests on `Settings.validate()`); every error response matches `{"detail","code"}` (parametrised test over representative endpoints); `procrastinate` pinned exactly.
 
-- [ ] **H6 Transaction discipline** (01 §H6)
+- [x] **H6 Transaction discipline** (01 §H6). Every test now fails if an LLM or embedding call runs with a DB transaction open (`tests/txguard.py`). Also fixed: the chat request kept a read transaction open for the whole stream, which the 60 s idle-in-transaction timeout from 0003 would have killed.
   - Indexer split (`prepare_document` / `embed_prepared` / `write_document`), per-file ingest commits, episode re-check, pool and timeout settings.
   - Acceptance: a test helper wraps the embedder and LLM test model to assert `session.in_transaction()` is false for every session open during their calls (applied to ingest, upload, wiki save, episode, librarian); a failure on file 3 of 5 keeps files 1, 2, 4, 5 indexed and marks the project `ready` with a warning; unchanged chunks reuse vectors (embedder called only for changed chunks); `idle_in_transaction_session_timeout` is set.
 

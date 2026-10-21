@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.knowledge import prompts
 from app.knowledge.chunking import ChunkIn
-from app.knowledge.indexer import upsert_document
+from app.knowledge.indexer import commit_before_network, upsert_document
 from app.llm.models import get_chat_model
 from app.logs import log
 from app.models import ChatSession, Episode, Message, ToolCall
@@ -64,6 +64,10 @@ async def _transcript(db: AsyncSession, session_id: uuid.UUID) -> tuple[str, int
 
 
 async def build_episode(db: AsyncSession, session_id: uuid.UUID) -> Episode | None:
+    """Summarise a session into an episode. Reads, commits, calls the LLM, then writes (rule R1).
+
+    The caller commits the final write.
+    """
     session = await db.get(ChatSession, session_id)
     if session is None:
         return None
@@ -71,23 +75,39 @@ async def build_episode(db: AsyncSession, session_id: uuid.UUID) -> Episode | No
     episode = await db.scalar(select(Episode).where(Episode.session_id == session_id))
     if count == 0 or (episode is not None and episode.message_count == count):
         return episode
+    title, source, owner_id, visibility, project_id = (
+        session.title,
+        session.source,
+        session.owner_id,
+        session.visibility,
+        session.project_id,
+    )
+    await commit_before_network(db)
+
     agent = Agent(get_chat_model(), output_type=EpisodeSummary, instructions=prompts.EPISODE)
-    summary = (await agent.run(f"Session title: {session.title}\nSource: {session.source}\n\n{transcript}")).output
-    if episode is None:
-        episode = Episode(session_id=session_id, owner_id=session.owner_id, visibility=session.visibility, summary={})
-        db.add(episode)
-    episode.summary, episode.message_count = summary.model_dump(), count
+    summary = (await agent.run(f"Session title: {title}\nSource: {source}\n\n{transcript}")).output
+
     doc = await upsert_document(
         db,
-        owner_id=session.owner_id,
+        owner_id=owner_id,
         source_type="episode",
         source_ref=f"session:{session_id}",
         title=summary.title,
         chunks=[ChunkIn(render_episode(summary), {"session_id": str(session_id)})],
-        visibility=session.visibility,
-        project_id=session.project_id,
-        meta={"session_id": str(session_id), "source": session.source},
+        visibility=visibility,
+        project_id=project_id,
+        meta={"session_id": str(session_id), "source": source},
     )
+    # The session may have been deleted while the LLM ran; its cascade would orphan this write.
+    if await db.get(ChatSession, session_id) is None:
+        await db.rollback()
+        return None
+    episode = await db.scalar(select(Episode).where(Episode.session_id == session_id))
+    if episode is None:
+        episode = Episode(session_id=session_id, owner_id=owner_id, visibility=visibility, summary={})
+        db.add(episode)
+    # If messages arrived meanwhile, the stored count stays at what was summarised, so the sweep redoes it.
+    episode.summary, episode.message_count = summary.model_dump(), count
     episode.document_id = doc.id
     await db.flush()
     log.info("episode.built", session_id=str(session_id), messages=count)

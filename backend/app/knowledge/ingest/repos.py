@@ -2,6 +2,7 @@ import asyncio
 import base64
 import fnmatch
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -14,7 +15,7 @@ from app.config import get_settings
 from app.knowledge import prompts
 from app.knowledge.acl import visible_filter
 from app.knowledge.chunking import ChunkIn, chunk_markdown
-from app.knowledge.indexer import set_project_visibility, upsert_document
+from app.knowledge.indexer import commit_before_network, set_project_visibility, upsert_document
 from app.knowledge.ingest.code import extract_symbols, supported
 from app.knowledge.wiki import LIBRARIAN, find_page, save_page
 from app.llm.models import get_chat_model
@@ -99,6 +100,7 @@ async def sync_checkout(db: AsyncSession, project: Project) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     dest = root / str(project.id)
     header = await _auth_header(db, project)
+    await commit_before_network(db)  # rule R1: git fetch/clone below talks to the remote
     if (dest / ".git").exists():
         ref = project.branch or "HEAD"
         await run_git("fetch", "-q", f"--depth={CLONE_DEPTH}", "origin", ref, cwd=dest, auth_header=header)
@@ -163,6 +165,7 @@ async def _write_project_card(
         f"Commits by this person ({owner.email or 'unknown email'}):\n{commits or '(none found)'}"
     )
     agent = Agent(get_chat_model(), instructions=prompts.PROJECT_CARD.format(name=project.name))
+    await commit_before_network(db)
     card = (await agent.run(prompt)).output
     page = await db.get(WikiPage, project.card_page_id) if project.card_page_id else None
     path = page.path if page else f"projects/{project.name}.md"
@@ -191,22 +194,35 @@ async def _summaries(path: str, symbols_text: str) -> dict[str, str]:
         return {}
 
 
-async def _index_code(db: AsyncSession, project: Project, checkout: Path, files: list[str]) -> set[str]:
+@dataclass
+class FileResults:
+    seen: set[str] = field(default_factory=set)
+    failed: list[str] = field(default_factory=list)
+
+    def merge(self, other: "FileResults") -> "FileResults":
+        return FileResults(self.seen | other.seen, self.failed + other.failed)
+
+
+async def _index_code(db: AsyncSession, project: Project, checkout: Path, files: list[str]) -> FileResults:
+    """Parse and summarise every file with no transaction open, then write each file in its own commit."""
     s = get_settings()
     code_files = [p for p in files if supported(p)][: s.repo_max_files]
+    summary_budget = s.ingest_max_summary_files
     sem = asyncio.Semaphore(4)
 
-    async def prepare(path: str) -> tuple[str, list, dict[str, str]]:
+    async def prepare(index: int, path: str) -> tuple[str, list, dict[str, str]]:
         data = _read(checkout, path)
         symbols = extract_symbols(path, data) if data else []
-        if not symbols:
-            return path, [], {}
+        if not symbols or index >= summary_budget:
+            return path, symbols, {}
         async with sem:
             summaries = await _summaries(path, "\n\n".join(f"### {sym.name}\n{sym.code}" for sym in symbols))
         return path, symbols, summaries
 
-    seen: set[str] = set()
-    for path, symbols, summaries in await asyncio.gather(*(prepare(p) for p in code_files)):
+    await commit_before_network(db)
+    prepared = await asyncio.gather(*(prepare(i, p) for i, p in enumerate(code_files)))
+    results = FileResults()
+    for path, symbols, summaries in prepared:
         if not symbols:
             continue
         chunks = [
@@ -217,43 +233,69 @@ async def _index_code(db: AsyncSession, project: Project, checkout: Path, files:
             )
             for sym in symbols
         ]
-        ref = f"{project.id}:{path}"
-        seen.add(ref)
+        await _write_file(
+            db, results, project, "code", f"{project.id}:{path}", f"{project.name}/{path}", chunks, {"path": path}
+        )
+    return results
+
+
+async def _write_file(
+    db: AsyncSession,
+    results: FileResults,
+    project: Project,
+    source_type: str,
+    ref: str,
+    title: str,
+    chunks: list[ChunkIn],
+    meta: dict,
+) -> None:
+    """Index one file and commit it, so a later failure doesn't undo (or re-bill) the files before it."""
+    results.seen.add(ref)  # a failed file keeps its previous index rather than being deleted as unseen
+    try:
         await upsert_document(
             db,
             owner_id=project.owner_id,
-            source_type="code",
+            source_type=source_type,
             source_ref=ref,
-            title=f"{project.name}/{path}",
+            title=title,
             chunks=chunks,
             project_id=project.id,
-            meta={"path": path},
+            meta=meta,
         )
-    return seen
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        results.failed.append(ref)
+        log.warning("ingest.file_failed", project_id=project.id, ref=ref, error=str(exc)[:300])
 
 
-async def _index_docs(db: AsyncSession, project: Project, checkout: Path, files: list[str]) -> set[str]:
-    seen: set[str] = set()
+async def _index_docs(db: AsyncSession, project: Project, checkout: Path, files: list[str]) -> FileResults:
+    results = FileResults()
     for path in [p for p in files if p.lower().endswith(".md")][:100]:
         data = _read(checkout, path)
         if data is None:
             continue
-        ref = f"{project.id}:{path}"
-        seen.add(ref)
-        await upsert_document(
+        await _write_file(
             db,
-            owner_id=project.owner_id,
-            source_type="repo_doc",
-            source_ref=ref,
-            title=f"{project.name}/{path}",
-            chunks=chunk_markdown(data.decode(errors="replace")),
-            project_id=project.id,
-            meta={"path": path},
+            results,
+            project,
+            "repo_doc",
+            f"{project.id}:{path}",
+            f"{project.name}/{path}",
+            chunk_markdown(data.decode(errors="replace")),
+            {"path": path},
         )
-    return seen
+    return results
+
+
+FAILED_FILES_LIMIT = 0.2  # more than this share of files failing marks the ingest failed
 
 
 async def ingest_project(db: AsyncSession, project_id: int, force: bool = False) -> None:
+    """Clone or fetch, index code and docs (one commit per file), then write the project card.
+
+    No transaction is open during git network calls, LLM summaries or embeddings (rule R1).
+    """
     project = await db.get(Project, project_id)
     if project is None:
         return
@@ -269,34 +311,53 @@ async def ingest_project(db: AsyncSession, project_id: int, force: bool = False)
             await db.commit()
             return
         files = _tracked_files(await run_git("ls-files", cwd=checkout))
-        seen = await _index_code(db, project, checkout, files) | await _index_docs(db, project, checkout, files)
+        results = (await _index_code(db, project, checkout, files)).merge(
+            await _index_docs(db, project, checkout, files)
+        )
+
+        project = await db.get(Project, project_id)
+        if project is None:  # deleted while we worked; its documents went with it
+            log.info("ingest.project_deleted", project_id=project_id)
+            return
         await db.execute(
             delete(Document).where(
                 Document.project_id == project.id,
                 Document.source_type.in_(["code", "repo_doc"]),
-                Document.source_ref.not_in(seen) if seen else Document.id.is_not(None),
+                Document.source_ref.not_in(results.seen) if results.seen else Document.id.is_not(None),
             )
         )
         # The owner may have changed the project's visibility while this ran; apply the current value.
         await db.refresh(project)
         await set_project_visibility(db, project, project.visibility, actor_id=project.owner_id)
-        project.last_ingested_sha = head
-        project.status = "ready"
+        total = len(results.seen)
+        if results.failed and len(results.failed) > FAILED_FILES_LIMIT * max(total, 1):
+            project.status = "failed"
+            project.error = f"{len(results.failed)} of {total} files could not be indexed; first: {results.failed[0]}"
+        else:
+            project.status = "ready"
+            project.last_ingested_sha = head
+            if results.failed:
+                project.error = f"Indexed with {len(results.failed)} file(s) skipped: {', '.join(results.failed[:5])}"
         await db.commit()
+        if project.status == "failed":
+            return
         try:
             await _write_project_card(db, owner, project, checkout, files)
+            await db.commit()
         except Exception as exc:  # the code index is still useful without the card
             await db.rollback()
             project = await db.get(Project, project_id)
-            project.error = f"Indexed, but the project card could not be written: {exc}"[:2000]
+            if project is not None:
+                project.error = f"Indexed, but the project card could not be written: {exc}"[:2000]
+                await db.commit()
             log.warning("ingest.card_failed", project_id=project_id, error=str(exc))
-        await db.commit()
-        log.info("ingest.done", project_id=project.id, sha=head, documents=len(seen))
+        log.info("ingest.done", project_id=project_id, sha=head, documents=total, failed=len(results.failed))
     except Exception as exc:
         await db.rollback()
         project = await db.get(Project, project_id)
-        project.status, project.error = "failed", str(exc)[:2000]
-        await db.commit()
+        if project is not None:
+            project.status, project.error = "failed", str(exc)[:2000]
+            await db.commit()
         log.exception("ingest.failed", project_id=project_id)
         raise
 
