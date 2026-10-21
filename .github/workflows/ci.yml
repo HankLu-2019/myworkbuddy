@@ -102,6 +102,14 @@ jobs:
         run: docker compose -f docker-compose.yml -f compose.ci.yml up -d --build --wait --wait-timeout 300 api worker web > stack.log 2>&1 || { cat stack.log; docker compose -f docker-compose.yml -f compose.ci.yml logs --tail 100 >> stack.log; exit 1; }
       - name: Create admin
         run: docker compose -f docker-compose.yml -f compose.ci.yml exec -T -e MWB_ADMIN_PASSWORD=$MWB_E2E_ADMIN_PASSWORD api mwb create-admin --username admin --email admin@example.com
+      - name: Chat streams through the web proxy (curl)
+        run: |
+          J=$(mktemp)
+          csrf=$(curl -sf -c $J -H 'content-type: application/json' -d "{\"username\":\"admin\",\"password\":\"$MWB_E2E_ADMIN_PASSWORD\"}" http://localhost:8080/api/auth/login | python3 -c "import sys,json;print(json.load(sys.stdin)['csrf_token'])")
+          sid=$(curl -sf -b $J -H "X-CSRF-Token: $csrf" -H 'content-type: application/json' -d '{}' http://localhost:8080/api/chat/sessions | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
+          curl -sN --max-time 30 -b $J -H "X-CSRF-Token: $csrf" -H 'content-type: application/json' -d '{"content":"hello"}' http://localhost:8080/api/chat/sessions/$sid/messages > sse.log 2>&1 || true
+          cat sse.log
+          grep -q "event: done" sse.log || { echo "no done event through nginx" >> sse.log; .github/scripts/annotate-tail.sh "sse via nginx" sse.log 30; }
       - uses: actions/setup-node@v5
         with: { node-version: 24, cache: npm, cache-dependency-path: frontend/package-lock.json }
       - name: Playwright
