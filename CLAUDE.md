@@ -28,7 +28,7 @@ Self-hosted engineering workbench: FastAPI + SQLAlchemy async + Procrastinate (b
 
 Some modules named above are created by Phase H tasks: `app/errors.py` (H5), `app/llm/client.py` (H12), `app/llm/untrusted.py` (H12, used from Phase 2). Until they exist, follow the existing pattern and don't add new direct `OpenAIProvider` uses.
 
-Frontend: render Markdown only with `components/ui.tsx` `Markdown` (no remote images, no raw HTML). Never `dangerouslySetInnerHTML`.
+Frontend: follow `docs/design/07-ux.md` (navigation, page specs, flows, shared states, wording glossary, accessibility). Use the shared components; don't style one-off buttons, tables or dialogs. Render Markdown only with `components/ui.tsx` `Markdown` (no remote images, no raw HTML). Never `dangerouslySetInnerHTML`.
 
 ## Commands
 

@@ -190,6 +190,7 @@ create table runs (
   owner_id       int not null references users on delete cascade,
   agent_id       int not null references agents,
   trigger        text not null check (trigger in ('schedule','manual')),
+  config         jsonb not null,                                     -- snapshot: agent_id, prompt, inputs, notify settings
   scheduled_for  timestamptz not null,
   status         text not null check (status in ('queued','running','succeeded','failed','timed_out','skipped','cancelled')),
   session_id     uuid references chat_sessions on delete set null,  -- source='run'; full transcript
@@ -227,7 +228,7 @@ BEGIN
    FOR UPDATE SKIP LOCKED LIMIT 100;
   for each s:
      fire_time := s.next_run_at
-     INSERT INTO runs (schedule_id, scheduled_for = fire_time, status='queued', ...)
+     INSERT INTO runs (schedule_id, scheduled_for = fire_time, status='queued', config = snapshot(s), ...)
          ON CONFLICT (schedule_id, scheduled_for) DO NOTHING
      s.next_run_at := next occurrence after max(now(), fire_time)   -- at most one catch-up run
 COMMIT
@@ -240,7 +241,7 @@ If deferring fails after commit, the run stays `queued`; the tick also re-defers
 
 `run_schedule(run_id)`, queue `llm`:
 
-1. Short tx: load run, schedule, agent, owner; if schedule disabled, deleted or owner inactive → `skipped`. Set `running`, `started_at`. Create the run session (`source='run'`). Commit.
+1. Short tx: load run, agent, owner and (if `schedule_id` is set) the schedule; if the schedule is disabled or deleted, or the owner is inactive → `skipped`. Execution always uses the run's `config` snapshot, so editing a schedule never changes a run already queued, and test runs (`schedule_id` null) work the same way. Set `running`, `started_at`. Create the run session (`source='run'`). Commit.
 2. No tx: build the agent with `toolset_for(agent, owner)`, `output_type=RunReport`, `UsageLimits` (01-hardening §H12 table), the owner's gateway key. Prompt = agent system prompt + schedule prompt + inputs (JSON). Run with `asyncio.timeout(max_runtime_s)`. Persist messages and tool calls to the run session as chat does.
 3. No tx: validate the report (§3), compute verified fingerprints.
 4. Short tx: load the previous `succeeded` run for this schedule; `changed = set(fingerprints) != set(previous.fingerprints)` (first run: `changed = true`). Store report, usage, cost, status. Decide notification:
@@ -311,6 +312,18 @@ async def propose_schedule(ctx, name: str, agent: AgentSlug, cron: str, prompt: 
 - **Create** → `POST /api/schedules/proposals/{id}/accept` (owner, CSRF, pending, not expired) creates the schedule exactly from the stored payload and audits `schedule.create` with `proposal_id`. **Edit** opens the schedule form pre-filled; saving creates the schedule and marks the proposal accepted.
 - The model can never pass a proposal id to anything that creates a schedule. Only the user's click does.
 
+### Attaching context to a chat
+
+"Investigate in chat" on a run result (07-ux §5.7) opens `/chat?context=run:<id>`. The frontend creates a session with `POST /api/chat/sessions {"context": [{"type": "run", "id": "<id>"}]}`.
+
+- `chat_sessions` gains `context jsonb not null default '[]'` (list of `{type, id}`; types `run` in Phase 2, `plan_revision` in Phase 3). Each ref is ACL-checked (owner only) on create and on every turn.
+- `_instructions` adds one block per ref: the run's report rendered as Markdown, wrapped with `untrusted.wrap("run:<id>", …)` because findings were built from untrusted tool output (rule R6). Budget 8 000 chars per ref.
+- The context panel lists attached refs; removing one is `PATCH /api/chat/sessions/{id} {"context": [...]}`.
+
+### Test runs before saving
+
+The schedule form's "Run once now to test" calls `POST /api/schedules/test` with the unsaved form payload (same validation as create). It creates a run with `schedule_id = null`, `trigger = 'manual'`, executes it like any run, never notifies, and returns the run id; the form shows the result in a drawer by polling `GET /api/runs/{id}`.
+
 ## 7. API
 
 All endpoints require auth; unsafe methods require CSRF; owned resources return 404 to non-owners.
@@ -326,6 +339,7 @@ All endpoints require auth; unsafe methods require CSRF; owned resources return 
 | `GET /api/schedules/{id}` · `PATCH` · `DELETE` | Read / update (recomputes `next_run_at`) / delete |
 | `POST /api/schedules/preview` | Cron validation and description |
 | `POST /api/schedules/{id}/run` | Manual run |
+| `POST /api/schedules/test` | Test run of an unsaved schedule (§6) |
 | `GET /api/schedules/{id}/runs` | Runs (cursor) |
 | `GET /api/runs/{id}` | Run detail with report, usage, transcript link |
 | `GET /api/schedules/proposals/{id}` · `POST /accept` · `POST /dismiss` | Proposal flow |
@@ -333,6 +347,8 @@ All endpoints require auth; unsafe methods require CSRF; owned resources return 
 | `PATCH /api/me` | `display_name`, `timezone`, `email_notifications` |
 
 ## 8. Frontend
+
+Layouts, navigation, flows and states are specified in [07-ux.md](07-ux.md) (§4.2, §4.7, §4.8, §5.6, §5.7, §5.10). The table below is the summary.
 
 | Page | Content |
 |---|---|

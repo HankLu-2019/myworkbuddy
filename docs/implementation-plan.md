@@ -14,7 +14,7 @@ Last revised 2026-10-21 after the [design review](review/2026-10-21-design-revie
 | 4 Execution | Designed: [04](design/04-execution.md) |
 | 5 Polish | Backlog below |
 
-Read [`design/00-architecture.md`](design/00-architecture.md) before any task. Its engineering rules R1–R15 apply to every task, and `CLAUDE.md` repeats them.
+Read [`design/00-architecture.md`](design/00-architecture.md) before any task, and [`design/07-ux.md`](design/07-ux.md) before any frontend work. Its engineering rules R1–R15 apply to every task, and `CLAUDE.md` repeats them.
 
 ## How to work through this plan
 
@@ -39,13 +39,13 @@ For each task, in order:
 
 1. CI green on `main`, including e2e smoke and (Phase 4) sandbox security tests.
 2. Deploy to the VM from the release tag following 06-operations §7 (*manual*).
-3. Run the phase's end-to-end checklist below against the deployed instance with real Bedrock (*manual*).
+3. Run the phase's end-to-end checklist below against the deployed instance with real Bedrock (*manual*), and the usability check in 07 §10 with two teammates.
 4. Backup and restore drill on the new release (*manual*, 06-operations §6).
 5. Retrospective notes appended to this file.
 
 ## Phase H — Hardening
 
-Design: [01-hardening.md](design/01-hardening.md). Order matters: H1 → H2 first; the rest in the listed order.
+Design: [01-hardening.md](design/01-hardening.md) and, for H15–H16, [07-ux.md](design/07-ux.md). Order: H1 → H2 first. H15 can then run in parallel with the backend tasks H3–H12; UI parts of H4, H7, H11 and H13 use H15 components once they exist. H16 comes last.
 
 - [ ] **H1 Build, images, repo hygiene** (01 §H1)
   - [x] TS error fixed; coverage and tsbuildinfo untracked *(done in the review PR)*
@@ -100,6 +100,14 @@ Design: [01-hardening.md](design/01-hardening.md). Order matters: H1 → H2 firs
   - `/api/ready`; worker heartbeat and healthcheck; `backup` service; `deploy/restore.sh`; System page; log rotation; resource limits; graceful shutdown; `mwb backup record-drill`.
   - Acceptance: `/api/ready` returns 503 naming the failed check when the gateway or worker heartbeat is down; worker container becomes unhealthy when its heartbeat stops; backup produces a restic snapshot containing both dumps and `/data/wiki` (CI e2e with a local restic repo); `restore.sh` into a fresh compose project restores users, a wiki page and a stored token that still decrypts (CI e2e); System page shows each item in 01 §H14 (vitest + API tests).
 
+- [ ] **H15 Design system and app shell** (07 §3, §6.1–6.2, §7, §8)
+  - Tokens (spacing, radius, type, elevation, status colours, z-index; `data-theme` override); Radix primitives + `lucide-react`; components listed in 07 §8 with states; dev-only `/dev/components` gallery; grouped sidebar, top bar with breadcrumb and global search, mobile bottom tab bar; Sources page with tabs and redirects from `/projects`, `/documents`, `/imports`; `StatusPill` mapping and `VisibilityBadge`/`VisibilityControl` used everywhere; keyboard shortcuts (07 §6.11); route-level code splitting; OpenAPI-generated API types with a CI staleness check; bundle size check (≤ 250 KB gz initial JS).
+  - Acceptance: every existing page uses the shared components (no page-local button/table/dialog styles); axe shows zero serious/critical violations on all pages in light and dark; screenshots of the gallery and main pages at 1280 and 390 px are committed baselines; old routes redirect; shortcuts work and are ignored while typing; CI fails when `schema.ts` is stale or the bundle is over budget.
+
+- [ ] **H16 Home, activity and shared behaviours** (07 §4.1, §4.6, §4.12, §5.1–5.5, §5.10–5.12, §6.3–6.10)
+  - `GET /api/home`, `GET /api/activity`; Home (Needs you, Running now, Recent, Quick actions); activity indicator; getting-started and admin setup checklists; repository detail page with progress; citations open in the chat context drawer; share confirmations with per-type text and undo; librarian changes page with revert; drafts in local storage and restore after session expiry (`next` + `reason=expired`); unsaved-change guards; error-code → message/action mapping; skeleton and long-wait text; forced password change screen; Settings tabs (Profile incl. theme, Integrations, Usage, Sessions, Password).
+  - Acceptance: Playwright flows 07 §5.1, §5.2, §5.3, §5.4, §5.5, §5.11, §5.12 pass with the fake LLM; each error code in 07 §5.10/§6.8 renders its message and action (vitest); polling pauses when the tab is hidden (vitest with fake timers); a draft survives reload and expiry.
+
 **Phase H end-to-end checklist** (*manual*, on the VM with real Bedrock): HTTPS with the company certificate; log in; upload, search (English + Chinese), share; chat with citations and cost shown; ingest a real GitLab and a real Gerrit repo; librarian run produces a commit; budget display correct; backup and restore drill pass.
 
 ## Phase 2 — Schedules & connectors
@@ -118,8 +126,8 @@ Design: [02-schedules-connectors.md](design/02-schedules-connectors.md).
   - Acceptance: outbox send with retry/backoff against a fake SMTP server (aiosmtpd in tests); dedupe key prevents duplicates; daily cap suppresses and notifies once; email body contains no links except the MyWorkBuddy run URL; unread count endpoint.
 - [ ] **S6 Chat → schedule proposals** (02 §6).
   - Acceptance: invalid proposals return the error to the model; the SSE `proposal` event renders a card; accept creates exactly the stored payload; expired or foreign proposals 404; the model has no path to create a schedule (toolset test).
-- [ ] **S7 Frontend** (02 §8): Inbox, Schedules, editor with inputs form and cron preview, Run detail, Settings → Integrations and Profile, Admin → Integrations, proposal card.
-  - Acceptance: vitest for each page's main states; Playwright: create a schedule from chat, run it manually, see the inbox item.
+- [ ] **S7 Frontend** (02 §8, 07 §4.2, §4.7, §4.8, §5.6, §5.7, §5.10): Inbox, Schedules, editor with presets, inputs form, cron preview and test run, Run result with "Investigate in chat", chat context attachments, Settings → Integrations, Admin → Integrations, proposal card, Home sections for alerts, paused schedules and invalid credentials.
+  - Acceptance: vitest for each page's states (loading, empty, error, populated); Playwright flows 07 §5.6 and §5.7 (email link → login → run → chat with context); axe clean on new pages.
 - [ ] **S8 System tasks and agent prompts** (02 §3, §9): `projects_refresh`, `runs_retention`, prompts for the four agents with fingerprint conventions, eval fixtures (recorded tool outputs → expected fingerprints) run nightly against real Bedrock (not a CI gate).
 
 **Phase 2 end-to-end checklist** (*manual*): morning brief at 08:00 local arrives in inbox and email; k8s-health against a real read-only kubeconfig alerts on a crashlooping test pod, stays quiet on the next unchanged run, and sends "recovered" after the fix.
@@ -136,8 +144,8 @@ Design: [03-plans.md](design/03-plans.md).
   - Acceptance: repo tools refuse paths outside the checkout, symlinks, binaries, oversize files; planner toolset is read-only; invalid first draft triggers exactly one fix attempt; an injected Jira description asking for an unknown network host yields a validation error, not an approved host.
 - [ ] **P4 Approval flow and revisions** (03 §6).
   - Acceptance: stale revision or hash → 409; missing acknowledgements → 422; user edits create new revisions that are not approved; reject resets the work item; field-level diff endpoint.
-- [ ] **P5 Board and plan UI** (03 §9).
-  - Acceptance: vitest for board columns, validation panel and acknowledgements, approve button disabled states; Playwright: draft (fake LLM) → revise → approve.
+- [ ] **P5 Board and work item hub** (03 §9, 07 §4.9, §4.10, §5.8): board, hub with progress strip and Ticket/Plan tabs, revision compare, Discuss in chat.
+  - Acceptance: vitest for board columns, validation panel and acknowledgements, approve button disabled states with reasons; Playwright flow 07 §5.8 (draft → revise → approve, including leaving the page while drafting and returning via the inbox item); axe clean.
 
 **Phase 3 end-to-end checklist** (*manual*): a real ticket produces a plan whose file list matches the repo; revise once with feedback; approve.
 
@@ -153,10 +161,10 @@ Design: [04-execution.md](design/04-execution.md).
   - Acceptance: every allowed transition works and every disallowed one is rejected; one active job per work item; events SSE replays from `after`.
 - [ ] **X4 Prepare, run, verify loop** (04 §5.1–5.4).
   - Acceptance: job key created with the right budget and expiry and deleted at the end; clone sanitised (no remote, no hooks); retry loop stops at `max_attempts`; timeout and budget states (security tests 5–6); verification failures produce feedback files.
-- [ ] **X5 Checks and result page** (04 §5.4–5.5).
-  - Acceptance: each check in the table has a test; gitleaks blocks a planted key; result page renders diff, checks, logs (vitest); request changes and discard.
-- [ ] **X6 Push gate and orchestrator** (04 §5.6, §6).
-  - Acceptance: security tests 7–8; GitLab MR created once and updated on the next round; Gerrit Change-Id stable across rounds; Jira comment posted once with the real link; 401 marks the credential invalid.
+- [ ] **X5 Checks and Job tab** (04 §5.4–5.5, 07 §4.10–4.11).
+  - Acceptance: each check in the table has a test; gitleaks blocks a planted key; Job tab renders timeline (live), diff (split and unified), checks, logs and agent notes label (vitest); request changes and discard; Jobs list page.
+- [ ] **X6 Push gate and orchestrator** (04 §5.6, §6, 07 §5.9).
+  - Acceptance: Playwright flow 07 §5.9 against a local git server and stub GitLab API; security tests 7–8; GitLab MR created once and updated on the next round; Gerrit Change-Id stable across rounds; Jira comment posted once with the real link; 401 marks the credential invalid.
 - [ ] **X7 Tracking, cleanup, orphans** (04 §6–7).
   - Acceptance: merged/closed MRs update job and work item; volumes and keys removed per the cleanup table; runner refuses runs below the disk threshold.
 

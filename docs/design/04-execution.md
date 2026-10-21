@@ -215,7 +215,7 @@ class JobResult(BaseModel):
 
 ### 5.5 Review
 
-Result page (`/jobs/:id`): status timeline (from `job_events`, live via SSE `GET /api/jobs/{id}/events?after=<seq>`), file list and side-by-side diff (rendered from the patch, no Markdown), checks, verification logs, agent notes (safe Markdown, labelled "written by the agent"), cost.
+Result page: the Job tab of the work item hub (`/work/:id/job`; `/jobs/:id` deep links render it), specified in [07-ux.md](07-ux.md) §4.10 and flow §5.9. Contents: status timeline (from `job_events`, live via SSE `GET /api/jobs/{id}/events?after=<seq>`), file list and side-by-side diff (rendered from the patch, no Markdown), checks, verification logs, agent notes (safe Markdown, labelled "written by the agent"), cost.
 
 Actions:
 

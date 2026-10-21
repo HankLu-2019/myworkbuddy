@@ -94,6 +94,7 @@ Each finding names the task that fixes it.
 | D7 | The 2026-10-20 reuse decision (OpenHands; third-party MCP servers for Jira/GitLab/K8s) doesn't address per-user credentials, tool tiers, or how the sandbox design fits around OpenHands. | ADR-2 (Claude Code headless in our runner, chosen 2026-10-21) and ADR-3 (native read connectors) |
 | D8 | "Docker verify" in the plan's cycle is undefined. | Release gates in the rewritten plan |
 | D9 | Open question from the proposal still unanswered: may company code, logs and tickets be sent to Bedrock, and in which region? `.env.example` defaults to `us-east-1`. | Listed in `docs/design/00` §7 with a safe default (EU region, Bedrock only) |
+| D10 | No UX specification: navigation doesn't scale past Phase 1, no cross-page flows, no shared states (loading, background work, errors), no accessibility target, no design system. Each phase would invent its own screens. | `docs/design/07-ux.md`, tasks H15–H16 |
 
 ## What was changed in this PR besides docs
 

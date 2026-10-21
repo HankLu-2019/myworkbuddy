@@ -242,6 +242,8 @@ Issues that leave the JQL result are not deleted; their work items show the late
 
 ## 9. Frontend
 
+Layouts, navigation and flows are specified in [07-ux.md](07-ux.md) (§4.9, §4.10, §5.8). The plan page is the Plan tab of the work item hub (`/work/:id/plan`); `/plans/:id` remains a valid deep link. "Discuss" uses the chat context mechanism from 02 §6 with a `plan_revision` ref.
+
 - **Board** (`/work`): columns New · Planning · Needs decision · Approved · In progress · In review · Done. Cards show key, summary, Jira status, project, cost so far. Drag is not supported; state changes come from actions.
 - **Plan page** (`/plans/:id`): header (ticket, repo, base branch@sha, revision selector, status); sections rendered from `PlanDoc` with our components (Markdown fields use the safe renderer); validation panel with errors and acknowledgement checkboxes; "Revise with feedback" box; "Edit" mode; "Approve revision N" button showing the content hash prefix; revision diff view.
 - **Discuss**: "Open in chat" creates a chat session with the plan's project in focus and the current revision attached as context (read-only).

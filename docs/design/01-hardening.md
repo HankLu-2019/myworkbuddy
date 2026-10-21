@@ -2,7 +2,7 @@
 
 Status: approved baseline, 2026-10-21. Depends on [00-architecture.md](00-architecture.md).
 
-Phase H fixes the findings in the [2026-10-21 review](../review/2026-10-21-design-review.md) and adds the production foundations every later phase needs (CI, TLS, budgets, backups, consistency rules). Nothing in Phase 2 starts until H1–H14 are done.
+Phase H fixes the findings in the [2026-10-21 review](../review/2026-10-21-design-review.md) and adds the production foundations every later phase needs (CI, TLS, budgets, backups, consistency rules). Nothing in Phase 2 starts until H1–H16 are done. H15–H16 (UI foundations) are specified in [07-ux.md](07-ux.md).
 
 Task IDs match [`docs/implementation-plan.md`](../implementation-plan.md), which holds the acceptance criteria.
 
@@ -118,8 +118,9 @@ CSP (H3) is the backstop: even a missed component can't load a remote image.
 | Change | Detail |
 |---|---|
 | CHECK constraints | `users.role in ('admin','member')`; every `visibility in ('private','public')`; `projects.status in ('new','queued','running','ready','failed')`; `projects.host in ('gitlab','gerrit')`; `documents.source_type in ('upload','wiki','episode','code','repo_doc')`; `chat_sessions.source in ('chat','claude-code','run','job')`; `tool_calls.status in ('started','done','failed','imported')` |
-| `users` | `timezone text not null default 'Europe/Stockholm'` (validated against `zoneinfo.available_timezones()`), `last_login_at timestamptz`, `email_notifications bool not null default true`, `llm_budget_usd numeric(10,2)` (null = default from `MWB_DEFAULT_USER_BUDGET_USD`) |
+| `users` | `timezone text not null default 'Europe/Stockholm'` (validated against `zoneinfo.available_timezones()`), `last_login_at timestamptz`, `email_notifications bool not null default true`, `llm_budget_usd numeric(10,2)` (null = default from `MWB_DEFAULT_USER_BUDGET_USD`), `must_change_password bool not null default false` (set when an admin creates a user or resets a password; the UI forces a change after sign-in, H11) |
 | `wiki_pages` | `status text not null default 'ok' check (status in ('ok','missing'))` (H7 reconcile) |
+| `projects` | `progress text` — short human-readable step during ingest ("Summarising 42 of 150 files"), cleared when done (07-ux §4.6) |
 | `auth_sessions` | `last_seen_at timestamptz not null default now()`, `ip text`, `user_agent text` |
 | `chunks` | `content_hash char(64)` (sha256 of embed text), `embed_model text`, `embed_attempts smallint not null default 0`, `embed_error text`; partial index `chunks_missing_embedding on chunks (id) where embedding is null` |
 | `documents` | uploads use `source_ref = 'upload:<uuid>'` from now on; existing rows keep their ref |
@@ -141,7 +142,7 @@ Pin `procrastinate==<exact>` in `pyproject.toml`. Bumping it later follows 06-op
 | `MWB_DEFAULT_TIMEZONE` is a valid IANA zone | explicit message |
 | `/data` writable, ≥ 5 % free | explicit message |
 
-**Error format** (rule R12): `app/errors.py` defines `class AppError(HTTPException)` with `code`, and an exception handler that renders `{"detail", "code"}` for `AppError`, `HTTPException` (code = `http_<status>`) and validation errors (`code = "validation_error"`, `detail` = first message, `errors` = list). Initial codes: `not_signed_in`, `csrf_invalid`, `rate_limited`, `forbidden`, `not_found`, `conflict`, `wiki_conflict`, `session_busy`, `budget_exceeded`, `llm_unavailable`, `unsupported_file`, `file_too_large`, `credential_invalid`, `validation_error`.
+**Error format** (rule R12): `app/errors.py` defines `class AppError(HTTPException)` with `code`, and an exception handler that renders `{"detail", "code"}` for `AppError`, `HTTPException` (code = `http_<status>`) and validation errors (`code = "validation_error"`, `detail` = first message, `errors` = list). Initial codes: `not_signed_in`, `csrf_invalid`, `rate_limited`, `forbidden`, `not_found`, `conflict`, `wiki_conflict`, `session_busy`, `budget_exceeded`, `llm_unavailable`, `unsupported_file`, `file_too_large`, `credential_invalid`, `password_change_required`, `validation_error`.
 
 ## H6. Transaction discipline (rule R1)
 
@@ -226,6 +227,10 @@ Task `wiki_reconcile` (queue `default`, `lock="wiki_reconcile"`), periodic night
 
 Results are written to `system_state['wiki_reconcile']`.
 
+### Page versions
+
+`GET /api/wiki/pages/{id}/versions/{sha}` returns `{"content", "sha"}` for the page path at that commit (`git show <sha>:<path>`, same visibility rules as history). The librarian review screen uses it to revert a change (07-ux §4.5).
+
 ### History across publish
 
 Publish/unpublish commits carry a trailer `Moved-From: <repo-relative-dir>@<sha>`. `GET /api/wiki/pages/{id}/history` follows one hop: if the oldest commit for the path has a `Moved-From` trailer, it appends the history from that repo up to that sha. Only the page owner sees private-repo history; other viewers see public history only.
@@ -262,6 +267,7 @@ Users protect hand-written content with `<!-- mwb:keep -->` blocks. The wiki edi
 | Clone | Keep `--depth 300 --single-branch`; add `--no-tags` and `-c core.symlinks=false` on checkout (symlinks become plain files containing the target path, which `_read` already skips by size/kind). |
 | Uploads | New uploads always create a new document (`upload:<uuid>`). The UI offers "Replace" on an existing document, which posts to `PUT /api/knowledge/documents/{id}/file` and keeps the id and visibility. |
 | Transcripts | Read up to limit + 1 byte; if over `MWB_TRANSCRIPT_MAX_MB` (default 50), that file's result is `failed` with `file_too_large`. |
+| Progress | Ingest updates `projects.progress` at each step (cloning, parsing, summarising N of M, indexing, writing card) in its own tiny transaction, at most once per 2 s. |
 | Re-ingest trigger | Unchanged (manual or HEAD change). Phase 2 adds a nightly `projects_refresh` that re-ingests projects whose remote HEAD moved (`git ls-remote`, no clone). |
 
 ## H10. Search quality
@@ -296,6 +302,8 @@ Successful login clears only the `u|ip` key. Response for any limit: `429 rate_l
 **Maintenance task** `maintenance_hourly` (periodic): delete `login_attempts` older than 1 day, delete expired or idle sessions, delete Procrastinate jobs finished > 30 days ago, delete audit rows > 400 days, prune `/data/tmp`.
 
 **Secrets.** `MWB_SECRET_KEYS` is a comma-separated list; the first key encrypts, all keys decrypt (`MultiFernet`). `MWB_SECRET_KEY` (single) is still accepted. `mwb rotate-secrets` re-encrypts every row with the first key. A row that no key can decrypt is reported as `status: "unreadable"` in the Settings list (not a 500), and using it raises `credential_invalid` with "Re-enter your token in Settings".
+
+**Initial passwords.** When an admin creates a user or resets a password, the API generates a random 16-character password, returns it once, and sets `must_change_password`. While that flag is set, every endpoint except `GET /api/auth/me`, `POST /api/auth/password` and `POST /api/auth/logout` returns `403 password_change_required`, and the UI shows the change-password screen.
 
 **CLI additions:** `mwb reset-password --username`, `mwb list-users`, `mwb rotate-secrets`, `mwb wiki-reconcile`, `mwb reembed`.
 

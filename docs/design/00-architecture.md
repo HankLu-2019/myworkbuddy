@@ -12,6 +12,7 @@ Read this first. Every other design document assumes the requirements, topology,
 | [04-execution.md](04-execution.md) | Phase 4: sandbox, runner, coding jobs, push gate |
 | [05-security.md](05-security.md) | Threat model and security controls |
 | [06-operations.md](06-operations.md) | Deploy, configure, back up, restore, upgrade, troubleshoot |
+| [07-ux.md](07-ux.md) | Navigation, every page, cross-page flows, shared UI behaviour, accessibility, design system |
 
 ## 1. Requirements
 
