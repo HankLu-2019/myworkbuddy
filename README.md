@@ -10,7 +10,7 @@ A self-hosted web workbench for a small engineering team, inspired by Tencent Wo
 
 ## Status
 
-**Phase 0 (foundation) and Phase 1 (knowledge & memory) are implemented. Phase H (hardening for production) is next**; the review found defects that must be fixed before production use (no TLS, no backups, Markdown image exfiltration, wiki git/DB drift). Phases 2–4 (schedules and connectors, Jira plans, sandboxed execution) are designed in detail and not started.
+**Phases 0, 1, H (hardening) and 2 (schedules & connectors) are built**; the manual release gates (deploy to the VM, real-Bedrock checklists, restore drill) are still to run. Phases 3–4 (Jira plans, sandboxed execution) are designed in detail.
 
 What works:
 
@@ -23,6 +23,8 @@ What works:
 - Repo ingestion for GitLab/Gerrit: tree-sitter code chunks (Python, Go), repo docs, and an LLM-written project card from the repo files and your own commits
 - Claude Code transcript import (`~/.claude/projects/*/*.jsonl`)
 - Memory: session summaries ("episodes") and a nightly librarian that folds them into your private wiki
+- Integrations (GitLab, Gerrit, Jira, Jenkins, Kubernetes, RSS/Atom feeds) managed by admins, with per-user write-only credentials that are tested before use
+- Schedules: Kubernetes health, CI failures, Jira digest and a morning brief run on cron in your timezone, report findings with verified fingerprints, and notify only when something changes (inbox and email); propose one from chat, investigate a run in chat
 
 Not yet verified against a real LLM: chat answers, project cards, episode summaries and the librarian have only been tested with stand-in models. They need AWS Bedrock credentials (or an OpenAI-compatible endpoint) in `.env`.
 
@@ -32,10 +34,10 @@ Not yet verified against a real LLM: chat answers, project cards, episode summar
 |---|---|
 | `web` | React + TypeScript (Vite) SPA; nginx in prod, Vite dev server with hot reload in dev |
 | `api` | FastAPI: auth, REST, SSE chat streaming; runs Alembic migrations on start |
-| `worker` | Procrastinate (Postgres-backed queue + cron): repo ingestion, episode sweep, nightly librarian, embedding backfill |
+| `worker` | Procrastinate (Postgres-backed queue + cron): repo ingestion, episode sweep, nightly librarian, embedding backfill, schedules, email |
 | `postgres` | ParadeDB image (Postgres 17 + pgvector + pg_search) |
 | `llm-gateway` | LiteLLM proxy: model aliases `chat`, `fast`, `embed` |
-| `mailpit` | Dev-only SMTP capture (for the email notifications planned in Phase 2) |
+| `mailpit` | Dev-only SMTP capture for email notifications |
 
 ## Quick start
 

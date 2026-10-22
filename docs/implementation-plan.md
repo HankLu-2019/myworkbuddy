@@ -9,8 +9,8 @@ Last revised 2026-10-21 after the [design review](review/2026-10-21-design-revie
 | 0 Foundation | Done (commit `e45c666`) |
 | 1 Knowledge & memory | Done (commit `e45c666`) |
 | H Hardening | Built (PRs #2–#17); the manual release gate on the VM is still to run |
-| **2 Schedules & connectors** | **In progress** ([02](design/02-schedules-connectors.md)): S1 done |
-| 3 Plans | Designed: [03](design/03-plans.md) |
+| 2 Schedules & connectors | Built (PRs #18–#25, [02](design/02-schedules-connectors.md)); the manual release gate is still to run |
+| **3 Plans** | **In progress**: [03](design/03-plans.md) |
 | 4 Execution | Designed: [04](design/04-execution.md) |
 | 5 Polish | Backlog below |
 
