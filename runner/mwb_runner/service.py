@@ -207,9 +207,14 @@ class Runner:
         proxy = self.proxy_container()
         if proxy is None:
             raise RuntimeError("Can't find the egress proxy container to reload its ACLs.")
-        code = self.ops.exec_in(proxy, ["squid", "-k", "reconfigure", "-f", "/etc/squid/squid.conf"])
+        # Check the config first: Squid exits on a bad one when it reloads. Then SIGHUP to Squid, which is the
+        # proxy container's PID 1 (`exec squid -N`), rather than `squid -k reconfigure`, which needs a PID file
+        # that Squid 5 doesn't write in no-daemon mode.
+        code, out = self.ops.exec_in(proxy, ["squid", "-k", "parse", "-f", "/etc/squid/squid.conf"])
         if code != 0:
-            raise RuntimeError(f"squid -k reconfigure exited {code}")
+            errors = [ln for ln in out.splitlines() if "FATAL" in ln or "ERROR" in ln][-3:]
+            raise RuntimeError(f"Squid rejected the run's ACL (exit {code}): {' / '.join(errors) or out[-300:]}")
+        self.ops.signal(proxy, "HUP")
         time.sleep(self.s.reconfigure_wait_s)  # Squid applies the new config asynchronously
 
     # ---------- orphans and timeouts (04 §4) ----------

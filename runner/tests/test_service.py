@@ -81,13 +81,14 @@ def test_a_run_gets_its_own_address_and_proxy_acl(setup) -> None:
     assert f"acl mwbrun_{first} src 172.31.0.10/32" in acl and "dstdomain github.com" in acl
     assert f"http_access allow agent_port mwbrun_{first} mwbrun_{first}_hosts" in acl
     assert not (jobs_dir / f"run-{second}.conf").exists()
-    assert ops.execs == [("proxy1", ["squid", "-k", "reconfigure", "-f", "/etc/squid/squid.conf"])]
+    assert ops.execs == [("proxy1", ["squid", "-k", "parse", "-f", "/etc/squid/squid.conf"])]
+    assert ops.signals == [("proxy1", "HUP")]
 
     assert runner.run_status(first)["state"] == "running"
     runner.kill_run(first)
     status = runner.run_status(first)
     assert status["state"] == "killed" and status["exit_code"] == 137
-    assert not (jobs_dir / f"run-{first}.conf").exists() and len(ops.execs) == 2
+    assert not (jobs_dir / f"run-{first}.conf").exists() and len(ops.execs) == 2 and len(ops.signals) == 2
     with pytest.raises(NotFound):
         runner.run_status("not-a-run")
     with pytest.raises(NotFound):

@@ -14,6 +14,7 @@ class FakeOps:
         self.helpers: list[tuple[str, list[str], dict]] = []
         self.helper_result: tuple[int, bytes, bytes] = (0, b"diff --git a/x b/x\n", b"")
         self.execs: list[tuple[str, list[str]]] = []
+        self.signals: list[tuple[str, str]] = []
         self.proxies = [{"Id": "proxy1"}]
         self.alive = True
         self.runtimes = {"runc": {}}
@@ -68,9 +69,12 @@ class FakeOps:
     def logs(self, cid, *, follow):
         yield from self.logs_.get(cid, [])
 
-    def exec_in(self, container, command) -> int:
+    def exec_in(self, container, command) -> tuple[int, str]:
         self.execs.append((container, command))
-        return 0
+        return 0, ""
+
+    def signal(self, cid, sig) -> None:
+        self.signals.append((cid, sig))
 
     def network_ips(self, network) -> set[str]:
         ips = {"172.31.0.2"}

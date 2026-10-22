@@ -156,10 +156,15 @@ class DockerOps:
                 continue
             yield item
 
-    def exec_in(self, container: str, command: list[str]) -> int:
-        exec_id = self.api.exec_create(container, command)["Id"]
-        self.api.exec_start(exec_id)
-        return int(self.api.exec_inspect(exec_id).get("ExitCode") or 0)
+    def exec_in(self, container: str, command: list[str]) -> tuple[int, str]:
+        """Run a command in a container; its exit code and the tail of its output."""
+        exec_id = self.api.exec_create(container, command, stdout=True, stderr=True)["Id"]
+        out = self.api.exec_start(exec_id) or b""
+        text = out.decode(errors="replace") if isinstance(out, bytes) else str(out)
+        return int(self.api.exec_inspect(exec_id).get("ExitCode") or 0), text[-2000:]
+
+    def signal(self, cid: str, sig: str) -> None:
+        self.api.kill(cid, signal=sig)
 
     def network_ips(self, network: str) -> set[str]:
         try:
