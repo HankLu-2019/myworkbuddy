@@ -43,6 +43,8 @@ _root: Path | None = None
 STATE: dict[str, Any] = {
     "mrs": [], "comments": {}, "posts": {"mr": 0, "comment": 0}, "merge": {}, "gerrit": {},
     "fail": {},  # endpoint name → how many more calls answer 503 (`POST /fake/fail/{name}?times=n`)
+    "pipelines": [],  # merge request pipelines (`POST /fake/pipeline`)
+    "gerrit_ci": {},  # change number → {"verified": -1|1, "message": str}
 }  # fmt: skip
 
 
@@ -144,6 +146,64 @@ def _mr_out(mr: dict[str, Any]) -> dict[str, Any]:
     return {**mr, "state": state}
 
 
+@router.get("/api/v4/projects/{pid:path}/merge_requests/{iid}/pipelines")
+async def gitlab_mr_pipelines(pid: str, iid: int, request: Request) -> JSONResponse:
+    if not _gitlab_ok(request):
+        return JSONResponse({"message": "401 Unauthorized"}, status_code=401)
+    mine = [p for p in STATE["pipelines"] if p["mr_iid"] == iid]
+    return JSONResponse([{k: p[k] for k in ("id", "sha", "status", "web_url")} for p in reversed(mine)])
+
+
+@router.get("/api/v4/projects/{pid:path}/pipelines/{pipeline_id}/jobs")
+async def gitlab_pipeline_jobs(pid: str, pipeline_id: int, request: Request) -> JSONResponse:
+    if not _gitlab_ok(request):
+        return JSONResponse({"message": "401 Unauthorized"}, status_code=401)
+    scope = request.query_params.getlist("scope[]")
+    for p in STATE["pipelines"]:
+        if p["id"] == pipeline_id:
+            jobs = [j for j in p["jobs"] if not scope or j["status"] in scope]
+            return JSONResponse([{k: v for k, v in j.items() if k != "log"} for j in jobs])
+    return JSONResponse({"message": "404 Not found"}, status_code=404)
+
+
+@router.get("/api/v4/projects/{pid:path}/jobs/{job_id}/trace")
+async def gitlab_job_trace(pid: str, job_id: int, request: Request) -> Response:
+    if not _gitlab_ok(request):
+        return JSONResponse({"message": "401 Unauthorized"}, status_code=401)
+    for p in STATE["pipelines"]:
+        for j in p["jobs"]:
+            if j["id"] == job_id:
+                return PlainTextResponse(j["log"])
+    return JSONResponse({"message": "404 Not found"}, status_code=404)
+
+
+@router.post("/fake/pipeline")
+async def fake_pipeline(request: Request) -> JSONResponse:
+    """A pipeline on a merge request: `{mr_iid, status, sha?, jobs: [{name, stage, status, log}]}`. The sha defaults
+    to the head of the MR's source branch."""
+    body = await request.json()
+    mr = next(m for m in STATE["mrs"] if m["iid"] == body["mr_iid"])
+    sha = body.get("sha") or subprocess.run(
+        ["git", "rev-parse", f"refs/heads/{mr['source_branch']}"], cwd=git_root() / "team" / "payments.git",
+        capture_output=True, text=True,
+    ).stdout.strip()  # fmt: skip
+    pid = 100 + len(STATE["pipelines"])
+    jobs = [{"id": pid * 10 + n, "name": j["name"], "stage": j.get("stage", "test"), "status": j["status"],
+             "web_url": f"{str(request.base_url).rstrip('/')}/jobs/{pid * 10 + n}", "log": j.get("log", "")}
+            for n, j in enumerate(body.get("jobs", []))]  # fmt: skip
+    url = f"{str(request.base_url).rstrip('/')}/pipelines/{pid}"
+    STATE["pipelines"].append({"id": pid, "mr_iid": mr["iid"], "sha": sha, "status": body["status"], "web_url": url,
+                               "jobs": jobs})  # fmt: skip
+    return JSONResponse({"id": pid, "sha": sha})
+
+
+@router.post("/fake/gerrit-ci/{number}")
+async def fake_gerrit_ci(number: int, request: Request) -> JSONResponse:
+    """A CI vote on a Gerrit change: `{verified: -1|1, message}`."""
+    STATE["gerrit_ci"][number] = await request.json()
+    return JSONResponse({"_number": number})
+
+
 @router.get("/api/v4/projects/{pid:path}/merge_requests/{iid}")
 async def gitlab_mr(pid: str, iid: int, request: Request) -> JSONResponse:
     if not _gitlab_ok(request):
@@ -215,7 +275,13 @@ async def gerrit_change(number: int) -> PlainTextResponse:
     import json
 
     status = STATE["gerrit"].get(number, "NEW")
-    return PlainTextResponse(")]}'\n" + json.dumps({"project": "team/payments", "_number": number, "status": status}))
+    change: dict[str, Any] = {"project": "team/payments", "_number": number, "status": status}
+    if vote := STATE["gerrit_ci"].get(number):
+        key = "rejected" if vote["verified"] < 0 else "approved"
+        change["labels"] = {"Verified": {key: {"name": "CI"}}}
+        sign = "-1" if vote["verified"] < 0 else "+1"
+        change["messages"] = [{"_revision_number": 1, "message": f"Patch Set 1: Verified{sign}\n\n{vote['message']}"}]
+    return PlainTextResponse(")]}'\n" + json.dumps(change))
 
 
 @router.post("/fake/gerrit/{number}")
@@ -235,7 +301,8 @@ async def fake_state() -> JSONResponse:
 
 @router.post("/fake/reset")
 async def fake_reset() -> JSONResponse:
-    STATE.update(mrs=[], comments={}, posts={"mr": 0, "comment": 0}, merge={}, gerrit={}, fail={})
+    STATE.update(mrs=[], comments={}, posts={"mr": 0, "comment": 0}, merge={}, gerrit={}, fail={}, pipelines=[],
+                 gerrit_ci={})  # fmt: skip
     repo = git_root() / "team" / "payments.git"
     refs = subprocess.run(["git", "for-each-ref", "--format=%(refname)"], cwd=repo, capture_output=True,
                           text=True).stdout.split()  # fmt: skip

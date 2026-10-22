@@ -207,6 +207,14 @@ export interface JobPush {
   mr_url?: string;
   change_url?: string;
   jira_comment_url?: string;
+  /** The pushed commit's CI (08 §F1). */
+  pipeline?: {
+    sha: string;
+    status: "running" | "passed" | "failed" | "canceled";
+    url: string | null;
+    failed: { name: string | null; id: number | null; stage: string | null; url: string | null; message?: string }[];
+    checked_at: string;
+  };
   /** Set when a push failed and the job went back to review (08 §F5). */
   error?: { code: string; message: string; at: string };
 }

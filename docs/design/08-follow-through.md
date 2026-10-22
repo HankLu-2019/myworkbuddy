@@ -43,6 +43,13 @@ The client never sends log text; the server fetches it. The 5-round cap applies.
 - A passed pipeline shows as passed. Gerrit `Verified -1` is shown with its message.
 - Fix CI failure is refused without a failed pipeline, and after 5 rounds.
 
+*Changed while building F1:*
+- Each log goes into `feedback.md` as a fenced JSON block from `untrusted.wrap()` (`source: "ci:<job>"`), under a header that repeats the untrusted notice. Claude Code's own system prompt isn't ours, so the notice travels with the data.
+- A Gerrit failure with no matching Jenkins integration uses the CI message itself as the log.
+- The Gerrit change number comes from `push.change_number` or the change URL.
+- Home gains a "The pipeline for PROJ-123 failed" card (`pipeline_failed`, action "Fix CI failure").
+- `jobs_track` runs every 10 minutes.
+
 ## F2. Address review comments
 
 **Why:** reviewers' comments are the other half of getting a merge request merged.

@@ -12,6 +12,7 @@ transaction that re-checks the status it read (a transition from the expected st
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from urllib.parse import quote
 
 from sqlalchemy import delete, select
@@ -22,7 +23,7 @@ from app.db import get_sessionmaker
 from app.enums import JobStatus
 from app.inbox.service import add_item
 from app.integrations.service import get_credentials
-from app.jobs import artifacts, keys
+from app.jobs import artifacts, ci, keys
 from app.jobs.push import _gitlab_project, change_id
 from app.jobs.state import ACTIVE, TERMINAL, transition_in
 from app.knowledge.ingest.repos import project_integration
@@ -42,7 +43,8 @@ async def _review_state(job: Job, conn: Connection, project: Project) -> str | N
     """'merged', 'closed' or None (still open) for the job's merge request or Gerrit change."""
     push = job.push or {}
     if project.host == "gerrit":
-        q = f"/a/changes/{quote(str(push['change_number']))}" if push.get("change_number") else None
+        number = ci.change_number(push)
+        q = f"/a/changes/{quote(str(number))}" if number else None
         if q:
             change = await call_json(conn, "GET", q)
         else:
@@ -59,7 +61,7 @@ async def _review_state(job: Job, conn: Connection, project: Project) -> str | N
 
 
 async def track_pushed() -> dict[str, int]:
-    counts = {"checked": 0, "merged": 0, "closed": 0, "errors": 0}
+    counts = {"checked": 0, "merged": 0, "closed": 0, "pipelines_failed": 0, "errors": 0}
     async with get_sessionmaker()() as db:
         jobs = list(await db.scalars(select(Job).where(Job.status == S.pushed).order_by(Job.updated_at)))
         targets: list[tuple[Job, Project, Connection]] = []
@@ -78,8 +80,11 @@ async def track_pushed() -> dict[str, int]:
         await db.commit()
     for job, project, conn in targets:
         counts["checked"] += 1
+        pipeline = None
         try:
             outcome = await _review_state(job, conn, project)  # network: nothing open
+            if outcome is None:
+                pipeline = await ci.pipeline_state(job, conn, project)
         except ConnectorError as exc:
             counts["errors"] += 1
             log.warning("jobs_track.failed", job_id=str(job.id), code=exc.code)
@@ -87,6 +92,8 @@ async def track_pushed() -> dict[str, int]:
         finally:
             await conn.close()
         if outcome is None:
+            if pipeline is not None and await _save_pipeline(job, pipeline):
+                counts["pipelines_failed"] += 1
             continue
         new = S.merged if outcome == "merged" else S.closed
         async with get_sessionmaker()() as db:
@@ -105,6 +112,33 @@ async def track_pushed() -> dict[str, int]:
             await db.commit()
     log.info("jobs_track.done", **counts)
     return counts
+
+
+async def _save_pipeline(job: Job, pipeline: dict[str, Any]) -> bool:
+    """Store the pushed commit's pipeline (08 §F1); True when it newly failed (one inbox item per sha)."""
+    async with get_sessionmaker()() as db:
+        fresh = await db.scalar(select(Job).where(Job.id == job.id).with_for_update())
+        push = dict(fresh.push or {}) if fresh is not None else {}
+        if fresh is None or fresh.status != S.pushed or push.get("pushed_sha") != pipeline["sha"]:
+            await db.commit()
+            return False  # moved on meanwhile
+        before = push.get("pipeline") or {}
+        newly_failed = pipeline["status"] == "failed" and before.get("notified_sha") != pipeline["sha"]
+        stored = {**pipeline, "checked_at": datetime.now(UTC).isoformat(),
+                  "notified_sha": pipeline["sha"] if newly_failed else before.get("notified_sha")}  # fmt: skip
+        if {k: v for k, v in stored.items() if k != "checked_at"} != {
+            k: v for k, v in before.items() if k != "checked_at"
+        }:
+            fresh.push = {**push, "pipeline": stored}
+        if newly_failed:
+            key = await _key_of(db, fresh)
+            names = ", ".join(f.get("name") or "CI" for f in pipeline.get("failed") or []) or "CI"
+            add_item(db, fresh.owner_id, kind="job", severity="warning",
+                     title=f"{key}: the pipeline failed ({names})"[:200],
+                     body_md="Open the job to fix it with **Fix CI failure**.",
+                     link=f"/work/{fresh.work_item_id}/job")  # fmt: skip
+        await db.commit()
+        return newly_failed
 
 
 async def cleanup(now: datetime | None = None) -> dict[str, int]:

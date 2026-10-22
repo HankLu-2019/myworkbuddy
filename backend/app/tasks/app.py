@@ -354,10 +354,10 @@ async def draft_plan_task(plan_id: str, feedback: str | None = None) -> None:
     await draft_plan(uuid.UUID(plan_id), feedback)
 
 
-@app.periodic(cron="23 * * * *")
+@app.periodic(cron="*/10 * * * *")
 @app.task(name="jobs_track", queueing_lock="jobs_track", lock="jobs_track")
 async def jobs_track(timestamp: int) -> dict[str, int]:
-    """Hourly: merged or closed review requests of pushed jobs (04 §6 Tracking)."""
+    """Every 10 minutes: merged or closed review requests and failed pipelines of pushed jobs (04 §6, 08 §F1)."""
     from app.jobs.track import track_pushed
 
     return await track_pushed()
