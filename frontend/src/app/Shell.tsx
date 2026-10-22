@@ -6,6 +6,7 @@ import {
   Hammer,
   ArrowLeft,
   CalendarClock,
+  ChartColumn,
   KanbanSquare,
   Inbox,
   Database,
@@ -137,6 +138,7 @@ export default function Shell() {
           icon: <Hammer size={18} aria-hidden />,
           badge: badges.jobs ? <CountBadge count={badges.jobs} label="running" /> : undefined,
         },
+        { to: "/insights", label: "Insights", icon: <ChartColumn size={18} aria-hidden /> },
       ],
     },
     {

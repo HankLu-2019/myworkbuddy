@@ -582,6 +582,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/insights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Insights */
+        get: operations["get_insights_api_insights_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/insights/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Options */
+        get: operations["get_options_api_insights_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/integrations": {
         parameters: {
             query?: never;
@@ -1941,6 +1975,15 @@ export interface components {
             /** File */
             file: string;
         };
+        /** Bucket */
+        Bucket: {
+            /** Jobs */
+            jobs: number;
+            /** Label */
+            label: string;
+            /** Value */
+            value: number;
+        };
         /** ChangesIn */
         ChangesIn: {
             /**
@@ -2101,6 +2144,17 @@ export interface components {
             /** Text */
             text: string;
         };
+        /** Cost */
+        Cost: {
+            /** Jobs Usd */
+            jobs_usd: number;
+            /** Per Merged Usd */
+            per_merged_usd: number | null;
+            /** Planning Usd */
+            planning_usd: number;
+            /** Total Usd */
+            total_usd: number;
+        };
         /** CredentialIn */
         CredentialIn: {
             /** Value */
@@ -2168,6 +2222,13 @@ export interface components {
             from_revision: number;
             /** To Revision */
             to_revision: number;
+        };
+        /** Distribution */
+        Distribution: {
+            /** Distribution */
+            distribution: components["schemas"]["Bucket"][];
+            /** Mean */
+            mean: number | null;
         };
         /** DocumentOut */
         DocumentOut: {
@@ -2371,6 +2432,49 @@ export interface components {
             items: components["schemas"]["InboxItemOut"][];
             /** Next Cursor */
             next_cursor: string | null;
+        };
+        /** InsightsOptions */
+        InsightsOptions: {
+            /** Issue Types */
+            issue_types: string[];
+            /** Projects */
+            projects: components["schemas"]["ProjectOption"][];
+        };
+        /** InsightsOut */
+        InsightsOut: {
+            attempts: components["schemas"]["Distribution"];
+            cost: components["schemas"]["Cost"];
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /** Jobs */
+            jobs: number;
+            /** Median Minutes Push To Merge */
+            median_minutes_push_to_merge: number | null;
+            /** Median Minutes To Review */
+            median_minutes_to_review: number | null;
+            /** Merged */
+            merged: number;
+            /** Outcomes */
+            outcomes: components["schemas"]["OutcomeRow"][];
+            plan_revisions: components["schemas"]["Distribution"];
+            review_rounds: components["schemas"]["Distribution"];
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "me" | "all";
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /** Timezone */
+            timezone: string;
+            /** Weeks */
+            weeks: components["schemas"]["Week"][];
         };
         /** IntegrationCreate */
         IntegrationCreate: {
@@ -2707,6 +2811,20 @@ export interface components {
             /** Transfer To */
             transfer_to: number;
         };
+        /** OutcomeRow */
+        OutcomeRow: {
+            /** Cost Usd */
+            cost_usd: number;
+            /** Error Code */
+            error_code: string | null;
+            /** Jobs */
+            jobs: number;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "merged" | "closed" | "discarded" | "failed" | "timed_out" | "budget_exceeded" | "cancelled" | "in_progress";
+        };
         /** PageCreate */
         PageCreate: {
             /** Content */
@@ -2979,6 +3097,13 @@ export interface components {
              * @enum {string}
              */
             visibility: "private" | "public";
+        };
+        /** ProjectOption */
+        ProjectOption: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
         };
         /** ProjectOut */
         ProjectOut: {
@@ -3849,6 +3974,24 @@ export interface components {
              * @enum {string}
              */
             visibility: "private" | "public";
+        };
+        /** Week */
+        Week: {
+            /** Cost Usd */
+            cost_usd: number;
+            /** Job Cost Usd */
+            job_cost_usd: number;
+            /** Jobs */
+            jobs: number;
+            /** Merged */
+            merged: number;
+            /** Planning Cost Usd */
+            planning_cost_usd: number;
+            /**
+             * Week Start
+             * Format: date
+             */
+            week_start: string;
         };
         /** WorkItemDetail */
         WorkItemDetail: {
@@ -5194,6 +5337,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InboxItemOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_insights_api_insights_get: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+                scope?: "me" | "all";
+                project_id?: number | null;
+                issue_type?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InsightsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_options_api_insights_options_get: {
+        parameters: {
+            query?: {
+                scope?: "me" | "all";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InsightsOptions"];
                 };
             };
             /** @description Validation Error */

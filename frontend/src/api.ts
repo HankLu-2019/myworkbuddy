@@ -329,6 +329,8 @@ export interface TicketDraft {
   repository_id: number | null;
 }
 
+export type Insights = Schemas["InsightsOut"];
+export type InsightsOptions = Schemas["InsightsOptions"];
 export type NotifyChannel = Schemas["ChannelOut"];
 export type NotifyChannelIn = Schemas["ChannelIn"];
 export type ChannelTestResult = Schemas["ChannelTestResult"];

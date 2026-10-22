@@ -16,6 +16,7 @@
   --accent: #1f5fae;
   --accent-fg: #ffffff;
   --accent-soft: #e5eef9;
+  --chart-1: #1f5fae; /* single-series marks; validated against --surface (dataviz) */
   --danger: #a8322b;
   --danger-soft: #f9e5e3;
   --code-bg: #eef2f6;
@@ -88,6 +89,8 @@
     --accent: #7fb0ee;
     --accent-fg: #0c1116;
     --accent-soft: #1b2b40;
+  --chart-1: #5b93dc;
+    --chart-1: #5b93dc;
     --danger: #f09088;
     --danger-soft: #3a1c1a;
     --code-bg: #0d1218;
@@ -516,3 +519,24 @@ td.num, th.num { font-variant-numeric: tabular-nums; text-align: right; }
   .board-column:not([data-active]) { display: none; }
   .decision-bar { position: static; }
 }
+
+/* Charts (08 §F9): one series, thin marks from one baseline, values in text ink, a table view for each. */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--s-3); }
+.stat-tile { display: flex; flex-direction: column; gap: 2px; }
+.stat-tile .stat-label { color: var(--muted); font-size: 0.875rem; }
+.stat-tile .stat-value { font-size: 1.5rem; font-weight: 600; font-variant-numeric: proportional-nums; }
+.stat-tile .stat-hint { color: var(--muted); font-size: 0.8125rem; }
+.chart-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-2); }
+.chart-head h3 { margin: 0; font-size: 1rem; }
+.bars { display: grid; grid-template-columns: minmax(80px, max-content) minmax(0, 1fr); gap: 6px var(--s-2); align-items: center; margin: var(--s-2) 0 0; }
+.bars dt { color: var(--fg); font-size: 0.875rem; overflow-wrap: anywhere; }
+.bars dd { margin: 0; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.bar { height: 16px; max-width: calc(100% - 4.5rem); background: var(--chart-1); border-radius: 0 4px 4px 0; min-width: 2px; }
+.bar-value { color: var(--muted); font-size: 0.8125rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.columns { display: flex; align-items: flex-end; gap: 2px; height: 160px; border-bottom: 1px solid var(--line); margin-top: var(--s-3); padding-top: 1.25rem; }
+.column { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; min-width: 0; }
+.column-bar { width: min(24px, 70%); background: var(--chart-1); border-radius: 4px 4px 0 0; min-height: 1px; }
+.column-cap { color: var(--muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; white-space: nowrap; margin-bottom: 2px; }
+.column-labels { display: flex; gap: 2px; }
+.column-labels span { flex: 1 1 0; text-align: center; color: var(--muted); font-size: 0.75rem; min-width: 0; overflow-wrap: anywhere; }
+@media (forced-colors: active) { .bar, .column-bar { background: CanvasText; } }

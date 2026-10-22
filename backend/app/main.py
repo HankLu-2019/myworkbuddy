@@ -16,6 +16,7 @@ from app.db import get_engine
 from app.home.routes import router as home_router
 from app.inbox.channels import router as channels_router
 from app.inbox.routes import router as inbox_router
+from app.insights.routes import router as insights_router
 from app.integrations.routes import router as integrations_router
 from app.jobs.routes import router as jobs_router
 from app.knowledge.routes import router as knowledge_router
@@ -81,6 +82,7 @@ for r in (
     schedules_router,
     inbox_router,
     channels_router,
+    insights_router,
     plans_router,
     jobs_router,
 ):
