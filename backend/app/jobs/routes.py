@@ -9,17 +9,18 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Header, Query, Request, status
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app import pagination
 from app.config import get_settings
 from app.db import get_sessionmaker
 from app.deps import DB, CurrentAuth
+from app.enums import JobStatus as S
 from app.errors import AppError
-from app.jobs.state import ACTIVE, WORKING
-from app.models import JiraIssue, Job, JobEvent, User, WorkItem
+from app.jobs.state import ACTIVE, WORKING, transition_in
+from app.models import Artifact, JiraIssue, Job, JobEvent, User, WorkItem
 
 router = APIRouter(tags=["jobs"])
 
@@ -192,6 +193,133 @@ async def job_events(
     return StreamingResponse(
         stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     )
+
+
+# ---------- actions (04 §5.5, §8) ----------
+
+
+class ChangesIn(BaseModel):
+    feedback: str = Field(min_length=1, max_length=4000)
+
+
+MAX_REVIEW_ROUNDS = 5
+
+
+async def _job_or_404(db: DB, job_id: uuid.UUID, user: User) -> Job:
+    return (await owned_job(db, job_id, user))[0]
+
+
+@router.post("/api/jobs/{job_id}/cancel", response_model=JobOut)
+async def cancel_job(job_id: uuid.UUID, auth: CurrentAuth, db: DB, request: Request) -> JobOut:
+    """Stop a job that's still working: kill its run, remove its workspace and key."""
+    from app.deps import client_ip
+    from app.jobs.pipeline import cleanup
+    from app.jobs.runner_client import kill_run
+
+    job = await _job_or_404(db, job_id, auth.user)
+    run_id = job.current_run
+    moved = await transition_in(
+        db, job.id, [S.created, S.preparing, S.running, S.verifying], S.cancelled, actor_id=auth.user.id,
+        ip=client_ip(request), error_code="cancelled", error="Cancelled by its owner.", current_run=None,
+    )  # fmt: skip
+    if moved is None:
+        raise AppError(
+            status.HTTP_409_CONFLICT, "conflict", f"A job that is {job.status.replace('_', ' ')} can't be cancelled."
+        )
+    await db.commit()
+    if run_id:
+        try:
+            await kill_run(run_id, remove=True)  # no transaction open (R1)
+        except Exception:  # noqa: BLE001 - the runner's sweep removes it anyway
+            pass
+    await cleanup(job.id)
+    return job_out(*await owned_job(db, job_id, auth.user))
+
+
+@router.post("/api/jobs/{job_id}/request-changes", response_model=JobOut)
+async def request_changes(job_id: uuid.UUID, body: ChangesIn, auth: CurrentAuth, db: DB, request: Request) -> JobOut:
+    """Another round: the feedback goes to the agent as .mwb/feedback.md (04 §5.5)."""
+    from app.deps import client_ip
+    from app.jobs import runner_client
+    from app.jobs.pipeline import defer_advance, overlay
+    from app.jobs.task_files import prompt_md, review_feedback_md
+
+    job = await _job_or_404(db, job_id, auth.user)
+    if job.status != S.awaiting_review:
+        raise AppError(status.HTTP_409_CONFLICT, "conflict", "Changes can be requested while the job waits for review.")
+    if job.review_round >= MAX_REVIEW_ROUNDS:
+        raise AppError(
+            status.HTTP_409_CONFLICT,
+            "conflict",
+            f"This job has had {MAX_REVIEW_ROUNDS} review rounds; start a new job.",
+        )
+    await db.commit()
+    files = {
+        ".mwb/feedback.md": review_feedback_md(body.feedback),
+        ".mwb/prompt.md": prompt_md(retry=False, review_feedback=True),
+    }
+    try:
+        await runner_client.put_content(job.id, overlay(files))  # network: nothing open (R1)
+    except runner_client.RunnerError as exc:
+        raise AppError(
+            status.HTTP_502_BAD_GATEWAY, "internal", f"The sandbox couldn't take the feedback: {exc.message}"
+        ) from None
+    moved = await transition_in(
+        db, job.id, S.awaiting_review, S.running, actor_id=auth.user.id, ip=client_ip(request),
+        review_round=job.review_round + 1, attempt=1, result=None, current_run=None,
+        detail={"note": f"Changes requested (round {job.review_round + 1}).", "feedback_chars": len(body.feedback)},
+    )  # fmt: skip
+    if moved is None:
+        raise AppError(status.HTTP_409_CONFLICT, "plan_changed", "The job changed meanwhile. Reload.")
+    await db.commit()
+    await defer_advance(job.id)
+    return job_out(*await owned_job(db, job_id, auth.user))
+
+
+@router.post("/api/jobs/{job_id}/discard", response_model=JobOut)
+async def discard_job(job_id: uuid.UUID, auth: CurrentAuth, db: DB, request: Request) -> JobOut:
+    """Throw the result away: workspace and key go, the ticket is back to approved."""
+    from app.deps import client_ip
+    from app.jobs.pipeline import cleanup
+
+    job = await _job_or_404(db, job_id, auth.user)
+    moved = await transition_in(
+        db, job.id, S.awaiting_review, S.discarded, actor_id=auth.user.id, ip=client_ip(request)
+    )
+    if moved is None:
+        raise AppError(status.HTTP_409_CONFLICT, "conflict", "Only a job waiting for review can be discarded.")
+    await db.commit()
+    await cleanup(job.id)
+    return job_out(*await owned_job(db, job_id, auth.user))
+
+
+def _artifact_response(art: Artifact, filename: str | None = None) -> Response:
+    from app.jobs.artifacts import path_of
+
+    path = path_of(art)
+    if not path.is_file():
+        raise AppError(status.HTTP_404_NOT_FOUND, "not_found", "That file is no longer kept.")
+    name = filename or art.key.rsplit("/", 1)[-1]
+    headers = {"Content-Disposition": f'inline; filename="{name}"', "X-Content-Type-Options": "nosniff"}
+    return Response(path.read_bytes(), media_type=art.mime, headers=headers)
+
+
+@router.get("/api/jobs/{job_id}/patch")
+async def job_patch(job_id: uuid.UUID, auth: CurrentAuth, db: DB) -> Response:
+    job = await _job_or_404(db, job_id, auth.user)
+    art_id = (job.result or {}).get("patch_artifact_id")
+    art = await db.get(Artifact, uuid.UUID(art_id)) if art_id else None
+    if art is None:
+        raise AppError(status.HTTP_404_NOT_FOUND, "not_found", "This job has no patch yet.")
+    return _artifact_response(art, f"{job.branch_name.replace('/', '-')}.diff")
+
+
+@router.get("/api/artifacts/{artifact_id}")
+async def get_artifact(artifact_id: uuid.UUID, auth: CurrentAuth, db: DB) -> Response:
+    art = await db.get(Artifact, artifact_id)
+    if art is None or art.owner_id != auth.user.id:
+        raise AppError(status.HTTP_404_NOT_FOUND, "not_found", "File not found")
+    return _artifact_response(art)
 
 
 # ---------- internal (runner) ----------

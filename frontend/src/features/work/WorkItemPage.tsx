@@ -23,7 +23,11 @@ import {
 } from "../../components/ui";
 import { DraftPlanButton, useRepositories } from "./BoardPage";
 import PlanTab from "./PlanTab";
+import JobTab, { StartJobButton } from "./JobTab";
+import type { Job } from "../../api";
 import { COLUMN_LABEL, STEPS, nextAction, stepOf } from "./states";
+
+type Tab = "ticket" | "plan" | "job";
 
 function TicketTab({ item }: { item: WorkItemDetail }) {
   const qc = useQueryClient();
@@ -99,11 +103,12 @@ function TicketTab({ item }: { item: WorkItemDetail }) {
   );
 }
 
-function NextActionButton({ item, tab }: { item: WorkItemDetail; tab: "ticket" | "plan" }) {
+function NextActionButton({ item, tab }: { item: WorkItemDetail; tab: Tab }) {
   const action = nextAction(item);
   if (action.kind === "draft" || action.kind === "choose_repo") return <DraftPlanButton item={item} />;
+  if (action.kind === "start_job") return tab === "job" ? null : <StartJobButton item={item} />;
   if (action.kind === "wait") return <StatusPill status="drafting" label={action.label} />;
-  if (action.kind === "link" && !(tab === "plan" && action.to.endsWith("/plan")))
+  if (action.kind === "link" && !(tab === "plan" && action.to.endsWith("/plan")) && !(tab === "job" && action.to.endsWith("/job")))
     return (
       <Link to={action.to} className={buttonClass("primary")}>
         <span className="btn-label">{action.label}</span>
@@ -113,14 +118,14 @@ function NextActionButton({ item, tab }: { item: WorkItemDetail; tab: "ticket" |
 }
 
 /** The work item hub (07 §4.10): header with the progress strip and next action, tabs Ticket · Plan. */
-function Hub({ workId, tab }: { workId: string; tab: "ticket" | "plan" }) {
+function Hub({ workId, tab, jobId }: { workId: string; tab: Tab; jobId?: string }) {
   const item = useQuery({
     queryKey: ["work", "item", workId],
     queryFn: () => api<WorkItemDetail>(`/api/work-items/${workId}`),
-    refetchInterval: (q) => (q.state.data?.state === "planning" ? 3000 : false),
+    refetchInterval: (q) => (q.state.data?.state === "planning" ? 3000 : q.state.data?.state === "in_progress" ? 10_000 : false),
   });
   const w = item.data;
-  usePageTitle({ label: "Board", to: "/work" }, w ? { label: w.key, to: `/work/${w.id}` } : undefined, tab === "plan" ? "Plan" : "Ticket");
+  usePageTitle({ label: "Board", to: "/work" }, w ? { label: w.key, to: `/work/${w.id}` } : undefined, { plan: "Plan", job: "Job", ticket: "Ticket" }[tab]);
   if (item.error)
     return (
       <div className="page">
@@ -154,15 +159,33 @@ function Hub({ workId, tab }: { workId: string; tab: "ticket" | "plan" }) {
         tabs={[
           { to: `/work/${w.id}`, label: "Ticket", active: tab === "ticket" },
           { to: `/work/${w.id}/plan`, label: "Plan", active: tab === "plan" },
+          { to: `/work/${w.id}/job`, label: "Job", active: tab === "job" },
         ]}
       />
-      {tab === "ticket" ? <TicketTab item={w} /> : <PlanTab item={w} />}
+      {tab === "ticket" ? <TicketTab item={w} /> : tab === "plan" ? <PlanTab item={w} /> : <JobTab item={w} jobId={jobId} />}
     </div>
   );
 }
 
-export default function WorkItemPage({ tab = "ticket" }: { tab?: "ticket" | "plan" }) {
-  const { workId, planId } = useParams();
+export default function WorkItemPage({ tab = "ticket" }: { tab?: Tab }) {
+  const { workId, planId, jobId } = useParams();
+  // /jobs/:id is a deep link too: the hub on the Job tab for that job.
+  const job = useQuery({ queryKey: ["jobs", jobId], queryFn: () => api<Job>(`/api/jobs/${jobId}`), enabled: !!jobId && !workId });
+  if (jobId && !workId) {
+    if (job.error)
+      return (
+        <div className="page">
+          <ErrorNote error={job.error} />
+        </div>
+      );
+    if (!job.data)
+      return (
+        <div className="page">
+          <SkeletonRows rows={5} />
+        </div>
+      );
+    return <Hub workId={job.data.work_item_id} tab="job" jobId={jobId} />;
+  }
   // /plans/:id is a deep link: render the hub on the Plan tab and keep the URL (07 §3.2).
   const plan = useQuery({ queryKey: ["plans", planId], queryFn: () => api<Plan>(`/api/plans/${planId}`), enabled: !!planId && !workId });
   if (planId && !workId) {

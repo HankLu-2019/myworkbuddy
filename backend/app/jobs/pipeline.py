@@ -83,7 +83,7 @@ def _tar(directory: Path) -> io.BytesIO:
     return buf
 
 
-def _overlay(files: dict[str, str]) -> io.BytesIO:
+def overlay(files: dict[str, str]) -> io.BytesIO:
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as t:
         for name, text in files.items():
@@ -324,7 +324,7 @@ async def verify(ctx: dict[str, Any]) -> None:
         raise StepFailed("verifying", f"runner_{exc.code}", exc.message) from None
     await _set(job.id, current_run=None)
     files = parse_patch(patch)
-    checks = run_checks(patch, files, policy, results)
+    checks = await run_checks(patch, files, policy, results)
     for c in checks:
         await record_event(job.id, JobEventType.check, c)
     for r in results:
@@ -345,10 +345,12 @@ async def verify(ctx: dict[str, Any]) -> None:
     max_attempts = int(policy.get("max_attempts", 3))
     if failed and job.attempt < max_attempts:
         failing = [(r, logs.get(n, "")) for n, r in enumerate(results) if r.get("exit_code") != 0]
-        overlay = _overlay({".mwb/feedback.md": feedback_md(failed, failing),
-                            ".mwb/prompt.md": prompt_md(retry=True, review_feedback=False)})  # fmt: skip
+        files = {
+            ".mwb/feedback.md": feedback_md(failed, failing),
+            ".mwb/prompt.md": prompt_md(retry=True, review_feedback=False),
+        }
         try:
-            await runner_client.put_content(job.id, overlay)
+            await runner_client.put_content(job.id, overlay(files))
         except RunnerError as exc:
             raise StepFailed("verifying", f"runner_{exc.code}", exc.message) from None
         note = f"Verification failed; attempt {job.attempt + 1} of {max_attempts}."

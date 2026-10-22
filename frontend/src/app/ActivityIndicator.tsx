@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { api, type Activity, type ProjectDetail, type Plan, type RunDetail } from "../api";
+import { api, type Activity, type ProjectDetail, type Job, type Plan, type RunDetail } from "../api";
 import { Popover, formatElapsed, useToast } from "../components/ui";
 
 export const POLL_ACTIVE_MS = 5_000;
@@ -46,6 +46,19 @@ export function ActivityIndicator() {
             const open = { label: "Open", onClick: () => navigate(`/runs/${r.id}`) };
             if (r.status === "succeeded") toast({ title: `${r.schedule_name}: ${r.headline ?? "done"}`, tone: "success", action: open });
             else if (r.status !== "skipped") toast({ title: `${r.schedule_name} didn't finish`, tone: "error", action: open });
+          })
+          .catch(() => undefined);
+        continue;
+      }
+      if (item.kind === "job") {
+        qc.invalidateQueries({ queryKey: ["work"] });
+        qc.invalidateQueries({ queryKey: ["jobs"] });
+        api<Job>(`/api/jobs/${item.id}`)
+          .then((j) => {
+            const open = { label: "Open", onClick: () => navigate(`/work/${j.work_item_id}/job`) };
+            if (j.status === "awaiting_review") toast({ title: `Changes ready for review: ${j.key}`, tone: "success", action: open });
+            else if (["failed", "timed_out", "budget_exceeded"].includes(j.status))
+              toast({ title: `Job for ${j.key} stopped`, tone: "error", action: open });
           })
           .catch(() => undefined);
         continue;

@@ -23,6 +23,7 @@ from app.models import (
     InboxItem,
     Integration,
     JiraIssue,
+    Job,
     LibrarianRun,
     Message,
     Plan,
@@ -53,6 +54,7 @@ class NeedsYou(BaseModel):
         "alert",
         "schedule_paused",
         "plan_ready",
+        "job_review",
     ]
     key: str  # stable id, so the client can tell cards apart
     message: str
@@ -62,7 +64,7 @@ class NeedsYou(BaseModel):
 
 
 class ActivityItem(BaseModel):
-    kind: Literal["ingest", "run", "plan"]
+    kind: Literal["ingest", "run", "plan", "job"]
     id: int | str  # project id, run id or plan id
     title: str
     status: Literal["queued", "running"]
@@ -123,7 +125,8 @@ class HomeOut(BaseModel):
     recent_pages: list[RecentPage]
     librarian: LibrarianSummary | None
     checklists: list[Checklist]
-    board_needs: int = 0  # the Board badge (07 §3.1): tickets waiting for a decision
+    board_needs: int = 0  # the Board badge (07 §3.1): plans waiting for a decision + jobs ready for review
+    jobs_running: int = 0  # the Jobs badge (07 §3.1)
 
 
 class ActivityOut(BaseModel):
@@ -184,6 +187,31 @@ async def _running(db: DB, user: User) -> list[ActivityItem]:
                 step="Revising the plan" if plan.current_revision else "Drafting the plan",
                 since=plan.updated_at,
                 href=f"/work/{plan.work_item_id}/plan",
+            )  # fmt: skip
+        )
+    steps = {"created": "Waiting to start", "preparing": "Preparing the workspace", "running": "The agent is working",
+             "verifying": "Checking the result", "approved_push": "Waiting to push", "pushing": "Pushing"}  # fmt: skip
+    jobs = await db.execute(
+        select(Job, JiraIssue.key)
+        .join(WorkItem, WorkItem.id == Job.work_item_id)
+        .join(JiraIssue, JiraIssue.id == WorkItem.jira_issue_id)
+        .where(Job.owner_id == user.id, Job.status.in_(list(steps)))
+        .order_by(Job.created_at)
+        .limit(20)
+    )
+    for job, key in jobs.all():
+        step = steps[job.status]
+        if job.status == "running":
+            step += f" (attempt {job.attempt} of {job.policy.get('max_attempts', 3)})"
+        items.append(
+            ActivityItem(
+                kind="job",
+                id=str(job.id),
+                title=f"Job for {key}",
+                status="queued" if job.status == "created" else "running",
+                step=step,
+                since=job.started_at or job.created_at,
+                href=f"/work/{job.work_item_id}/job",
             )  # fmt: skip
         )
     return items
@@ -349,6 +377,26 @@ async def home(auth: CurrentAuth, db: DB) -> HomeOut:
             .order_by(WorkItem.updated_at.desc())
         )
     ).all()
+    review = (
+        await db.execute(
+            select(Job.work_item_id, JiraIssue.key, Job.updated_at)
+            .join(WorkItem, WorkItem.id == Job.work_item_id)
+            .join(JiraIssue, JiraIssue.id == WorkItem.jira_issue_id)
+            .where(Job.owner_id == user.id, Job.status == "awaiting_review")
+            .order_by(Job.updated_at.desc())
+        )
+    ).all()
+    for item_id, key, at in review[:5]:
+        needs.append(
+            NeedsYou(
+                kind="job_review",
+                key=f"job:{item_id}",
+                message=f"The job for {key} is ready for review",
+                action="Review changes",
+                href=f"/work/{item_id}/job",
+                at=at,
+            )  # fmt: skip
+        )
     for item_id, key, at in decide[:5]:
         needs.append(
             NeedsYou(
@@ -468,5 +516,6 @@ async def home(auth: CurrentAuth, db: DB) -> HomeOut:
         recent_pages=pages,
         librarian=librarian,
         checklists=checklists,
-        board_needs=len(decide),
+        board_needs=len(decide) + len(review),
+        jobs_running=sum(1 for r in running if r.kind == "job"),
     )

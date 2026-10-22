@@ -53,6 +53,8 @@ jobs:
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y > /dev/null
           sudo apt-get install -y -qq postgresql-client-17 restic > /dev/null
           pg_dump --version && restic version
+          # The secret scan on job patches (design 04 §5.4); same version as backend/Dockerfile.
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz | sudo tar -xz -C /usr/local/bin gitleaks && gitleaks version
       - name: pytest
         env:
           MWB_REQUIRE_BACKUP_TOOLS: "1"  # fail rather than skip the backup round trip

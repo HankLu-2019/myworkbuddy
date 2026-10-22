@@ -257,7 +257,10 @@ async def test_a_job_runs_to_review(make_user, client_for, forge_url, runner) ->
     r = job.result
     assert job.attempt == 1 and job.current_run is None and not r["failed_checks"]
     assert [f["path"] for f in r["files"]] == ["app/webhooks.py"] and r["files"][0]["added"] == 2
-    assert {c["name"]: c["status"] for c in r["checks"]} == {"no_changes": "pass", "verification": "pass"}
+    assert {c["name"]: c["status"] for c in r["checks"]} == {
+        "no_changes": "pass", "outside_plan": "pass", "size": "pass", "binary": "pass", "file_modes": "pass",
+        "ci_config": "pass", "secret_scan": "pass", "verification": "pass",
+    }  # fmt: skip
     assert r["verify"][0]["command"] == VERIFY_OK and r["verify"][0]["exit_code"] == 0
     assert r["agent_notes"] == "Changed app/webhooks.py as the task asked.\n"
     async with get_sessionmaker()() as db:
@@ -403,3 +406,99 @@ async def test_runner_client_maps_errors(runner, monkeypatch) -> None:
     with pytest.raises(RunnerError) as e:
         await runner_client.create_workspace(job)
     assert e.value.code == "unavailable"
+
+
+# ---------- review actions and downloads (04 §5.5, §8; plan X5) ----------
+
+
+async def reviewed(make_user, client_for, forge_url) -> tuple[dict, str]:
+    t = await approved_ticket(make_user, forge_url)
+    job_id = await start(client_for, t)
+    assert await pipeline.advance(uuid.UUID(job_id)) == "awaiting_review"
+    return t, job_id
+
+
+async def test_request_changes_starts_another_round_with_the_feedback(
+    make_user, client_for, forge_url, runner, task_queue
+) -> None:
+    t, job_id = await reviewed(make_user, client_for, forge_url)
+    c = await client_for("alice", create=False)
+    seen = {}
+
+    def agent(ws: Path, env: dict):
+        seen["feedback"] = (ws / ".mwb" / "feedback.md").read_text()
+        seen["prompt"] = (ws / ".mwb" / "prompt.md").read_text()
+        return fake_runner.planned_change(ws, env)
+
+    runner.agent = [agent]
+    r = await c.post(f"/api/jobs/{job_id}/request-changes", json={"feedback": "Use exponential backoff."})
+    assert r.status_code == 200 and r.json()["status"] == "running" and r.json()["review_round"] == 1
+    assert [j for j in task_queue.jobs.values() if j["task_name"] == "job_advance"]
+    assert await pipeline.advance(uuid.UUID(job_id)) == "awaiting_review"
+    assert "Use exponential backoff." in seen["feedback"] and "reviewer asked for changes" in seen["prompt"]
+    job = await job_row(job_id)
+    assert job.review_round == 1 and job.attempt == 1 and job.result["patch_artifact_id"]
+    async with get_sessionmaker()() as db:
+        names = {a.key.rsplit("/", 1)[1] for a in await db.scalars(select(Artifact).where(Artifact.job_id == job.id))}
+    assert {"patch-r0-a1.diff", "patch-r1-a1.diff"} <= names
+    assert (await c.post(f"/api/jobs/{job_id}/request-changes", json={"feedback": ""})).status_code == 422
+    async with get_sessionmaker()() as db:
+        await db.execute(update(Job).values(review_round=5))
+        await db.commit()
+    r = await c.post(f"/api/jobs/{job_id}/request-changes", json={"feedback": "again"})
+    assert r.status_code == 409 and "5 review rounds" in r.json()["detail"]
+
+
+async def test_discard_removes_workspace_and_key(make_user, client_for, forge_url, runner) -> None:
+    t, job_id = await reviewed(make_user, client_for, forge_url)
+    c = await client_for("alice", create=False)
+    assert (await c.post(f"/api/jobs/{job_id}/cancel")).status_code == 409  # resting: discard, not cancel
+    r = await c.post(f"/api/jobs/{job_id}/discard")
+    assert r.status_code == 200 and r.json()["status"] == "discarded"
+    assert job_id not in runner.workspaces and key_record(job_id) is None
+    async with get_sessionmaker()() as db:
+        assert (await db.get(WorkItem, t["item"].id)).state == "approved"
+    assert (await c.post(f"/api/jobs/{job_id}/discard")).status_code == 409
+
+
+async def test_cancel_a_working_job(make_user, client_for, forge_url, runner) -> None:
+    t = await approved_ticket(make_user, forge_url)
+    job_id = await start(client_for, t)
+    c = await client_for("alice", create=False)
+    r = await c.post(f"/api/jobs/{job_id}/cancel")
+    assert r.status_code == 200 and r.json()["status"] == "cancelled" and key_record(job_id) is None
+    assert await pipeline.advance(uuid.UUID(job_id)) == "cancelled"  # the queued task finds nothing to do
+
+
+async def test_patch_and_artifacts_are_owner_only(make_user, client_for, forge_url, runner) -> None:
+    t, job_id = await reviewed(make_user, client_for, forge_url)
+    c = await client_for("alice", create=False)
+    r = await c.get(f"/api/jobs/{job_id}/patch")
+    assert r.status_code == 200 and "+# Retry transient failures (fake agent)" in r.text
+    assert r.headers["content-type"].startswith("text/x-diff") and r.headers["x-content-type-options"] == "nosniff"
+    log_id = (await job_row(job_id)).result["verify"][0]["log_artifact_id"]
+    assert (await c.get(f"/api/artifacts/{log_id}")).status_code == 200
+    bob = await client_for("bob")
+    assert (await bob.get(f"/api/jobs/{job_id}/patch")).status_code == 404
+    assert (await bob.get(f"/api/artifacts/{log_id}")).status_code == 404
+    for action in ("cancel", "discard"):
+        assert (await bob.post(f"/api/jobs/{job_id}/{action}")).status_code == 404
+
+
+async def test_home_and_activity_show_jobs(make_user, client_for, forge_url, runner) -> None:
+    t = await approved_ticket(make_user, forge_url)
+    job_id = await start(client_for, t)
+    c = await client_for("alice", create=False)
+    [item] = (await c.get("/api/activity")).json()["items"]
+    assert (item["kind"], item["title"], item["status"], item["step"]) == (
+        "job",
+        "Job for PAY-12",
+        "queued",
+        "Waiting to start",
+    )
+    assert (await c.get("/api/home")).json()["jobs_running"] == 1
+    await pipeline.advance(uuid.UUID(job_id))
+    home = (await c.get("/api/home")).json()
+    assert home["jobs_running"] == 0 and home["board_needs"] == 1
+    [card] = [n for n in home["needs_you"] if n["kind"] == "job_review"]
+    assert card["href"] == f"/work/{t['item'].id}/job" and card["action"] == "Review changes"
