@@ -573,6 +573,11 @@ class ProjectDetail(ProjectOut):
     docs: int
     card_page_id: int | None
     hint: FixHint | None
+    conventions_md: str | None = None  # 08 §F4: used when the repository has no rules file
+
+
+class ConventionsIn(BaseModel):
+    text: str = Field(max_length=20_000)
 
 
 HOST_LABEL = {"gitlab": "GitLab", "gerrit": "Gerrit"}
@@ -640,6 +645,7 @@ async def get_project(project_id: int, auth: CurrentAuth, db: DB) -> ProjectDeta
         docs=counts.get("repo_doc", 0),
         card_page_id=card,
         hint=ingest_hint(project, has_credential) if mine else None,
+        conventions_md=project.conventions_md,
     )
 
 
@@ -698,6 +704,17 @@ async def reingest(project_id: int, auth: CurrentAuth, db: DB, force: bool = Fal
         project.status = "queued"
         await db.commit()
     return {"queued": queued}
+
+
+@router.put("/projects/{project_id}/conventions", response_model=ProjectOut)
+async def set_conventions(project_id: int, body: ConventionsIn, auth: CurrentAuth, db: DB) -> ProjectOut:
+    """The owner's conventions text, for repositories without `.mwb/rules.md`, `AGENTS.md` or `CLAUDE.md`."""
+    project = await _own_project(db, project_id, auth.user)
+    project.conventions_md = body.text.strip() or None
+    await audit(db, "project.conventions", user_id=auth.user.id, target_type="project", target_id=project.id,
+                detail={"chars": len(body.text.strip())})  # fmt: skip
+    await db.commit()
+    return _project_out(project, auth.user)
 
 
 @router.post("/projects/{project_id}/visibility", response_model=ProjectOut)

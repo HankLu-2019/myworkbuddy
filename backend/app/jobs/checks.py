@@ -11,6 +11,7 @@ import shutil
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from app.plans.conventions import protected_matches
 from app.plans.validation import CI_PATTERNS
 
 Status = Literal["pass", "warn", "fail"]
@@ -173,6 +174,19 @@ async def run_checks(
         out.append(check("ci_config", "pass", f"CI/CD changes acknowledged in the plan: {', '.join(ci)}."))
     else:
         out.append(check("ci_config", "pass", "No CI/CD files changed."))
+
+    patterns = policy.get("protected") or []
+    hit = protected_matches([f.path for f in files], patterns)
+    blocked = [p for p in hit if f"protected_path:{p}" not in acked]
+    source = policy.get("conventions_source") or "the repository's conventions"
+    if blocked:
+        out.append(check("protected_paths", "fail", f"Paths protected by {source} changed: {', '.join(blocked)}."))
+    elif hit:
+        out.append(check("protected_paths", "pass", f"Protected paths acknowledged in the plan: {', '.join(hit)}."))
+    else:
+        out.append(
+            check("protected_paths", "pass", "No protected paths changed." if patterns else "No protected paths.")
+        )
 
     out.append(await secret_scan(files))
 

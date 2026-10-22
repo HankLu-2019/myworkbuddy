@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.knowledge.acl import visible_filter
 from app.models import Document, User
+from app.plans.conventions import protected_matches
 from app.plans.schema import PlanDoc
 
 MAX_PATH = 300
@@ -86,6 +87,7 @@ def validate_plan(
     existing_paths: set[str] | None,
     visible_refs: Iterable[int],
     optional_hosts: Iterable[str],
+    conventions: dict | None = None,
 ) -> tuple[PlanDoc, ValidationResult]:
     """The document with paths normalised and invisible knowledge refs dropped, and what's wrong with it.
 
@@ -113,6 +115,9 @@ def validate_plan(
                 out.error(where, f"{norm} already exists at the plan's base commit; use modify.")
         if any(p.search(norm) for p in CI_PATTERNS):
             out.warn(where, f"{norm} is CI/CD or deployment configuration.", ack=f"ci_config:{norm}")
+        if protected_matches([norm], (conventions or {}).get("protected") or []):
+            source = (conventions or {}).get("source", "the conventions")
+            out.warn(where, f"{norm} is protected by {source}.", ack=f"protected_path:{norm}")
     if existing_paths is None:
         out.warn("changes", "The repository couldn't be read, so file paths weren't checked against it.")
 
@@ -130,6 +135,9 @@ def validate_plan(
         else:
             out.warn(where, f"The sandbox will be able to reach {host}.", ack=f"optional_host:{host.strip().lower()}")
 
+    suggested = (conventions or {}).get("test")
+    if suggested and suggested not in clean.verification:
+        out.warn("verification", f"The repository's conventions run `{suggested}`; consider adding it.")
     for i, command in enumerate(clean.verification):
         where = f"verification[{i}]"
         if len(command) > MAX_COMMAND:

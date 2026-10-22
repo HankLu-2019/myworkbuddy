@@ -206,8 +206,9 @@ Design: [08-follow-through.md](design/08-follow-through.md). Tasks are in priori
 - [x] **F3 The agent can ask** (08 §F3).
   - Acceptance: a question file moves the job to `needs_input` (migration, R9) with an inbox item and email; the answer resumes without spending an attempt and the next run sees `answer.md` and no `question.md`; the per-job cap holds; Cancel and the review-days cleanup work from `needs_input`; the question renders as safe Markdown labelled "Written by the agent".
   - Done with the changes recorded in 08 §F3: migration 0016 (`needs_input`, `jobs.question`, `jobs.questions`), the remaining-questions count in `prompt.md`, and a Home card instead of a Board card label.
-- [ ] **F4 Repository conventions** (08 §F4).
+- [x] **F4 Repository conventions** (08 §F4).
   - Acceptance: `.mwb/rules.md` → `AGENTS.md` → `CLAUDE.md` → the repository's Conventions text, ≤ 20 KB; the planner gets them wrapped; `protected` paths fail the new `protected_paths` check and warn in plan validation; only the repository owner edits the Conventions text.
+  - Done with the changes recorded in 08 §F4: migration 0017 (`projects.conventions_md`, `plans.conventions`), the `protected_path:<path>` acknowledgement, and the test-command warning whenever it's missing from the verification.
 - [x] **F5 Retry a failed push** (08 §F5).
   - Acceptance: a push failure returns the job to review with the error; Retry push resumes after the last stored step (one MR, one comment); refused when the payload no longer matches the approval; `approval_mismatch` still ends the job.
   - Done with the changes recorded in 08 §F5: unexpected push errors also return to review, and a failed push adds an inbox item.

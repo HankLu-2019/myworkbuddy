@@ -43,6 +43,7 @@ from app.jobs.task_files import (
 from app.knowledge.ingest.repos import auth_header, ca_file_for, project_integration, run_git
 from app.logs import log
 from app.models import Artifact, JiraIssue, Job, PlanRevision, Project, User, WorkItem
+from app.plans import conventions
 
 S = JobStatus
 EVENT_INTERVAL_S = 1.0  # at most one event of each kind per second (04 §5.3)
@@ -72,7 +73,9 @@ async def _load(job_id: uuid.UUID) -> dict[str, Any] | None:
         issue = await db.get(JiraIssue, item.jira_issue_id) if item else None
         user = await db.get(User, job.owner_id)
         await db.commit()
-        return {"job": job, "doc": rev.content if rev else {}, "key": issue.key if issue else "JOB", "user": user}
+        project = await db.get(Project, job.project_id) if job.project_id else None
+        return {"job": job, "doc": rev.content if rev else {}, "key": issue.key if issue else "JOB", "user": user,
+                "conventions_md": project.conventions_md if project else None}  # fmt: skip
 
 
 async def _set(job_id: uuid.UUID, **values: Any) -> None:
@@ -166,9 +169,18 @@ async def prepare(ctx: dict[str, Any]) -> None:
     try:
         await _clone(job, work)
         repo = work / "repo"
+        rules = await conventions.from_tree(repo, ctx.get("conventions_md"))  # 08 §F4, at base_sha
         mwb = repo / ".mwb"
-        mwb.mkdir()
-        (mwb / "TASK.md").write_text(task_md(ctx["key"], ctx["doc"]))
+        mwb.mkdir(exist_ok=True)
+        if rules is not None:
+            policy = {**policy, "protected": rules.protected, "conventions_source": rules.source}
+            await _set(job.id, policy=policy)
+            job.policy = policy
+            if rules.source == conventions.SETTINGS_SOURCE:
+                (mwb / "conventions.md").write_text(rules.text)
+        (mwb / "TASK.md").write_text(
+            task_md(ctx["key"], ctx["doc"], rules.source if rules else None, rules.protected if rules else None)
+        )
         resume = (job.push or {}).get("resume")
         (mwb / "prompt.md").write_text(
             prompt_md(retry=False, review_feedback=bool(resume), questions_left=questions_left(job))

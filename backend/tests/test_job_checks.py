@@ -33,7 +33,7 @@ async def test_a_clean_patch_passes_everything() -> None:
     result = await statuses(diff("app/webhooks.py", ["retry = 3"]))
     assert {k: v[0] for k, v in result.items()} == {
         "no_changes": "pass", "outside_plan": "pass", "size": "pass", "binary": "pass", "file_modes": "pass",
-        "ci_config": "pass", "secret_scan": "pass", "verification": "pass",
+        "ci_config": "pass", "protected_paths": "pass", "secret_scan": "pass", "verification": "pass",
     }  # fmt: skip
 
 

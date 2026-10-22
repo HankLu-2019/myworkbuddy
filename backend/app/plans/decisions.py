@@ -138,7 +138,7 @@ async def validate_user_revision(
     refs = await visible_document_ids(db, user, doc.knowledge_refs)
     return validate_plan(
         doc, jira_key=issue.key, existing_paths=existing, visible_refs=refs,
-        optional_hosts=get_settings().optional_hosts,
+        optional_hosts=get_settings().optional_hosts, conventions=plan.conventions,
     )  # fmt: skip
 
 

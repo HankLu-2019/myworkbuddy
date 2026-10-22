@@ -90,6 +90,7 @@ SEEDS["0016"] = [  # the recreated status CHECK accepts needs_input; the job kee
     "UPDATE jobs SET status = 'needs_input', questions = 1, "
     'question = \'{"text": "Which header?", "number": 1}\' WHERE id = \'00000000-0000-0000-0000-0000000000cc\'',
 ]
+SEEDS["0017"] = ["UPDATE projects SET conventions_md = 'Use structlog.'"]  # 08 §F4
 SEEDS["0005"] = []  # 0005 adds a column with a default; the 0001 user must get it
 CHECKS = {
     "users": 1,

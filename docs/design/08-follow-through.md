@@ -148,13 +148,21 @@ Claude Code already reads `CLAUDE.md` in its working directory. F4 makes the rul
 
   - `protected` paths become a new **fail** check, `protected_paths` (04 §5.4).
   - Plan validation warns when a planned change touches a protected path.
-  - `test`, when the plan's verification list is empty, becomes a validation warning that suggests it.
+  - `test`, when the plan's verification commands don't include it, becomes a validation warning that suggests it.
 
 **Acceptance:**
 - File precedence and the size cap.
 - The planner prompt carries the conventions inside the untrusted envelope.
 - A change to a protected path fails the check, and planning such a change warns.
 - Only the repository's owner can edit the Conventions text; others get 404/403 per the ACL tests.
+
+*Changed while building F4:*
+- A plan's validation runs again on every edit and approval, so the conventions read when the plan was drafted are kept in `plans.conventions` (`{source, protected, test}`) rather than read again. Migration 0017 adds that column and `projects.conventions_md`.
+- The job reads the conventions again from its own clone, at the same commit, and freezes `protected` into its policy.
+- Changing a protected path needs the acknowledgement `protected_path:<path>`, like a CI change. The acknowledged path then passes the job check.
+- `test` becomes a warning whenever the plan's verification doesn't include it. A plan can't have an empty verification list, so "only when empty" would never fire.
+- When the conventions come from the repository setting, the job writes them to `.mwb/conventions.md` and `TASK.md` points there. `TASK.md` also lists the protected paths.
+- The Conventions editor sits on the repository page. Teammates see the text read-only.
 
 ## F5. Retry a failed push
 

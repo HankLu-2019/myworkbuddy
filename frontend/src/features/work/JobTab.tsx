@@ -227,6 +227,7 @@ const CHECK_LABEL: Record<string, string> = {
   binary: "Binary files",
   file_modes: "Symlinks, submodules, executables",
   ci_config: "CI configuration",
+  protected_paths: "Protected paths",
   secret_scan: "Secret scan",
   verification: "Verification commands",
 };
