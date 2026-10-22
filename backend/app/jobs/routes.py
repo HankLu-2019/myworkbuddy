@@ -27,8 +27,8 @@ from app.models import Artifact, JiraIssue, Job, JobEvent, User, WorkItem
 router = APIRouter(tags=["jobs"])
 
 JobStatusOut = Literal[
-    "created", "preparing", "running", "verifying", "awaiting_review", "approved_push", "pushing", "pushed",
-    "merged", "closed", "failed", "timed_out", "budget_exceeded", "cancelled", "discarded",
+    "created", "preparing", "running", "verifying", "awaiting_review", "needs_input", "approved_push", "pushing",
+    "pushed", "merged", "closed", "failed", "timed_out", "budget_exceeded", "cancelled", "discarded",
 ]  # fmt: skip
 EVENT_POLL_S = 1.0
 HEARTBEAT_S = 15.0
@@ -52,6 +52,8 @@ class JobOut(BaseModel):
     error: str | None
     result: dict | None
     push: dict | None
+    question: dict | None = None  # 08 §F3: {text (written by the agent), number, patch_artifact_id, asked_at}
+    questions: int = 0
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
@@ -71,8 +73,9 @@ def job_out(job: Job, key: str, summary: str) -> JobOut:
         failed_stage=job.failed_stage, attempt=job.attempt, review_round=job.review_round,
         max_attempts=int((job.policy or {}).get("max_attempts", 3)), branch_name=job.branch_name,
         base_branch=job.base_branch, base_sha=job.base_sha, cost_usd=float(job.cost_usd or 0),
-        error_code=job.error_code, error=job.error, result=job.result, push=push or None,
-        created_at=job.created_at, started_at=job.started_at, finished_at=job.finished_at, updated_at=job.updated_at,
+        error_code=job.error_code, error=job.error, result=job.result, push=push or None, question=job.question,
+        questions=job.questions or 0, created_at=job.created_at, started_at=job.started_at,
+        finished_at=job.finished_at, updated_at=job.updated_at,
     )  # fmt: skip
 
 
@@ -228,7 +231,7 @@ async def cancel_job(job_id: uuid.UUID, auth: CurrentAuth, db: DB, request: Requ
     job = await _job_or_404(db, job_id, auth.user)
     run_id = job.current_run
     moved = await transition_in(
-        db, job.id, [S.created, S.preparing, S.running, S.verifying], S.cancelled, actor_id=auth.user.id,
+        db, job.id, [S.created, S.preparing, S.running, S.verifying, S.needs_input], S.cancelled, actor_id=auth.user.id,
         ip=client_ip(request), error_code="cancelled", error="Cancelled by its owner.", current_run=None,
     )  # fmt: skip
     if moved is None:
@@ -470,6 +473,46 @@ async def retry_push(job_id: uuid.UUID, auth: CurrentAuth, db: DB, request: Requ
 
     job = await _job_or_404(db, job_id, auth.user)
     await push.retry(db, job, auth.user, client_ip(request))
+    await db.commit()
+    await defer_advance(job.id)
+    return job_out(*await owned_job(db, job_id, auth.user))
+
+
+class AnswerIn(BaseModel):
+    answer: str = Field(min_length=1, max_length=4000)
+
+
+@router.post("/api/jobs/{job_id}/answer", response_model=JobOut)
+async def answer_question(job_id: uuid.UUID, body: AnswerIn, auth: CurrentAuth, db: DB, request: Request) -> JobOut:
+    """Answer the agent's question (08 §F3); the job carries on without spending an attempt."""
+    from app.deps import client_ip
+    from app.jobs import runner_client
+    from app.jobs.pipeline import defer_advance, overlay, questions_left
+    from app.jobs.task_files import answer_md, prompt_md
+
+    job = await _job_or_404(db, job_id, auth.user)
+    if job.status != S.needs_input or not job.question:
+        raise AppError(status.HTTP_409_CONFLICT, "conflict", "The agent isn't waiting for an answer.")
+    question = job.question
+    files = {
+        ".mwb/answer.md": answer_md(question.get("text", ""), body.answer),
+        ".mwb/prompt.md": prompt_md(retry=job.attempt > 1, review_feedback=job.review_round > 0, answered=True,
+                                    questions_left=questions_left(job)),
+    }  # fmt: skip
+    await db.commit()
+    try:  # network: nothing open (R1)
+        await runner_client.put_content(job.id, overlay(files))
+        await runner_client.delete_mwb(job.id, "question.md")
+    except runner_client.RunnerError as exc:
+        message = f"The sandbox couldn't take the answer: {exc.message}"
+        raise AppError(status.HTTP_502_BAD_GATEWAY, "internal", message) from None
+    moved = await transition_in(
+        db, job.id, S.needs_input, S.running, actor_id=auth.user.id, ip=client_ip(request), question=None,
+        current_run=None, detail={"note": f"Question {question.get('number', 1)} answered.",
+                                  "answer_chars": len(body.answer)},
+    )  # fmt: skip
+    if moved is None:
+        raise AppError(status.HTTP_409_CONFLICT, "plan_changed", "The job changed meanwhile. Reload.")
     await db.commit()
     await defer_advance(job.id)
     return job_out(*await owned_job(db, job_id, auth.user))

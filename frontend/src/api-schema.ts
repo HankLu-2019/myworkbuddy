@@ -671,6 +671,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{job_id}/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer Question
+         * @description Answer the agent's question (08 §F3); the job carries on without spending an attempt.
+         */
+        post: operations["answer_question_api_jobs__job_id__answer_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{job_id}/approve-push": {
         parameters: {
             query?: never;
@@ -1788,6 +1808,11 @@ export interface components {
             /** Question */
             question: string;
         };
+        /** AnswerIn */
+        AnswerIn: {
+            /** Answer */
+            answer: string;
+        };
         /** Body_import_claude_code_api_imports_claude_code_post */
         Body_import_claude_code_api_imports_claude_code_post: {
             /** Files */
@@ -2271,6 +2296,15 @@ export interface components {
             push: {
                 [key: string]: unknown;
             } | null;
+            /** Question */
+            question?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Questions
+             * @default 0
+             */
+            questions: number;
             /** Result */
             result: {
                 [key: string]: unknown;
@@ -2283,7 +2317,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "created" | "preparing" | "running" | "verifying" | "awaiting_review" | "approved_push" | "pushing" | "pushed" | "merged" | "closed" | "failed" | "timed_out" | "budget_exceeded" | "cancelled" | "discarded";
+            status: "created" | "preparing" | "running" | "verifying" | "awaiting_review" | "needs_input" | "approved_push" | "pushing" | "pushed" | "merged" | "closed" | "failed" | "timed_out" | "budget_exceeded" | "cancelled" | "discarded";
             /** Summary */
             summary: string;
             /**
@@ -2454,7 +2488,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "ingest_failed" | "budget_warning" | "budget_exceeded" | "credential_invalid" | "credential_unreadable" | "alert" | "schedule_paused" | "plan_ready" | "job_review" | "pipeline_failed";
+            kind: "ingest_failed" | "budget_warning" | "budget_exceeded" | "credential_invalid" | "credential_unreadable" | "alert" | "schedule_paused" | "plan_ready" | "job_review" | "pipeline_failed" | "job_question";
             /** Message */
             message: string;
         };
@@ -5062,7 +5096,7 @@ export interface operations {
     list_jobs_api_jobs_get: {
         parameters: {
             query?: {
-                status?: ("created" | "preparing" | "running" | "verifying" | "awaiting_review" | "approved_push" | "pushing" | "pushed" | "merged" | "closed" | "failed" | "timed_out" | "budget_exceeded" | "cancelled" | "discarded")[] | null;
+                status?: ("created" | "preparing" | "running" | "verifying" | "awaiting_review" | "needs_input" | "approved_push" | "pushing" | "pushed" | "merged" | "closed" | "failed" | "timed_out" | "budget_exceeded" | "cancelled" | "discarded")[] | null;
                 work_item_id?: string | null;
                 cursor?: string | null;
                 limit?: number;
@@ -5103,6 +5137,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    answer_question_api_jobs__job_id__answer_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnswerIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

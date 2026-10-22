@@ -43,7 +43,7 @@ import { PatchView } from "../../components/Patch";
 /** Statuses in which the job works on its own (the timeline stays live). */
 export const WORKING: readonly string[] = ["created", "preparing", "running", "verifying", "approved_push", "pushing"];
 /** …of which these can be cancelled (a push in flight can't). */
-const CANCELLABLE: readonly string[] = ["created", "preparing", "running", "verifying"];
+const CANCELLABLE: readonly string[] = ["created", "preparing", "running", "verifying", "needs_input"];
 const PUSH_ACK = "push despite failing checks";
 const ENDED_BADLY: readonly string[] = ["failed", "timed_out", "budget_exceeded"];
 const STAGE: Record<string, string> = {
@@ -557,6 +557,57 @@ export function PushDialog({ job, open, onOpenChange }: { job: Job; open: boolea
   );
 }
 
+/** The agent stopped to ask (08 §F3): its question, what it changed so far, and the answer box. */
+function Question({ job }: { job: Job }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [answer, setAnswer] = useState("");
+  const q = job.question as { text: string; number: number; patch_artifact_id: string } | null;
+  const patch = useQuery({
+    queryKey: ["artifact", q?.patch_artifact_id],
+    queryFn: () => apiText(`/api/artifacts/${q!.patch_artifact_id}`),
+    enabled: !!q?.patch_artifact_id,
+  });
+  const send = useMutation({
+    mutationFn: () => api<Job>(`/api/jobs/${job.id}/answer`, { method: "POST", json: { answer } }),
+    onSuccess: () => {
+      setAnswer("");
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["work"] });
+      toast({ title: "Answer sent; the agent carries on", tone: "success" });
+    },
+  });
+  if (!q) return null;
+  return (
+    <Card as="section" className="stack" aria-labelledby="job-question">
+      <h2 id="job-question">
+        The agent has a question <span className="muted small">Written by the agent</span>
+      </h2>
+      <Markdown>{q.text}</Markdown>
+      <details>
+        <summary>Changes so far</summary>
+        {patch.error ? <ErrorNote error={patch.error} /> : patch.data === undefined ? <SkeletonRows rows={2} /> : <PatchView patch={patch.data} label="Changes so far" />}
+      </details>
+      <form
+        className="stack-tight"
+        onSubmit={(e: FormEvent) => {
+          e.preventDefault();
+          if (answer.trim()) send.mutate();
+        }}
+      >
+        <TextArea label="Your answer" rows={3} maxLength={4000} value={answer} onChange={(e) => setAnswer(e.target.value)} />
+        <div className="row">
+          <Button type="submit" variant="primary" pending={send.isPending} disabled={!answer.trim()}>
+            Send answer
+          </Button>
+          <span className="muted small">Answering doesn't use up an attempt.</span>
+        </div>
+        <ErrorNote error={send.error} />
+      </form>
+    </Card>
+  );
+}
+
 /** After the push (07 §4.10): the review request and Jira comment links, and whether it's merged. */
 const PIPELINE_STATE: Record<string, [string, string]> = {
   running: ["running", "Pipeline running"],
@@ -832,6 +883,7 @@ export default function JobTab({ item, jobId }: { item: WorkItemDetail; jobId?: 
         )}
         <ErrorNote error={cancel.error} />
       </Card>
+      {status === "needs_input" && <Question job={job} />}
       {["pushed", "merged", "closed"].includes(status) && <Pushed job={job} />}
       {result && <Review job={job} result={result} />}
       <Card as="section" className="stack" aria-labelledby="job-timeline">

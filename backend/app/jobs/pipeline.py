@@ -14,6 +14,7 @@ import tarfile
 import tempfile
 import time
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -169,7 +170,9 @@ async def prepare(ctx: dict[str, Any]) -> None:
         mwb.mkdir()
         (mwb / "TASK.md").write_text(task_md(ctx["key"], ctx["doc"]))
         resume = (job.push or {}).get("resume")
-        (mwb / "prompt.md").write_text(prompt_md(retry=False, review_feedback=bool(resume)))
+        (mwb / "prompt.md").write_text(
+            prompt_md(retry=False, review_feedback=bool(resume), questions_left=questions_left(job))
+        )
         if resume:
             await _reapply(job, repo, resume)
         (mwb / "verify.json").write_text(verify_json(ctx["doc"], int(policy["timeout_min"]) * 60))
@@ -255,6 +258,46 @@ async def _follow(run_id: str, timeout_s: int, on_line) -> dict[str, Any] | None
     return await runner_client.run_status(run_id)
 
 
+QUESTION_CHARS = 2000
+
+
+def questions_left(job: Job) -> int:
+    return max(get_settings().job_max_questions - (job.questions or 0), 0)
+
+
+async def _asked(job: Job, key: str) -> bool:
+    """The agent stopped with `.mwb/question.md` (08 §F3): keep what it did so far and wait for an answer."""
+    raw = await runner_client.read_mwb(job.id, "question.md")
+    if raw is None:
+        return False
+    if not questions_left(job):
+        await runner_client.delete_mwb(job.id, "question.md")
+        await record_event(job.id, JobEventType.error, {"text": "The agent asked past its question limit; ignored."})
+        return False
+    text = raw.decode(errors="replace").strip()[:QUESTION_CHARS] or "(the question file was empty)"
+    patch = await runner_client.patch(job.id, job.base_sha)
+    number = (job.questions or 0) + 1
+    async with get_sessionmaker()() as db:
+        name = f"patch-r{job.review_round}-a{job.attempt}-q{number}.diff"
+        art = await artifacts.store(db, job.owner_id, job.id, name, patch, "text/x-diff")
+        question = {"text": text, "number": number, "patch_artifact_id": str(art.id),
+                    "asked_at": datetime.now(UTC).isoformat()}  # fmt: skip
+        moved = await transition_in(db, job.id, S.running, S.needs_input, question=question, questions=number,
+                                    current_run=None, detail={"note": "The agent has a question."})  # fmt: skip
+        if moved is None:
+            await db.rollback()
+            return True
+        link = f"/work/{job.work_item_id}/job"
+        title = f"{key}: the agent has a question"
+        add_item(db, job.owner_id, kind="job", severity="warning", title=title,
+                 body_md="Answer it on the Job tab; the job waits until you do.", link=link)  # fmt: skip
+        user = await db.get(User, job.owner_id)
+        await queue_email(db, user, subject=title, body=f"{title}.\n\nAnswer it: {app_url(link)}\n",
+                          dedupe_key=f"job-question:{job.id}:{number}")  # fmt: skip
+        await db.commit()
+    return True
+
+
 async def run_agent(ctx: dict[str, Any]) -> None:
     job: Job = ctx["job"]
     policy = job.policy
@@ -300,6 +343,8 @@ async def run_agent(ctx: dict[str, Any]) -> None:
             await _finish(job, S.running, S.budget_exceeded, "running", "budget_exceeded",
                           "The job reached its AI budget.")  # fmt: skip
             return
+        if state != "killed" and status is not None and await _asked(job, ctx["key"]):
+            return  # 08 §F3: waiting for the reviewer's answer
         if state == "killed" and (status or {}).get("reason") == "disk_limit":
             await _finish(job, S.running, S.failed, "running", "workspace_too_large",
                           "The workspace grew past the sandbox's disk limit.")  # fmt: skip
@@ -386,7 +431,7 @@ async def verify(ctx: dict[str, Any]) -> None:
         failing = [(r, logs.get(n, "")) for n, r in enumerate(results) if r.get("exit_code") != 0]
         files = {
             ".mwb/feedback.md": feedback_md(failed, failing),
-            ".mwb/prompt.md": prompt_md(retry=True, review_feedback=False),
+            ".mwb/prompt.md": prompt_md(retry=True, review_feedback=False, questions_left=questions_left(job)),
         }
         try:
             await runner_client.put_content(job.id, overlay(files))

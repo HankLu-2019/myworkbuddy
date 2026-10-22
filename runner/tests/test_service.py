@@ -194,3 +194,23 @@ def test_read_mwb_files_only(setup) -> None:
     ops.helper_result = (44, b"", b"")
     with pytest.raises(NotFound):
         runner.read_mwb(JOB, "notes.md")
+
+
+def test_delete_mwb_files_only(setup) -> None:
+    """08 §F3: the API removes the answered question; nothing outside .mwb/, never through a symlink."""
+    ops, runner, _ = setup
+    runner.create_workspace(JOB)
+    ops.helper_result = (0, b"", b"")
+    runner.delete_mwb(JOB, "question.md")
+    vol, command, env = ops.helpers[-1]
+    assert (
+        env == {"MWB_FILE": "question.md"} and 'rm -f -- "$f"' in command[2] and '[ -L "$f" ] && exit 45' in command[2]
+    )
+    for bad in ["../etc/passwd", "/etc/passwd", "a/../../x"]:
+        with pytest.raises(RunRejected):
+            runner.delete_mwb(JOB, bad)
+    ops.helper_result = (45, b"", b"")
+    with pytest.raises(RunRejected):
+        runner.delete_mwb(JOB, "question.md")
+    with pytest.raises(NotFound):
+        runner.delete_mwb(uuid.UUID(int=7), "question.md")

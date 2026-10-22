@@ -43,7 +43,7 @@ export const job = (over: Partial<Job> = {}): Job => ({
   id: JOB_ID, work_item_id: WORK_ID, key: "PAY-12", summary: "Retry webhook delivery on 5xx", status: "awaiting_review",
   failed_stage: null, attempt: 1, review_round: 0, max_attempts: 3, branch_name: "mwb/PAY-12-retry-webhooks",
   base_branch: "main", base_sha: "abc", cost_usd: 0.42, error_code: null, error: null, result: RESULT as unknown as Job["result"],
-  push: null, created_at: NOW, started_at: NOW, finished_at: null, updated_at: NOW, ...over,
+  push: null, question: null, questions: 0, created_at: NOW, started_at: NOW, finished_at: null, updated_at: NOW, ...over,
 }); // prettier-ignore
 
 export const detail = (over: Partial<WorkItemDetail> = {}): WorkItemDetail => ({

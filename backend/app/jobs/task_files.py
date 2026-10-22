@@ -22,6 +22,9 @@ RULES = """\
 - Run the verification commands below before you finish, and fix what fails.
 - Write a short summary of what you did, and anything the reviewer should know, to `.mwb/notes.md`.
 - There is no network except the package mirrors (pip, npm, Go modules) through the proxy.
+- If you reach a decision this task doesn't settle and a wrong guess would change the result, and `.mwb/prompt.md`
+  says you may still ask, write one question to `.mwb/question.md` (at most 2000 characters; list the options you
+  see) and stop without guessing. The reviewer's answer arrives in `.mwb/answer.md`.
 """
 
 
@@ -42,13 +45,25 @@ def task_md(key: str, doc: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def prompt_md(*, retry: bool, review_feedback: bool) -> str:
+def prompt_md(*, retry: bool, review_feedback: bool, questions_left: int = 0, answered: bool = False) -> str:
     text = "Carry out the task in .mwb/TASK.md in this repository. Follow its rules."
     if review_feedback:
         text += " The reviewer asked for changes: read .mwb/feedback.md first and address all of it."
     elif retry:
         text += " Your previous attempt failed verification: read .mwb/feedback.md first and fix what it lists."
+    if answered:
+        text += (" You asked a question earlier and the reviewer answered: read .mwb/answer.md first, then carry on"
+                 " from the changes already in the working tree.")  # fmt: skip
+    if questions_left > 0:
+        text += f" You may ask {questions_left} more question(s) through .mwb/question.md if you must."
+    else:
+        text += " You can't ask more questions: decide, and explain the decision in .mwb/notes.md."
     return text + "\n"
+
+
+def answer_md(question: str, answer: str) -> str:
+    """The reviewer's answer to the agent's question (08 §F3). Both are shown as they were written."""
+    return f"# Your question\n\n{question.strip()}\n\n# The reviewer's answer\n\n{answer.strip()}\n"
 
 
 def verify_json(doc: dict[str, Any], total_timeout_s: int) -> str:

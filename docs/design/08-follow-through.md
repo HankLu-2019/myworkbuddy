@@ -114,6 +114,13 @@ The next run is a fresh Claude Code session. `prompt.md` says to read `answer.md
 - Cancel and the 7-day cleanup work from `needs_input`.
 - The question renders as safe Markdown.
 
+*Changed while building F3:*
+- The question lives in `jobs.question` (`{text, number, patch_artifact_id, asked_at}`, JSONB) next to `jobs.questions`, both in migration 0016. That migration also recreates `one_active_job_per_item`, because `needs_input` is active.
+- `prompt.md` tells the agent how many questions it may still ask, so the cap is in the prompt as well as enforced. A question written past the cap is removed and the run continues, with an event saying so.
+- The answer goes in `answer.md` together with the question.
+- The Board card is unchanged: the work item stays In progress. Home "Needs you" shows "The agent working on PROJ-123 has a question" (`job_question`, action "Answer"), and it counts in the Board badge.
+- The Jobs filter "Waiting for review" becomes "Waiting for you" and includes `needs_input`.
+
 ## F4. Repository conventions
 
 **Why:** every team has rules the planner can't infer: the test command, generated folders, paths not to touch.

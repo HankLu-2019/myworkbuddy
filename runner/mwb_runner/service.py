@@ -102,6 +102,19 @@ class Runner:
             raise RunRejected("read_failed", f"Couldn't read .mwb/{name}.")
         return out
 
+    def delete_mwb(self, job_id: uuid.UUID, name: str) -> None:
+        """Remove one file under .mwb/ (the agent's answered question, 08 §F3). Missing is fine."""
+        if not MWB_NAME.fullmatch(name) or ".." in name.split("/"):
+            raise RunRejected("bad_path", "Only files under .mwb/ can be removed.")
+        vol = volume_name(job_id)
+        if not self.ops.volume_exists(vol):
+            raise NotFound(f"No workspace for job {job_id}.")
+        script = 'f="/workspace/.mwb/$MWB_FILE"; [ -L "$f" ] && exit 45; rm -f -- "$f"'
+        code, _out, _err = self.ops.run_helper(self.s.sandbox_image, vol, ["sh", "-c", script], {"MWB_FILE": name},
+                                               max_bytes=1024)  # fmt: skip
+        if code != 0:
+            raise RunRejected("delete_failed", f"Couldn't remove .mwb/{name}.")
+
     def delete_workspace(self, job_id: uuid.UUID) -> None:
         for c in self.ops.containers(f"mwb.job={job_id}"):
             self._forget(c["Labels"].get("mwb.run", ""))
