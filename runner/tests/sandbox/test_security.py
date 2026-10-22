@@ -7,6 +7,7 @@ compose.ci.yml up -d --wait egress-proxy llm-gateway api`). Containers are creat
 """
 
 import json
+import os
 import time
 import uuid
 
@@ -147,7 +148,8 @@ def test_1_agent_reaches_only_the_gateway_and_mirrors_through_the_proxy(client) 
     assert _blocked(out["gateway_direct"]), out["gateway_direct"]
     assert all(v != "connected" for v in out["tcp"].values()), out["tcp"]
     assert out["dns_example"] == "failed"
-    assert out["pip"][0] == 0, out["pip"]
+    if not os.environ.get("MWB_TEST_NO_INTERNET"):  # local runs behind a TLS-intercepting proxy can't reach PyPI
+        assert out["pip"][0] == 0, out["pip"]
     assert out["uid"] == 1000 and out["rootfs"] == "read-only" and int(out["cap_eff"], 16) == 0
 
 
@@ -199,7 +201,8 @@ def test_agent_preset_smoke_run_makes_a_change(client) -> None:
            "AGENT_MAX_TURNS": "10"}  # fmt: skip
     code, logs = run(client, "agent", job=job, env=env)
     assert code == 0, logs[-3000:]
-    result = [json.loads(x) for x in logs.splitlines() if x.startswith('{"type":"result"')]
+    lines = [json.loads(x) for x in logs.splitlines() if x.startswith("{")]
+    result = [x for x in lines if x.get("type") == "result"]
     assert result and result[-1]["is_error"] is False, logs[-3000:]
     assert "Retry transient failures (fake agent)" in _read(client, job, "app/webhooks.py")
     assert _read(client, job, ".mwb/notes.md").startswith("Changed app/webhooks.py")
