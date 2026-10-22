@@ -207,7 +207,8 @@ const EVENT_LABEL: Record<JobEvent["type"], string> = {
 export function Timeline({ events }: { events: JobEvent[] }) {
   if (!events.length) return <p className="muted">No events yet.</p>;
   return (
-    <ol className="timeline" aria-label="Job timeline">
+    // Focusable: once long, the list scrolls, and keyboard users must be able to scroll it too.
+    <ol className="timeline" aria-label="Job timeline" tabIndex={0}>
       {events.map((e) => (
         <li key={e.seq} className={`timeline-item tl-${e.type}`}>
           <span className="muted small mono">{new Date(e.at).toLocaleTimeString()}</span> <strong className="small">{EVENT_LABEL[e.type] ?? e.type}</strong>{" "}

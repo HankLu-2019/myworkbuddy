@@ -22,6 +22,7 @@ const FEED_URL = `${FAKE_GITLAB}/fake/feed.xml`;
 async function expectAccessible(page: Page) {
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+  for (const v of bad) console.log(`[diag] axe ${v.id} on ${page.url()}: ${v.nodes.slice(0, 3).map((n) => n.html.slice(0, 160)).join(" | ")}`);
   expect(bad.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).slice(0, 3).join(", ")}`)).toEqual([]);
 }
 
