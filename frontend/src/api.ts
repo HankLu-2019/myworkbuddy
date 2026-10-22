@@ -329,6 +329,10 @@ export interface TicketDraft {
   repository_id: number | null;
 }
 
+export type NotifyChannel = Schemas["ChannelOut"];
+export type NotifyChannelIn = Schemas["ChannelIn"];
+export type ChannelTestResult = Schemas["ChannelTestResult"];
+
 export interface TicketCreated {
   jira_key: string;
   jira_url: string;

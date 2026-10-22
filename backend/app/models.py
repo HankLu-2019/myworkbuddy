@@ -443,6 +443,48 @@ class Approval(Base):
     decided_at: Mapped[datetime] = _now()
 
 
+class NotifyChannel(Base):
+    """A user's Slack or Teams incoming webhook (08 §F8). The URL is a secret: stored encrypted, shown as a hint."""
+
+    __tablename__ = "notify_channels"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(Text)
+    name: Mapped[str] = mapped_column(Text)
+    url_enc: Mapped[str] = mapped_column(Text)
+    url_hint: Mapped[str] = mapped_column(Text)
+    kinds: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")  # empty: every kind
+    min_severity: Mapped[str] = mapped_column(Text, default="warning", server_default="warning")
+    include_details: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    disabled_reason: Mapped[str | None] = mapped_column(Text)
+    last_item_id: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")  # inbox items seen
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = _now()
+
+
+class OutboundMessage(Base):
+    """The chat outbox (08 §F8): one row per inbox item and channel, sent by `send_messages`."""
+
+    __tablename__ = "outbound_messages"
+    __table_args__ = (Index("outbound_messages_due", "next_attempt_at", postgresql_where=text("status = 'pending'")),)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    channel_id: Mapped[int] = mapped_column(ForeignKey("notify_channels.id", ondelete="CASCADE"))
+    inbox_item_id: Mapped[int | None] = mapped_column(ForeignKey("inbox_items.id", ondelete="SET NULL"))
+    dedupe_key: Mapped[str] = mapped_column(Text, unique=True)
+    title: Mapped[str] = mapped_column(Text)
+    severity: Mapped[str] = mapped_column(Text)
+    link: Mapped[str] = mapped_column(Text)
+    details: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = _now()
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _now()
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class OutboundEmail(Base):
     """The email outbox (design 02 §5). S4 queues rows; the sender (`send_emails`) arrives with S5."""
 

@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     job_budget_usd: float = Field(10, gt=0)  # per job's LLM key, at most the owner's remaining budget
     job_max_turns: int = Field(60, ge=1, le=500)
     job_max_changed_lines: int = Field(3000, ge=1)
+    # 08 §F8: Slack and Teams incoming webhooks may only point at these hosts (fnmatch patterns, comma-separated).
+    notify_webhook_hosts: str = "hooks.slack.com,*.webhook.office.com,*.logic.azure.com"
+    max_messages_per_day: int = Field(50, ge=1)
     job_max_questions: int = Field(3, ge=0, le=10)  # questions the agent may ask per job (08 §F3)
     job_review_days: int = Field(7, ge=1)  # workspaces of jobs left in review are removed after this
     artifact_retention_days: int = Field(90, ge=7)  # job transcripts, patches and logs of finished jobs (04 §7)

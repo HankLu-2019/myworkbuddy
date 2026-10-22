@@ -277,6 +277,17 @@ async def send_emails(timestamp: int) -> None:
     await send_pending()
 
 
+@app.periodic(cron="* * * * *")
+@app.task(name="send_messages", queueing_lock="send_messages", lock="send_messages")
+async def send_messages(timestamp: int) -> None:
+    """The Slack and Teams outbox (design 08 §F8)."""
+    from app.inbox.chat import send_pending
+
+    result = await send_pending()
+    if result.queued or result.sent or result.failed:
+        log.info("send_messages.done", **vars(result))
+
+
 # ---------- Phase 2 system tasks (design 02 §9) ----------
 
 

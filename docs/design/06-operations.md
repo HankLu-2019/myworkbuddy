@@ -54,6 +54,8 @@ Then sign in at `https://$MWB_HOSTNAME`, create integrations (Phase 2+), create 
 | `MWB_SMTP_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_FROM`, `_STARTTLS` | — / 587 / — / — / — / true | Phase 2 |
 | `MWB_SMTP_TIMEOUT_S` | 30 | Phase 2 |
 | `MWB_MAX_EMAILS_PER_DAY` | `30` | Per user, per local day |
+| `MWB_NOTIFY_WEBHOOK_HOSTS` | `hooks.slack.com,*.webhook.office.com,*.logic.azure.com` | Hosts a Slack or Teams webhook may point at (fnmatch patterns, comma-separated; 08 §F8). The worker needs outbound HTTPS to them |
+| `MWB_MAX_MESSAGES_PER_DAY` | `50` | Slack and Teams messages per user, per local day (08 §F8) |
 | `MWB_SCHEDULE_MIN_INTERVAL_MIN` | `15` | Members |
 | `MWB_MAX_SCHEDULES_PER_USER` | `20` | |
 | `MWB_SCHEDULE_MIN_INTERVAL_ADMIN_MIN` | `5` | Admins |

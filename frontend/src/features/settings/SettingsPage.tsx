@@ -3,6 +3,7 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type SignIn, type Usage, type User } from "../../api";
 import IntegrationsTab from "./IntegrationsTab";
+import ChatChannels from "./ChatChannels";
 import { readTheme, saveTheme, type Theme } from "../../app/theme";
 import { useAuth } from "../../auth";
 import { usePageTitle } from "../../app/pageTitle";
@@ -354,6 +355,7 @@ const TABS: Record<string, { label: string; element: () => ReactElement | null }
     element: () => (
       <div className="stack">
         <NotificationsTab />
+        <ChatChannels />
         <JiraIntake />
       </div>
     ),

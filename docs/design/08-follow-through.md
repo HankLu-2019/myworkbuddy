@@ -283,6 +283,15 @@ Hosts are limited to `MWB_NOTIFY_WEBHOOK_HOSTS`, default `hooks.slack.com, *.web
 - The webhook URL is in no log line or API response.
 - A failing webhook is retried, then disabled with an inbox notice.
 
+*Changed while building F8:*
+- The webhook URL is encrypted on the channel row (`notify_channels.url_enc`, the same key as user secrets) rather than in `user_credentials`, which belong to admin integrations. The UI shows `url_hint` (host and the last four characters).
+- Each channel keeps a cursor (`last_item_id`): `enqueue()` turns inbox items after it into `outbound_messages` and moves it in the same transaction. A new channel, or one turned back on, starts at the newest item, so nothing old is replayed. Migration 0020 creates both tables.
+- 410 also disables the channel (Slack answers 410 for a removed webhook); 429, 5xx and transport errors retry after 1, 5, 15 and 60 minutes, then the message is `failed`.
+- The daily cap counts in the user's local day, like email, with one inbox notice when it is reached.
+- Titles and details can carry Jira and log text, so Slack's `<`, `>` and `&` are escaped and Markdown links are broken for Teams: a message can't mention `@channel` or add a link other than ours.
+- httpx and httpx2 log each request's full URL at INFO, which would put the webhook in the logs; their loggers now log warnings only. A test checks the logs during a send.
+- A user has at most 10 channels.
+
 ## F9. Outcome dashboard
 
 **Why:** to see which tickets the agent handles well and what it costs, before the tool is rolled out more widely (this covers the backlog's "cost dashboard with trends").

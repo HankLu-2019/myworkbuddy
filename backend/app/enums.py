@@ -94,6 +94,13 @@ class InboxKind(StrEnum):
     job = "job"  # Phase 4: a job is ready for review, failed, or was pushed
 
 
+class ChannelKind(StrEnum):
+    """08 §F8: where chat notifications go."""
+
+    slack = "slack"
+    teams = "teams"
+
+
 class Severity(StrEnum):
     info = "info"
     warning = "warning"
