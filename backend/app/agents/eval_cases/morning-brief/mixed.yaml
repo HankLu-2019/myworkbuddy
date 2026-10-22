@@ -1,0 +1,33 @@
+description: Two open issues, one MR with a failed pipeline, no failed builds, one feed item.
+inputs: {gitlab_projects: [team/etl], feeds: ["https://status.example.com/feed.xml"]}
+tools:
+  jira_my_open_issues:
+    - result:
+        total: 2
+        truncated: false
+        issues:
+          - {key: SPIN-4412, summary: "OOMKilled spark executors on nightly ETL", status: In Progress, assignee: Alice Andersson, updated: "2026-10-20T09:12:00.000+0200"}
+          - {key: SPIN-4398, summary: "Add retention to the audit table", status: To Do, assignee: Alice Andersson, updated: "2026-10-20T08:00:00.000+0200"}
+  gitlab_list_mrs:
+    - result:
+        project: team/etl
+        truncated: false
+        merge_requests:
+          - {iid: 81, title: "Partition the nightly load", state: opened, author: alice, pipeline_status: failed, updated: "2026-10-21T06:00:00Z", web_url: "https://gitlab.example.com/team/etl/-/merge_requests/81"}
+  gerrit_query:
+    - result: {changes: [], truncated: false}
+  feed_latest:
+    - result:
+        feed: https://status.example.com/feed.xml
+        truncated: false
+        items:
+          - {title: "Kubernetes 1.32 rollout next week", link: "https://status.example.com/posts/k8s-132", published: "2026-10-21T05:00:00+00:00", summary: "Clusters move to 1.32 on Monday."}
+  search_knowledge:
+    - result: []
+expect:
+  status: warning
+  fingerprints:
+    - "gitlab:team/etl!81:failed"
+    - "jira:SPIN-4412"
+    - "jira:SPIN-4398"
+    - "feed:https://status.example.com/posts/k8s-132"

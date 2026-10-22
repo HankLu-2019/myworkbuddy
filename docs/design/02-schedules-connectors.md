@@ -441,6 +441,14 @@ Layouts, navigation, flows and states are specified in [07-ux.md](07-ux.md) (§4
 | `send_emails` | every minute | §5 |
 | `projects_refresh` | nightly 01:00 UTC | `git ls-remote` each ready project; re-ingest if HEAD moved |
 | `runs_retention` | daily | Delete runs (and their sessions) older than 180 days |
+| `agent_evals` | nightly 03:10 UTC | Agent evals against the real model, when `MWB_AGENT_EVALS_USER` is set (S8) |
+
+*Changed while building S8:*
+
+- **`projects_refresh`** (01:00 UTC, `lock="projects_refresh"`) reads each ready repository's owner credentials in a short transaction, then runs `git ls-remote` (60 s timeout, credentials via `GIT_CONFIG_*`) with no transaction open, and queues an ingest when the branch head differs from `last_ingested_sha`. A remote that doesn't answer is logged and skipped; the repository keeps `ready`. At most 500 repositories a night.
+- **`runs_retention`** (02:40 UTC) deletes runs older than `MWB_RUNS_RETENTION_DAYS` (180), except queued or running ones, with their run sessions; their inbox items go too (FK cascade). It also deletes sent, failed and suppressed emails after 90 days and handled or expired proposals after 30 days. Batches of 500, one short transaction each.
+- **Agent evals** (`app/agents/evals.py`, cases in `app/agents/eval_cases/<agent>/<case>.yaml`): each case records what each tool returns and the expected status and fingerprints. Tools are replayed with the production names, signatures and untrusted wrapping; fingerprints are compared by id part (the qualifier is the model's wording). Runs use a real user's gateway key and budget (R11): `mwb eval-agents --user <name>` by hand, and nightly via `MWB_AGENT_EVALS_USER`, which stores a summary in the ops state `agent_evals` and raises an Admin → System alert when a case fails. CI runs the same code with a scripted model, including a check that every case's expected fingerprints are verifiable from its recordings.
+- **GitLab tool results name their `project`** (`gitlab_list_mrs`, `gitlab_pipeline_status`, `gitlab_job_log_tail`), so the `gitlab:<project>#<pipeline>:<job>` fingerprints the prompts ask for can be verified; before, the project path appeared only in some URLs.
 
 ## 10. Out of scope
 

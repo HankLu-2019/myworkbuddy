@@ -145,6 +145,26 @@ def sync_agents() -> None:
     typer.echo("agents: " + ", ".join(f"{k} {v}" for k, v in asyncio.run(run()).items()))
 
 
+@cli.command("eval-agents")
+def eval_agents(
+    user: str = typer.Option(..., "--user", help="Username whose gateway key and AI budget the runs use"),
+    agent: str | None = typer.Option(None, "--agent", help="Only this agent's cases"),
+) -> None:
+    """Run the agent evals against the real model (design 02 §3, plan S8). Exits 1 if any case fails."""
+    from app.agents.evals import run_evals, summary
+
+    results = asyncio.run(run_evals(user, agent))
+    for r in results:
+        mark = "PASS" if r.passed else "FAIL"
+        detail = r.error or (f"missing {r.missing} unexpected {r.unexpected} status {r.status}/{r.expected_status}")
+        typer.echo(
+            f"{mark} {r.agent}/{r.case} ({r.seconds}s, ${float(r.cost_usd):.4f}){'' if r.passed else ': ' + detail}"
+        )
+    s = summary(results)
+    typer.echo(f"{s['passed']}/{s['total']} passed, ${s['cost_usd']:.4f}")
+    raise typer.Exit(0 if s["passed"] == s["total"] else 1)
+
+
 @cli.command("wiki-reconcile")
 def wiki_reconcile(dry_run: bool = typer.Option(False, "--dry-run", help="Report only; change nothing")) -> None:
     """Repair drift between the wiki git repos and the database (design 01 §H7)."""

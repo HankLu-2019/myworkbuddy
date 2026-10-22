@@ -1,0 +1,29 @@
+description: The latest pipeline on main failed in integration-tests with a clear assertion error.
+inputs: {gitlab_projects: [team/etl], gitlab_ref: main}
+tools:
+  gitlab_pipeline_status:
+    - result:
+        project: team/etl
+        pipeline_id: 9912
+        status: failed
+        ref: main
+        sha: 3f2a9c1
+        web_url: https://gitlab.example.com/team/etl/-/pipelines/9912
+        failed_jobs: [{id: 55501, name: integration-tests, stage: test}]
+  gitlab_job_log_tail:
+    - result:
+        project: team/etl
+        job_id: 55501
+        lines: 6
+        log: |
+          $ pytest tests/integration -q
+          FAILED tests/integration/test_loader.py::test_nightly_partition - AssertionError: expected 24 partitions, got 23
+          1 failed, 211 passed in 312.4s
+          ERROR: Job failed: exit code 1
+  search_knowledge:
+    - result: []
+  get_session:
+    - result: {error: not_found, message: "Session not found"}
+expect:
+  status: alert
+  fingerprints: ["gitlab:team/etl#9912:integration-tests"]

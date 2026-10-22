@@ -1,0 +1,19 @@
+description: Everything running and ready, no warning events; the report must be empty and ok.
+inputs: {namespaces: [prod]}
+tools:
+  k8s_get:
+    - args: {kind: pods}
+      result:
+        kind: pods
+        truncated: false
+        items:
+          - {name: payments-7d9f-abcde, namespace: prod, phase: Running, ready: "1/1", restarts: 0, reasons: [], node: node-3}
+          - {name: checkout-5c6d-xyz12, namespace: prod, phase: Running, ready: "1/1", restarts: 0, reasons: [], node: node-1}
+    - result: {kind: deployments, truncated: false, items: [{name: payments, namespace: prod, desired: 1, ready: 1, available: 1, conditions: [Available]}]}
+  k8s_events:
+    - result: {since_minutes: 60, truncated: false, events: []}
+  search_knowledge:
+    - result: []
+expect:
+  status: ok
+  fingerprints: []
