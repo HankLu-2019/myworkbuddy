@@ -60,6 +60,12 @@ SEEDS["0010"] = [
     "INSERT INTO schedule_proposals (owner_id, session_id, payload, expires_at) "
     "VALUES (1, '00000000-0000-0000-0000-000000000001', '{}', now())",
 ]
+SEEDS["0011"] = [
+    "INSERT INTO integrations (kind, name, base_url) VALUES ('jira', 'Seed Jira', 'https://jira.example.com')",
+    "INSERT INTO jira_issues (owner_id, integration_id, key, summary, status, updated_remote, fields) "
+    "SELECT 1, id, 'S-1', 's', 'To Do', now(), '{}' FROM integrations WHERE name = 'Seed Jira'",
+    "INSERT INTO work_items (owner_id, jira_issue_id) SELECT 1, id FROM jira_issues",
+]
 SEEDS["0005"] = []  # 0005 adds a column with a default; the 0001 user must get it
 CHECKS = {
     "users": 1,
@@ -74,6 +80,7 @@ CHECKS = {
     "runs": 1,
     "outbound_emails": 1,
     "schedule_proposals": 1,
+    "work_items": 1,
 }
 
 

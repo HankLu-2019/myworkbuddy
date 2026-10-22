@@ -51,6 +51,10 @@ class User(Base):
     timezone_confirmed: Mapped[bool] = mapped_column(Boolean, server_default="false")
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     email_notifications: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    # Jira intake (design 03 §7)
+    jira_intake_enabled: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    jira_intake_jql: Mapped[str | None] = mapped_column(Text)
+    jira_autoplan_label: Mapped[str | None] = mapped_column(Text)
     llm_budget_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     must_change_password: Mapped[bool] = mapped_column(Boolean, server_default="false")
 
@@ -253,6 +257,43 @@ class ScheduleProposal(Base):
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _now()
+
+
+class JiraIssue(Base):
+    """A per-user cache of Jira issues (design 03 §2), refreshed by intake and when a work item is opened."""
+
+    __tablename__ = "jira_issues"
+    __table_args__ = (UniqueConstraint("owner_id", "integration_id", "key"),)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    integration_id: Mapped[int] = mapped_column(ForeignKey("integrations.id", ondelete="CASCADE"))
+    key: Mapped[str] = mapped_column(Text)
+    summary: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    issue_type: Mapped[str | None] = mapped_column(Text)
+    priority: Mapped[str | None] = mapped_column(Text)
+    updated_remote: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    fields: Mapped[dict[str, Any]] = mapped_column(JSONB)  # description, labels, components, links, assignee
+    fetched_at: Mapped[datetime] = _now()
+
+
+class WorkItem(Base):
+    """One Jira issue + one repository for one user (design 03 §1). Private to its owner."""
+
+    __tablename__ = "work_items"
+    __table_args__ = (
+        UniqueConstraint("owner_id", "jira_issue_id", "project_id", postgresql_nulls_not_distinct=True),
+        Index("work_items_owner_state", "owner_id", "state", text("updated_at DESC")),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    jira_issue_id: Mapped[int] = mapped_column(ForeignKey("jira_issues.id", ondelete="CASCADE"))
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"))
+    state: Mapped[str] = mapped_column(Text, default="new", server_default="new")
+    current_plan_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    current_job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))  # Phase 4
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = _now()
 
 
 class OutboundEmail(Base):
