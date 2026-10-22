@@ -89,6 +89,7 @@ class InboxKind(StrEnum):
     system = "system"
     credential = "credential"
     proposal = "proposal"
+    plan = "plan"  # Phase 3: a plan is ready, or drafting failed
 
 
 class Severity(StrEnum):

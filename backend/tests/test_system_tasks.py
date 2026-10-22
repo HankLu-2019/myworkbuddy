@@ -133,7 +133,8 @@ async def test_runs_retention_deletes_old_runs_with_their_transcripts(make_user)
 def test_every_eval_case_fits_its_agent() -> None:
     cases = evals.load_cases()
     agents = {s.slug: s for s in load_seeds()}
-    assert {c.agent for c in cases} == set(agents)  # every agent has at least one case
+    reporting = {slug for slug, s in agents.items() if s.report}  # the planner has its own tests (test_planner)
+    assert {c.agent for c in cases} == reporting  # every report agent has at least one case
     for case in cases:
         assert set(case.tools) <= set(agents[case.agent].tools), case.name
         assert case.expect_status in ("ok", "warning", "alert")

@@ -74,6 +74,9 @@ SEEDS["0012"] = [
     "INSERT INTO approvals (owner_id, subject_type, subject_id, payload_hash, decision) "
     f"SELECT 1, 'plan_revision', id, '{'0' * 64}', 'approved' FROM plan_revisions",
 ]
+SEEDS["0013"] = [  # plans written before 0013 get auto = false; the recreated kind CHECK accepts "plan"
+    "INSERT INTO inbox_items (owner_id, kind, title, severity) VALUES (1, 'plan', 'Plan ready for S-1', 'info')",
+]
 SEEDS["0005"] = []  # 0005 adds a column with a default; the 0001 user must get it
 CHECKS = {
     "users": 1,
@@ -82,14 +85,14 @@ CHECKS = {
     "projects": 1,
     "documents": 1,
     "chunks": 1,
-    "inbox_items": 1,
+    "inbox_items": 2,
     "agents": 1,
     "schedules": 1,
     "runs": 1,
     "outbound_emails": 1,
     "schedule_proposals": 1,
     "work_items": 1,
-    "plans": 1,
+    "plans": 1,  # auto defaults to false (0013)
     "approvals": 1,
 }
 

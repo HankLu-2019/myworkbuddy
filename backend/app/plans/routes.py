@@ -13,7 +13,8 @@ from app import pagination
 from app.audit.service import audit
 from app.deps import DB, CurrentAuth, client_ip
 from app.errors import AppError
-from app.models import Integration, JiraIssue, Project, User, WorkItem
+from app.models import Approval, Integration, JiraIssue, Plan, PlanRevision, Project, User, WorkItem
+from app.plans.planner import defer_draft, start_plan
 from app.plans.work_items import create_work_item, visible_project
 
 router = APIRouter(prefix="/api", tags=["work items"])
@@ -176,3 +177,98 @@ async def update_work_item(
             status.HTTP_409_CONFLICT, "conflict", "That ticket is already on your board for this repository."
         ) from None
     return detail(await load(db, work_item_id, auth.user))
+
+
+# ---------- plans (03 §8; approval and revisions arrive with P4) ----------
+
+
+class RevisionOut(BaseModel):
+    revision: int
+    content: dict
+    content_hash: str
+    author: Literal["planner", "user"]
+    change_note: str | None
+    validation: dict
+    session_id: uuid.UUID | None
+    cost_usd: float | None
+    created_at: datetime
+
+
+class PlanOut(BaseModel):
+    id: uuid.UUID
+    work_item_id: uuid.UUID
+    status: Literal["drafting", "needs_decision", "approved", "rejected", "superseded", "failed"]
+    current_revision: int
+    base_sha: str | None
+    base_branch: str | None
+    error: str | None
+    auto: bool
+    revision: RevisionOut | None
+    approvals: list[dict]
+    created_at: datetime
+    updated_at: datetime
+
+
+async def plan_out(db: DB, plan: Plan) -> PlanOut:
+    rev = None
+    if plan.current_revision:
+        r = await db.scalar(
+            select(PlanRevision).where(PlanRevision.plan_id == plan.id, PlanRevision.revision == plan.current_revision)
+        )
+        if r is not None:
+            rev = RevisionOut(
+                revision=r.revision, content=r.content, content_hash=r.content_hash, author=r.author,
+                change_note=r.change_note, validation=r.validation, session_id=r.session_id,
+                cost_usd=float(r.cost_usd) if r.cost_usd is not None else None, created_at=r.created_at,
+            )  # fmt: skip
+    ids = list(await db.scalars(select(PlanRevision.id).where(PlanRevision.plan_id == plan.id)))
+    decisions = []
+    if ids:
+        rows = await db.scalars(
+            select(Approval)
+            .where(Approval.subject_type == "plan_revision", Approval.subject_id.in_(ids))
+            .order_by(Approval.decided_at)
+        )
+        decisions = [
+            {
+                "revision_id": str(a.subject_id),
+                "decision": a.decision,
+                "acknowledged": list(a.acknowledged),
+                "comment": a.comment,
+                "decided_at": a.decided_at.isoformat(),
+            }
+            for a in rows
+        ]
+    return PlanOut(
+        id=plan.id, work_item_id=plan.work_item_id, status=plan.status, current_revision=plan.current_revision,
+        base_sha=plan.base_sha, base_branch=plan.base_branch, error=plan.error, auto=plan.auto, revision=rev,
+        approvals=decisions, created_at=plan.created_at, updated_at=plan.updated_at,
+    )  # fmt: skip
+
+
+async def owned_plan(db: DB, plan_id: uuid.UUID, user: User, *, lock: bool = False) -> Plan:
+    q = select(Plan).where(Plan.id == plan_id, Plan.owner_id == user.id)
+    plan = await db.scalar(q.with_for_update() if lock else q)
+    if plan is None:
+        raise AppError(status.HTTP_404_NOT_FOUND, "not_found", "Plan not found")
+    return plan
+
+
+@router.post("/work-items/{work_item_id}/plans", response_model=PlanOut, status_code=202)
+async def start(work_item_id: uuid.UUID, auth: CurrentAuth, db: DB, request: Request) -> PlanOut:
+    """Start a plan: defers `draft_plan`; poll the plan, or wait for the inbox item."""
+    w, *_ = await load(db, work_item_id, auth.user, lock=True)
+    plan = await start_plan(db, w)
+    await audit(
+        db, "plan.start", user_id=auth.user.id, target_type="plan", target_id=str(plan.id),
+        detail={"work_item_id": str(w.id)}, ip=client_ip(request),
+    )  # fmt: skip
+    await db.commit()
+    await defer_draft(plan.id, w.project_id)  # type: ignore[arg-type]
+    await db.refresh(plan)
+    return await plan_out(db, plan)
+
+
+@router.get("/plans/{plan_id}", response_model=PlanOut)
+async def get_plan(plan_id: uuid.UUID, auth: CurrentAuth, db: DB) -> PlanOut:
+    return await plan_out(db, await owned_plan(db, plan_id, auth.user))

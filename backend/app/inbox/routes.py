@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/inbox", tags=["inbox"])
 
 class InboxItemOut(BaseModel):
     id: int
-    kind: Literal["run", "alert", "recovered", "system", "credential", "proposal"]
+    kind: Literal["run", "alert", "recovered", "system", "credential", "proposal", "plan"]
     severity: Literal["info", "warning", "alert"]
     title: str
     body_md: str

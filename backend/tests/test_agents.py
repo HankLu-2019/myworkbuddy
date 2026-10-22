@@ -42,10 +42,12 @@ POD = "payments-7d9f-abcde"
 
 def test_seed_files_are_valid_and_end_with_the_notice() -> None:
     seeds = {s.slug: s for s in load_seeds()}
-    assert set(seeds) == {"morning-brief", "k8s-health", "ci-failures", "jira-digest"}
+    assert set(seeds) == {"morning-brief", "k8s-health", "ci-failures", "jira-digest", "planner"}
     for seed in seeds.values():
-        assert seed.system_prompt.endswith(UNTRUSTED_NOTICE) and seed.max_tier == "read" and seed.report
-        assert seed.inputs_schema["type"] == "object" and "Fingerprints" in seed.system_prompt
+        assert seed.system_prompt.endswith(UNTRUSTED_NOTICE) and seed.max_tier == "read"
+        if seed.slug != "planner":  # the planner returns a PlanDoc, not a run report (03 §5)
+            assert seed.report and seed.inputs_schema["type"] == "object" and "Fingerprints" in seed.system_prompt
+    assert seeds["planner"].report is False and seeds["planner"].model_alias == "planner"
     assert seeds["k8s-health"].tools == ["k8s_get", "k8s_events", "k8s_pod_logs", "search_knowledge"]
     assert seeds["k8s-health"].inputs_schema["required"] == ["namespaces"]
 
@@ -53,10 +55,10 @@ def test_seed_files_are_valid_and_end_with_the_notice() -> None:
 async def test_sync_is_idempotent_and_updates_on_change(make_user) -> None:
     seeds = load_seeds()
     async with get_sessionmaker()() as db:
-        assert await sync_system_agents(db, seeds) == {"created": 4, "updated": 0, "disabled": 0, "unchanged": 0}
+        assert await sync_system_agents(db, seeds) == {"created": 5, "updated": 0, "disabled": 0, "unchanged": 0}
         await db.commit()
         before = {a.slug: a.updated_at for a in await db.scalars(select(Agent))}
-        assert await sync_system_agents(db, seeds) == {"created": 0, "updated": 0, "disabled": 0, "unchanged": 4}
+        assert await sync_system_agents(db, seeds) == {"created": 0, "updated": 0, "disabled": 0, "unchanged": 5}
         await db.commit()
         assert {a.slug: a.updated_at for a in await db.scalars(select(Agent))} == before  # untouched rows
 

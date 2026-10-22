@@ -86,13 +86,13 @@ async def execute_agent_run(
         await db.commit()
 
     deps = RunDeps(user=user, session_id=session_id)
-    recorder: _Recorder | None = None
+    recorder: RecordingToolset | None = None
 
     outcome = RunOutcome(status="failed")
     result = None
     with usage.track() as tracked:
         try:
-            recorder = _Recorder(wrapped=await toolset_for(agent, user), session_id=session_id)
+            recorder = RecordingToolset(wrapped=await toolset_for(agent, user), session_id=session_id)
             model = await llm.model_for(user.id, agent.model_alias)  # type: ignore[arg-type]
             runner = PydanticAgent(
                 model, deps_type=RunDeps, instructions=agent.system_prompt, toolsets=[recorder], output_type=RunReport
@@ -143,7 +143,7 @@ async def execute_agent_run(
 
 
 @dataclass
-class _Recorder(WrapperToolset[Any]):
+class RecordingToolset(WrapperToolset[Any]):
     """Saves each tool call to the run session as it happens (as chat does), and keeps the results that
     fingerprints are checked against. Each save is its own short transaction (rule R1)."""
 

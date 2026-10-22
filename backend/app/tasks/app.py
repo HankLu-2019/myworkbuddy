@@ -324,11 +324,13 @@ async def agent_evals(timestamp: int) -> dict[str, int] | None:
 
 @app.task(name="jira_intake", retry=False)
 async def jira_intake(user_id: int) -> dict[str, int]:
+    from app.plans.planner import autoplan
     from app.plans.work_items import run_intake
 
     structlog.contextvars.bind_contextvars(task="jira_intake", user_id=user_id)
     r = await run_intake(user_id)
-    counts = {"issues": r.issues, "created": len(r.created), "failed": len(r.failed)}
+    planned = await autoplan(user_id, r.created)
+    counts = {"issues": r.issues, "created": len(r.created), "failed": len(r.failed), "autoplanned": len(planned)}
     log.info("jira_intake.done", **counts)
     return counts
 
@@ -341,3 +343,12 @@ async def jira_intake_tick(timestamp: int) -> int:
     for uid in ids:
         await defer_once(jira_intake, f"intake:{uid}", user_id=uid)
     return len(ids)
+
+
+@app.task(name="draft_plan", queue="llm", retry=False)
+async def draft_plan_task(plan_id: str, feedback: str | None = None) -> None:
+    """Draft or revise a plan (design 03 §5); locked per repository, because ingest shares its git cache."""
+    from app.plans.planner import draft_plan
+
+    structlog.contextvars.bind_contextvars(task="draft_plan", plan_id=plan_id)
+    await draft_plan(uuid.UUID(plan_id), feedback)

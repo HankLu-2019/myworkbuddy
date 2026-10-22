@@ -22,14 +22,17 @@ from app.models import (
     ChatSession,
     InboxItem,
     Integration,
+    JiraIssue,
     LibrarianRun,
     Message,
+    Plan,
     Project,
     Run,
     Schedule,
     User,
     UserCredential,
     WikiPage,
+    WorkItem,
 )
 
 router = APIRouter(prefix="/api", tags=["home"])
@@ -58,8 +61,8 @@ class NeedsYou(BaseModel):
 
 
 class ActivityItem(BaseModel):
-    kind: Literal["ingest", "run"]
-    id: int | str  # project id, or run id
+    kind: Literal["ingest", "run", "plan"]
+    id: int | str  # project id, run id or plan id
     title: str
     status: Literal["queued", "running"]
     step: str | None
@@ -159,6 +162,26 @@ async def _running(db: DB, user: User) -> list[ActivityItem]:
                 step="Running checks" if r.status == "running" else "Waiting to start",
                 since=r.started_at or r.created_at,
                 href=f"/runs/{r.id}",
+            )  # fmt: skip
+        )
+    drafting = await db.execute(
+        select(Plan, JiraIssue.key)
+        .join(WorkItem, WorkItem.id == Plan.work_item_id)
+        .join(JiraIssue, JiraIssue.id == WorkItem.jira_issue_id)
+        .where(Plan.owner_id == user.id, Plan.status == "drafting")
+        .order_by(Plan.updated_at)
+        .limit(20)
+    )
+    for plan, key in drafting.all():
+        items.append(
+            ActivityItem(
+                kind="plan",
+                id=str(plan.id),
+                title=f"Plan for {key}",
+                status="running",
+                step="Revising the plan" if plan.current_revision else "Drafting the plan",
+                since=plan.updated_at,
+                href=f"/work/{plan.work_item_id}/plan",
             )  # fmt: skip
         )
     return items

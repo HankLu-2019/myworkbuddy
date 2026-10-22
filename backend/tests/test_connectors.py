@@ -345,9 +345,10 @@ def test_every_untrusted_tool_returns_the_envelope_and_read_is_the_only_tier() -
             "get_session",
             "propose_schedule",
         ),
+        *("repo_tree", "repo_read", "repo_grep"),
     }
     assert names == expected
-    assert {s.tier for s in REGISTRY.values()} == {Tier.read}  # Phase 2 adds no write tools (02 intro)
+    assert {s.tier for s in REGISTRY.values()} == {Tier.read}  # Phases 2–3 add no write tools (02 intro, 03 §5)
     untrusted = {s.name for s in REGISTRY.values() if s.untrusted_output}
     assert {
         "jira_search",
@@ -357,6 +358,8 @@ def test_every_untrusted_tool_returns_the_envelope_and_read_is_the_only_tier() -
         "k8s_pod_logs",
         "feed_latest",
         "gerrit_query",
+        "repo_read",
+        "repo_grep",
     } <= untrusted
 
 

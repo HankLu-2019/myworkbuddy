@@ -709,6 +709,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/plans/{plan_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Plan */
+        get: operations["get_plan_api_plans__plan_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects": {
         parameters: {
             query?: never;
@@ -1210,6 +1227,26 @@ export interface paths {
         patch: operations["update_work_item_api_work_items__work_item_id__patch"];
         trace?: never;
     };
+    "/api/work-items/{work_item_id}/plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start
+         * @description Start a plan: defers `draft_plan`; poll the plan, or wait for the inbox item.
+         */
+        post: operations["start_api_work_items__work_item_id__plans_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1250,7 +1287,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "ingest" | "run";
+            kind: "ingest" | "run" | "plan";
             /**
              * Since
              * Format: date-time
@@ -1555,7 +1592,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "run" | "alert" | "recovered" | "system" | "credential" | "proposal";
+            kind: "run" | "alert" | "recovered" | "system" | "credential" | "proposal" | "plan";
             /** Link */
             link: string | null;
             /** Read At */
@@ -1875,6 +1912,49 @@ export interface components {
             /** New Password */
             new_password: string;
         };
+        /** PlanOut */
+        PlanOut: {
+            /** Approvals */
+            approvals: {
+                [key: string]: unknown;
+            }[];
+            /** Auto */
+            auto: boolean;
+            /** Base Branch */
+            base_branch: string | null;
+            /** Base Sha */
+            base_sha: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Current Revision */
+            current_revision: number;
+            /** Error */
+            error: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            revision: components["schemas"]["RevisionOut"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "drafting" | "needs_decision" | "approved" | "rejected" | "superseded" | "failed";
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Work Item Id
+             * Format: uuid
+             */
+            work_item_id: string;
+        };
         /** PreviewIn */
         PreviewIn: {
             /** Cron */
@@ -2130,6 +2210,37 @@ export interface components {
         RevertOut: {
             /** Reverted */
             reverted: string[];
+        };
+        /** RevisionOut */
+        RevisionOut: {
+            /**
+             * Author
+             * @enum {string}
+             */
+            author: "planner" | "user";
+            /** Change Note */
+            change_note: string | null;
+            /** Content */
+            content: {
+                [key: string]: unknown;
+            };
+            /** Content Hash */
+            content_hash: string;
+            /** Cost Usd */
+            cost_usd: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Revision */
+            revision: number;
+            /** Session Id */
+            session_id: string | null;
+            /** Validation */
+            validation: {
+                [key: string]: unknown;
+            };
         };
         /** RunDetail */
         RunDetail: {
@@ -4272,6 +4383,37 @@ export interface operations {
             };
         };
     };
+    get_plan_api_plans__plan_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_projects_api_projects_get: {
         parameters: {
             query?: never;
@@ -5426,6 +5568,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkItemDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_api_work_items__work_item_id__plans_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                work_item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOut"];
                 };
             };
             /** @description Validation Error */

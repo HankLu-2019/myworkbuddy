@@ -152,8 +152,9 @@ Design: [03-plans.md](design/03-plans.md).
 - [x] **P2 PlanDoc and validation** (03 §3–4) incl. `approvals` table and its update trigger.
   - Acceptance: one test per validation rule; canonical hashing is stable across key order; approvals cannot be updated.
   - Done with the changes recorded in 03 §4 ("Changed while building P2"): pure `validate_plan` with its inputs passed in, stable `needs_ack` keys, `approvals.acknowledged` and an exact payload-hash definition, and a trigger that also refuses direct deletes.
-- [ ] **P3 Planner and repo read tools** (03 §5, and intake auto-draft from §7 step 4).
+- [x] **P3 Planner and repo read tools** (03 §5, and intake auto-draft from §7 step 4).
   - Acceptance: autoplan respects the daily limit; repo tools refuse paths outside the checkout, symlinks, binaries, oversize files; planner toolset is read-only; invalid first draft triggers exactly one fix attempt; an injected Jira description asking for an unknown network host yields a validation error, not an approved host.
+  - Done with the changes recorded in 03 §5 ("Changed while building P3"): a per-repository task lock, the start/get plan endpoints brought forward from P4, inbox kind `plan`, `plans.auto` for the auto-draft limit (migration 0013).
 - [ ] **P4 Approval flow and revisions** (03 §6).
   - Acceptance: stale revision or hash → 409; missing acknowledgements → 422; user edits create new revisions that are not approved; reject resets the work item; field-level diff endpoint.
 - [ ] **P5 Board and work item hub** (03 §9, 07 §4.9, §4.10, §5.8): board, hub with progress strip and Ticket/Plan tabs, revision compare, Discuss in chat.
