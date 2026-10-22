@@ -329,6 +329,7 @@ export interface TicketDraft {
   repository_id: number | null;
 }
 
+export type OidcConfig = Schemas["OidcConfig"];
 export type Insights = Schemas["InsightsOut"];
 export type InsightsOptions = Schemas["InsightsOptions"];
 export type NotifyChannel = Schemas["ChannelOut"];

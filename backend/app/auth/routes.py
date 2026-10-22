@@ -113,6 +113,12 @@ async def login(body: LoginIn, request: Request, response: Response, db: DB) -> 
         # Same answer for every limit, so it doesn't reveal which key tripped (design 01 §H11).
         raise AppError(status.HTTP_429_TOO_MANY_REQUESTS, "rate_limited", "Too many attempts. Try again in 15 minutes.")
     user = await authenticate(db, body.username, body.password)
+    s = get_settings()
+    if user is not None and s.local_login == "admins" and not user.is_admin:
+        # 08 §F11: members sign in with single sign-on; admins keep the password as a fallback.
+        await audit(db, "login.failed", user_id=user.id, detail={"reason": "sso_only"}, ip=ip)
+        await db.commit()
+        raise AppError(status.HTTP_403_FORBIDDEN, "forbidden", f"Sign in with {s.oidc_name}.")
     if user is None:
         await audit(db, "login.failed", user_id=None, detail={"username": normalize_username(body.username)}, ip=ip)
         await record_failed_login(db, keys)

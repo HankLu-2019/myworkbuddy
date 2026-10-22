@@ -57,6 +57,7 @@ class User(Base):
     jira_autoplan_label: Mapped[str | None] = mapped_column(Text)
     llm_budget_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     must_change_password: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    oidc_sub: Mapped[str | None] = mapped_column(Text, unique=True)  # 08 §F11: the SSO subject, once matched
 
     @property
     def is_admin(self) -> bool:

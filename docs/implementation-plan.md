@@ -227,8 +227,9 @@ Design: [08-follow-through.md](design/08-follow-through.md). Tasks are in priori
 - [x] **F10 Verification with containers (Sysbox, opt-in)** (08 §F10).
   - Acceptance: `services: true` on a repository that isn't enabled is a validation error; the `verify-services` preset is fixed in the runner (unit tests); security tests 1–3 from an inner container and a Postgres service under `docker compose` on the VM (*manual*).
   - Done with the changes recorded in 08 §F10 (inner dockerd as the Sysbox-mapped root, its own volume, doubled limits, registry hosts in the run's ACL, a System page block, migration 0021). Still *manual*: build `mwb-sandbox-dind` and run security tests 1–3 and a compose Postgres on the VM.
-- [ ] **F11 Single sign-on (OIDC)** (08 §F11).
+- [x] **F11 Single sign-on (OIDC)** (08 §F11).
   - Acceptance (fake OIDC provider): login; wrong state, nonce, signature, audience or an expired token refused; email matched once then `sub` only; auto-create by setting; deactivated users refused; admins keep the local login.
+  - Done with the changes recorded in 08 §F11: `MWB_LOCAL_LOGIN=admins` as the members' switch, the flow kept in an encrypted cookie, refusals as `?sso_error=` codes, verified-email matching only, migration 0022.
 - [ ] **F12 Admin-registered MCP servers, read tier** (08 §F12).
   - Acceptance: tools listed and enabled by an admin as read only; write-hinted tools can't be enabled; disabled tools can't be called; results wrapped, capped, timed out; a changed tool definition disables the tool; roles enforced; calls audited.
 

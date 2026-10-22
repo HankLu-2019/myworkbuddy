@@ -31,6 +31,7 @@ dependencies = [
   "cron-descriptor>=1.4",
   "croniter>=2",
   "aiosmtplib>=3",
+  "pyjwt[crypto]>=2.10",
 ]
 
 [project.scripts]
