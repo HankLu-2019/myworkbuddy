@@ -1,6 +1,6 @@
 # MyWorkBuddy: implementation plan
 
-Last revised 2026-10-21 after the [design review](review/2026-10-21-design-review.md). Supersedes the Phase 0/1 plan of 2026-10-20.
+Last revised 2026-10-22 (Phase 5 planned). Earlier revision 2026-10-21 after the [design review](review/2026-10-21-design-review.md). Supersedes the Phase 0/1 plan of 2026-10-20.
 
 ## Status
 
@@ -10,9 +10,10 @@ Last revised 2026-10-21 after the [design review](review/2026-10-21-design-revie
 | 1 Knowledge & memory | Done (commit `e45c666`) |
 | H Hardening | Built (PRs #2–#17); the manual release gate on the VM is still to run |
 | 2 Schedules & connectors | Built (PRs #18–#25, [02](design/02-schedules-connectors.md)); the manual release gate is still to run |
-| **3 Plans** | **In progress**: [03](design/03-plans.md) |
-| 4 Execution | Designed: [04](design/04-execution.md) |
-| 5 Polish | Backlog below |
+| 3 Plans | Built (PRs #26–#30, [03](design/03-plans.md)); the manual release gate is still to run |
+| 4 Execution | Built (PRs #31–#37, [04](design/04-execution.md)); the manual release gate on the VM (gVisor, real Bedrock) is still to run |
+| **5 Follow-through and team rollout** | **Designed**: [08](design/08-follow-through.md) |
+| 6 Backlog | Below |
 
 Read [`design/00-architecture.md`](design/00-architecture.md) before any task, and [`design/07-ux.md`](design/07-ux.md) before any frontend work. Its engineering rules R1–R15 apply to every task, and `CLAUDE.md` repeats them.
 
@@ -192,9 +193,40 @@ Design: [04-execution.md](design/04-execution.md).
 
 **Phase 4 end-to-end checklist** (*manual*, on the VM with gVisor): a real small ticket goes plan → job → review → push to a test repo on GitLab and on Gerrit; the security tests in 04 §9 are run on the VM.
 
-## Phase 5 — Backlog (prioritise after Phase 4)
+## Phase 5 — Follow-through and team rollout
 
-Slack/Teams notifications · user-defined agents and skills editor · admin-registered MCP servers (read tier by default, tool allowlist) · Spinnaker connector · reranker (Bedrock Cohere Rerank) · cost dashboard with trends · OIDC SSO · Sysbox opt-in for compose verification · RCA evaluation set · wiki export.
+Design: [08-follow-through.md](design/08-follow-through.md). Tasks are in priority order: F1–F5 take a job from "merge request opened" to "merged", F6–F7 connect jobs to CI failures and the knowledge base, F8–F12 prepare a team rollout. Each can ship on its own; F5 is small and can go first.
+
+- [ ] **F1 Pipeline watch and "Fix CI failure"** (08 §F1).
+  - Acceptance: a failed pipeline for the pushed sha adds exactly one inbox item (older shas ignored); Fix CI failure starts a round whose `feedback.md` holds the wrapped log tails, fetched by the server; a planted prompt injection stays inside the envelope; passed and Gerrit `Verified -1` states shown; refused without a failed pipeline and after 5 rounds.
+- [ ] **F2 Address review comments** (08 §F2).
+  - Acceptance: only the selected, still-unresolved comments (GitLab discussions, Gerrit comments) reach `feedback.md`, re-fetched by the server and wrapped; replies are posted only when approved in the push preview, once each, including after a crash between posting and recording; resolved comments and system notes are never offered.
+- [ ] **F3 The agent can ask** (08 §F3).
+  - Acceptance: a question file moves the job to `needs_input` (migration, R9) with an inbox item and email; the answer resumes without spending an attempt and the next run sees `answer.md` and no `question.md`; the per-job cap holds; Cancel and the review-days cleanup work from `needs_input`; the question renders as safe Markdown labelled "Written by the agent".
+- [ ] **F4 Repository conventions** (08 §F4).
+  - Acceptance: `.mwb/rules.md` → `AGENTS.md` → `CLAUDE.md` → the repository's Conventions text, ≤ 20 KB; the planner gets them wrapped; `protected` paths fail the new `protected_paths` check and warn in plan validation; only the repository owner edits the Conventions text.
+- [ ] **F5 Retry a failed push** (08 §F5).
+  - Acceptance: a push failure returns the job to review with the error; Retry push resumes after the last stored step (one MR, one comment); refused when the payload no longer matches the approval; `approval_mismatch` still ends the job.
+- [ ] **F6 CI failure → ticket** (08 §F6).
+  - Acceptance: from a `ci-failures` finding, preview → approve → one Jira issue (approval bound to the draft) and one work item on the chosen repository; the same finding then opens the existing issue; a crash after the create doesn't duplicate (label search); nothing is created without the approval.
+- [ ] **F7 Learn from past jobs** (08 §F7).
+  - Acceptance: a merged job yields one `change` document with the repository's visibility (idempotent); leakage tests show another user's private change never appears in search, chat or planner context; the planner context lists similar changes from the same repository only.
+- [ ] **F8 Slack and Teams notifications** (08 §F8).
+  - Acceptance: one message per inbox item and matching channel, deduplicated; webhook hosts allowlisted; the webhook URL never appears in logs or API responses; failures retried, then the channel disabled with an inbox notice; Send test.
+- [ ] **F9 Outcome dashboard** (08 §F9).
+  - Acceptance: figures match a seeded fixture exactly; members can't read `scope=all`; periods in the user's time zone; table view for every chart; empty states.
+- [ ] **F10 Verification with containers (Sysbox, opt-in)** (08 §F10).
+  - Acceptance: `services: true` on a repository that isn't enabled is a validation error; the `verify-services` preset is fixed in the runner (unit tests); security tests 1–3 from an inner container and a Postgres service under `docker compose` on the VM (*manual*).
+- [ ] **F11 Single sign-on (OIDC)** (08 §F11).
+  - Acceptance (fake OIDC provider): login; wrong state, nonce, signature, audience or an expired token refused; email matched once then `sub` only; auto-create by setting; deactivated users refused; admins keep the local login.
+- [ ] **F12 Admin-registered MCP servers, read tier** (08 §F12).
+  - Acceptance: tools listed and enabled by an admin as read only; write-hinted tools can't be enabled; disabled tools can't be called; results wrapped, capped, timed out; a changed tool definition disables the tool; roles enforced; calls audited.
+
+**Phase 5 end-to-end checklist** (*manual*, on the VM): a real merge request whose pipeline fails is fixed with Fix CI failure and merged; a reviewer's comment is addressed and replied to; a CI failure becomes a ticket, a plan and a job; notifications reach a Slack or Teams test channel; a teammate signs in with SSO.
+
+## Phase 6 — Backlog
+
+User-defined agents and skills editor · Spinnaker connector · reranker (Bedrock Cohere Rerank) · RCA evaluation set · wiki export · a network per sandbox job (04 §1 known limit) · MCP write tools with per-call approval · fixing CI failures without a click.
 
 ## Retrospectives
 

@@ -10,6 +10,7 @@ Read this first. Every other design document assumes the requirements, topology,
 | [02-schedules-connectors.md](02-schedules-connectors.md) | Phase 2: connectors, agents, schedules, inbox, email |
 | [03-plans.md](03-plans.md) | Phase 3: Jira work items, planner, plan revisions, approvals |
 | [04-execution.md](04-execution.md) | Phase 4: sandbox, runner, coding jobs, push gate |
+| [08-follow-through.md](08-follow-through.md) | Phase 5: CI and review follow-through, agent questions, conventions, CI failure → ticket, learning from merged changes, chat notifications, insights, Sysbox, SSO, MCP servers |
 | [05-security.md](05-security.md) | Threat model and security controls |
 | [06-operations.md](06-operations.md) | Deploy, configure, back up, restore, upgrade, troubleshoot |
 | [07-ux.md](07-ux.md) | Navigation, every page, cross-page flows, shared UI behaviour, accessibility, design system |
@@ -159,7 +160,7 @@ Controls do not depend on the model obeying this. The hard controls are: no exte
 | ADR-6 | User schedules live in our own `schedules` table, fired by a one-minute tick. Procrastinate `periodic` is used only for fixed system tasks. | New | Procrastinate can't register periodic tasks at runtime or per timezone |
 | ADR-7 | Caddy terminates TLS and sets security headers | New | Simple config, supports both company certificates and an internal CA |
 | ADR-8 | Model aliases: `chat` (chat, librarian, episodes), `fast` (code summaries, classification), `embed`, `planner` (plans), `coder` (Claude Code in the sandbox) | New | One name per purpose so models can change without code changes |
-| ADR-9 | Notifications: in-app inbox and email (SMTP) in Phase 2. Slack/Teams in Phase 5. | Kept | |
+| ADR-9 | Notifications: in-app inbox and email (SMTP) in Phase 2. Slack/Teams in Phase 5 (08 §F8: incoming webhooks per user, titles and links only by default). | Kept | |
 | ADR-10 | Images pinned by digest; CI builds and tests the exact images deployed | New | Reproducible deploys |
 | ADR-11 | Phase 4 v1 does not run `docker compose` inside sandboxes. Verification runs the plan's test commands only. | New | Nested Docker needs Sysbox or privileged containers; deferred to Phase 5 as an opt-in |
 | ADR-12 | Phase 4 v1 sandbox network allowlist is admin-defined; plans may only choose from admin-approved optional hosts | New | Keeps a prompt-injected plan from opening egress to arbitrary hosts |
