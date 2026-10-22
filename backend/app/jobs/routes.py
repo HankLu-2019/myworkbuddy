@@ -126,7 +126,10 @@ async def _events_after(job_id: uuid.UUID, after: int) -> tuple[list[JobEvent], 
         current = await db.scalar(select(Job.status).where(Job.id == job_id))
         events = list(
             await db.scalars(
-                select(JobEvent).where(JobEvent.job_id == job_id, JobEvent.seq > after).order_by(JobEvent.seq).limit(500)
+                select(JobEvent)
+                .where(JobEvent.job_id == job_id, JobEvent.seq > after)
+                .order_by(JobEvent.seq)
+                .limit(500)
             )
         )
         await db.commit()
