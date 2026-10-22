@@ -144,4 +144,16 @@ describe("Push review", () => {
     expect(screen.getByLabelText("What should change?")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
   });
+
+  it("a failed push offers Retry push", async () => {
+    const push = { state: "branch_pushed", error: { code: "credential_invalid", message: "Gitlab rejected your credential.", at: NOW } };
+    const calls = hub(job({ push: push as unknown as Job["push"] }), detail(), {
+      [`POST /api/jobs/${JOB_ID}/retry-push`]: job({ status: "approved_push" }),
+    });
+    renderAt(`/work/${WORK_ID}/job`, <WorkItemPage tab="job" />, "/work/:workId/job");
+    expect(await screen.findByText("Push failed: Gitlab rejected your credential.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Update your token first" })).toHaveAttribute("href", "/settings/integrations");
+    fireEvent.click(screen.getByRole("button", { name: "Retry push" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === `/api/jobs/${JOB_ID}/retry-push`)).toBe(true));
+  });
 });

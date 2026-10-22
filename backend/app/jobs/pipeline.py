@@ -483,7 +483,13 @@ async def advance(job_id: uuid.UUID) -> str | None:
                 try:
                     await push_mod.push(job, ctx["key"])
                 except push_mod.StepFailed as exc:
-                    raise StepFailed("pushing", exc.code, exc.message) from None
+                    if exc.code in push_mod.END_CODES:
+                        raise StepFailed("pushing", exc.code, exc.message) from None
+                    await push_mod.back_to_review(job, ctx["key"], exc.code, exc.message)
+                except Exception as exc:  # the approval and patch are intact: let the user retry (08 §F5)
+                    log.exception("job.push_crashed", job_id=str(job_id))
+                    await push_mod.back_to_review(job, ctx["key"], "internal",
+                                                  f"The push stopped unexpectedly ({type(exc).__name__}).")  # fmt: skip
                 return (await _load(job_id) or {"job": job})["job"].status
             else:
                 return job.status

@@ -207,6 +207,8 @@ export interface JobPush {
   mr_url?: string;
   change_url?: string;
   jira_comment_url?: string;
+  /** Set when a push failed and the job went back to review (08 §F5). */
+  error?: { code: string; message: string; at: string };
 }
 
 /** `JobOut.result` (04 §5.4 JobResult), stored as JSON. */

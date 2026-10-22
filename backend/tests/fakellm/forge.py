@@ -40,7 +40,18 @@ FILES = {
     ".gitlab-ci.yml": "test:\n  image: python:3.12\n  script:\n    - pytest -q\n",
 }
 _root: Path | None = None
-STATE: dict[str, Any] = {"mrs": [], "comments": {}, "posts": {"mr": 0, "comment": 0}, "merge": {}, "gerrit": {}}
+STATE: dict[str, Any] = {
+    "mrs": [], "comments": {}, "posts": {"mr": 0, "comment": 0}, "merge": {}, "gerrit": {},
+    "fail": {},  # endpoint name → how many more calls answer 503 (`POST /fake/fail/{name}?times=n`)
+}  # fmt: skip
+
+
+def _failing(name: str) -> bool:
+    left = STATE["fail"].get(name, 0)
+    if left > 0:
+        STATE["fail"][name] = left - 1
+        return True
+    return False
 
 
 def _authorized(request: Request) -> bool:
@@ -168,6 +179,8 @@ async def gitlab_mrs(pid: str, request: Request) -> JSONResponse:
 async def gitlab_mr_create(pid: str, request: Request) -> JSONResponse:
     if not _gitlab_ok(request):
         return JSONResponse({"message": "401 Unauthorized"}, status_code=401)
+    if _failing("mr_create"):
+        return JSONResponse({"message": "503 Service Unavailable"}, status_code=503)
     body = await request.json()
     STATE["posts"]["mr"] += 1
     iid = len(STATE["mrs"]) + 1
@@ -222,7 +235,7 @@ async def fake_state() -> JSONResponse:
 
 @router.post("/fake/reset")
 async def fake_reset() -> JSONResponse:
-    STATE.update(mrs=[], comments={}, posts={"mr": 0, "comment": 0}, merge={}, gerrit={})
+    STATE.update(mrs=[], comments={}, posts={"mr": 0, "comment": 0}, merge={}, gerrit={}, fail={})
     repo = git_root() / "team" / "payments.git"
     refs = subprocess.run(["git", "for-each-ref", "--format=%(refname)"], cwd=repo, capture_output=True,
                           text=True).stdout.split()  # fmt: skip
@@ -230,6 +243,13 @@ async def fake_reset() -> JSONResponse:
         if ref != "refs/heads/main":
             subprocess.run(["git", "update-ref", "-d", ref], cwd=repo, check=True)
     return JSONResponse({"ok": True})
+
+
+@router.post("/fake/fail/{name}")
+async def fake_fail(name: str, request: Request) -> JSONResponse:
+    """Make the next `times` calls of an endpoint (`mr_create`, …) answer 503."""
+    STATE["fail"][name] = int(request.query_params.get("times", "1"))
+    return JSONResponse({"name": name, "times": STATE["fail"][name]})
 
 
 @router.post("/fake/merge/{iid}")

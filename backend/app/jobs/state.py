@@ -27,7 +27,7 @@ TRANSITIONS: dict[JobStatus, frozenset[JobStatus]] = {
     S.verifying: frozenset({S.running, S.awaiting_review, S.failed, S.cancelled}),
     S.awaiting_review: frozenset({S.running, S.approved_push, S.discarded}),
     S.approved_push: frozenset({S.pushing, S.failed}),
-    S.pushing: frozenset({S.pushed, S.failed}),
+    S.pushing: frozenset({S.pushed, S.failed, S.awaiting_review}),  # F5: a failed push goes back to review
     S.pushed: frozenset({S.merged, S.closed, S.preparing}),  # request changes after push: a fresh workspace
     S.merged: frozenset(),
     S.closed: frozenset(),

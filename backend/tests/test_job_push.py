@@ -14,9 +14,10 @@ from sqlalchemy import select, update
 
 from app.db import get_sessionmaker
 from app.enums import ApprovalSubject
+from app.integrations.service import set_credential
 from app.jobs import pipeline
 from app.jobs import push as push_mod
-from app.models import Approval, Artifact, AuditLog, InboxItem, Job, UserCredential, WorkItem
+from app.models import Approval, Artifact, AuditLog, InboxItem, Integration, Job, UserCredential, WorkItem
 from tests import fake_runner
 from tests.test_job_pipeline import (  # noqa: F401 - fixtures
     approved_ticket,
@@ -323,19 +324,15 @@ async def test_gerrit_upload_keeps_its_change_id_across_rounds(
     assert (await job_row(job_id)).push["change_url"] == f"{forge_url}/c/team/payments/+/1"
 
 
-async def test_a_rejected_push_marks_the_credential_invalid(
-    make_user,
-    client_for,
-    forge_url,
-    forge,
-    runner,  # noqa: F811
+async def test_a_rejected_push_marks_the_credential_invalid_and_can_be_retried(
+    make_user, client_for, forge_url, forge, runner, task_queue
 ) -> None:
     t, job_id = await reviewed(make_user, client_for, forge_url, token="glpat-revoked")
     c = await client_for("alice", create=False)
     assert (await approve(c, job_id)).status_code == 200
-    assert await pipeline.advance(uuid.UUID(job_id)) == "failed"
+    assert await pipeline.advance(uuid.UUID(job_id)) == "awaiting_review"  # 08 §F5: back to review, not failed
     job = await job_row(job_id)
-    assert job.error_code == "credential_invalid" and "glpat-revoked" not in (job.error or "")
+    assert job.push["error"]["code"] == "credential_invalid" and "glpat-revoked" not in job.push["error"]["message"]
     async with get_sessionmaker()() as db:
         q = select(UserCredential.status).where(
             UserCredential.user_id == t["user"].id, UserCredential.integration_id == t["project"].integration_id
@@ -343,3 +340,58 @@ async def test_a_rejected_push_marks_the_credential_invalid(
         statuses = set(await db.scalars(q))
         titles = list(await db.scalars(select(InboxItem.title).where(InboxItem.owner_id == t["user"].id)))
     assert statuses == {"invalid"} and "Your Forge credential was rejected" in titles
+    assert "PAY-12: the push failed" in titles
+    # The user fixes the token, then retries with the approval already given.
+    async with get_sessionmaker()() as db:
+        integration = await db.get(Integration, t["project"].integration_id)
+        await set_credential(db, t["user"].id, integration, "token", "glpat-e2e-token")
+        await db.commit()
+    r = await c.post(f"/api/jobs/{job_id}/retry-push")
+    assert r.status_code == 200 and r.json()["status"] == "approved_push", r.text
+    assert await pipeline.advance(uuid.UUID(job_id)) == "pushed"
+    assert "error" not in (await job_row(job_id)).push
+    assert (await state(forge))["posts"] == {"mr": 1, "comment": 1}
+
+
+async def test_a_push_that_fails_midway_resumes_on_retry(
+    make_user, client_for, forge_url, forge, runner, monkeypatch
+) -> None:
+    from app.connectors import base
+
+    async def no_wait(_s: float) -> None:
+        return None
+
+    monkeypatch.setattr(base, "sleep", no_wait)
+    _t, job_id = await reviewed(make_user, client_for, forge_url)
+    c = await client_for("alice", create=False)
+    assert (await approve(c, job_id)).status_code == 200
+    await forge.post("/fake/fail/mr_create", params={"times": 3})  # every attempt of the connector's retries
+    assert await pipeline.advance(uuid.UUID(job_id)) == "awaiting_review"
+    job = await job_row(job_id)
+    assert job.push["state"] == "branch_pushed" and job.push["error"]["code"] == "review_request_failed"
+    assert job_id in runner.workspaces  # kept for the retry
+    sha = (await state(forge))["refs"][f"refs/heads/{BRANCH}"]
+    # Retry refuses a payload that no longer matches its approval.
+    async with get_sessionmaker()() as db:
+        tampered = {**job.push, "payload": {**job.push["payload"], "patch_sha256": "0" * 64}}
+        await db.execute(update(Job).where(Job.id == job.id).values(push=tampered))
+        await db.commit()
+    assert (await c.post(f"/api/jobs/{job_id}/retry-push")).status_code == 409
+    async with get_sessionmaker()() as db:
+        await db.execute(update(Job).where(Job.id == job.id).values(push=job.push))
+        await db.commit()
+    r = await c.post(f"/api/jobs/{job_id}/retry-push")
+    assert r.status_code == 200, r.text
+    assert (await c.post(f"/api/jobs/{job_id}/retry-push")).status_code == 409  # not waiting for review any more
+    assert await pipeline.advance(uuid.UUID(job_id)) == "pushed"
+    s = await state(forge)
+    assert s["posts"] == {"mr": 1, "comment": 1} and s["refs"][f"refs/heads/{BRANCH}"] == sha  # resumed, not redone
+
+
+async def test_retry_push_needs_a_failed_push(make_user, client_for, forge_url, forge, runner) -> None:
+    _t, job_id = await reviewed(make_user, client_for, forge_url)
+    c = await client_for("alice", create=False)
+    r = await c.post(f"/api/jobs/{job_id}/retry-push")
+    assert r.status_code == 409 and r.json()["code"] == "conflict"
+    bob = await client_for("bob")
+    assert (await bob.post(f"/api/jobs/{job_id}/retry-push")).status_code == 404

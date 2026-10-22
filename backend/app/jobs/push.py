@@ -19,13 +19,14 @@ import re
 import shutil
 import tempfile
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote, urlparse
 
 from fastapi import status
 from pydantic import BaseModel, Field
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit.service import audit
@@ -225,7 +226,7 @@ async def approve(db: AsyncSession, job: Job, body: PushPayload, user: User, ip:
         db, owner_id=job.owner_id, subject_type=ApprovalSubject.job_push, subject_id=job.id, payload_hash=digest,
         decision=ApprovalDecision.approved, acknowledged=payload["acknowledgements"], ip=ip,
     )  # fmt: skip
-    push = dict(job.push or {})
+    push = {k: v for k, v in (job.push or {}).items() if k != "error"}
     push.update(payload=payload, approval_id=str(row.id), round=job.review_round, state="approved",
                 approved_at=row.decided_at.isoformat() if row.decided_at else None)  # fmt: skip
     moved = await transition_in(
@@ -542,3 +543,56 @@ async def push(job: Job, key: str) -> None:
 
     await cleanup(job.id)
     log.info("job.pushed", job_id=str(job.id))
+
+
+# ---------- a failed push goes back to review (08 §F5) ----------
+
+END_CODES = {"approval_mismatch"}  # the approval or the patch is no longer what was reviewed: the job ends
+
+
+async def back_to_review(job: Job, key: str, code: str, message: str) -> bool:
+    """`pushing → awaiting_review`, keeping how far the push got, the approval, the workspace and the key."""
+    async with get_sessionmaker()() as db:
+        fresh = await db.scalar(select(Job).where(Job.id == job.id).with_for_update())
+        if fresh is None:
+            return False
+        push = {**(fresh.push or {}), "error": {"code": code, "message": message[:1000],
+                                                "at": datetime.now(UTC).isoformat()}}  # fmt: skip
+        moved = await transition_in(
+            db, job.id, S.pushing, S.awaiting_review, push=push, current_run=None,
+            detail={"note": f"Push failed: {message[:300]}", "code": code},
+        )  # fmt: skip
+        if moved is not None:
+            add_item(db, job.owner_id, kind="job", severity="warning", title=f"{key}: the push failed",
+                     body_md=f"{message[:500]}\n\nRetry it from the Job tab.",
+                     link=f"/work/{job.work_item_id}/job")  # fmt: skip
+        await db.commit()
+    log.warning("job.push_failed", job_id=str(job.id), code=code)
+    return moved is not None
+
+
+async def retry(db: AsyncSession, job: Job, user: User, ip: str | None) -> None:
+    """Push again with the approval already given, if it still binds the stored payload and the reviewed patch."""
+    push = job.push or {}
+    if job.status != S.awaiting_review or not push.get("error") or not push.get("payload"):
+        raise _conflict("Only a job whose push failed can retry it.")
+    latest = await approvals.latest(db, ApprovalSubject.job_push, job.id)
+    if (
+        latest is None
+        or latest.decision != ApprovalDecision.approved
+        or str(latest.id) != push.get("approval_id")
+        or latest.payload_hash != payload_hash(push["payload"])
+        or (job.result or {}).get("patch_sha256") != push["payload"].get("patch_sha256")
+    ):
+        raise AppError(
+            status.HTTP_409_CONFLICT, "plan_changed", "The push changed since it was approved. Review it again."
+        )
+    moved = await transition_in(
+        db, job.id, S.awaiting_review, S.approved_push, actor_id=user.id, ip=ip,
+        push={k: v for k, v in push.items() if k != "error"},
+        detail={"note": "Retrying the push.", "approval_id": str(latest.id)},
+    )  # fmt: skip
+    if moved is None:
+        raise AppError(status.HTTP_409_CONFLICT, "plan_changed", "The job changed meanwhile. Reload.")
+    await audit(db, "job.retry_push", user_id=user.id, target_type="job", target_id=str(job.id),
+                detail={"approval_id": str(latest.id), "after": push.get("state")}, ip=ip)  # fmt: skip

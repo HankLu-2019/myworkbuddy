@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   api,
@@ -476,10 +476,33 @@ function Review({ job, result }: { job: Job; result: JobResult }) {
     },
   });
   const reviewing = job.status === "awaiting_review";
+  const pushError = reviewing ? ((job.push ?? {}) as JobPush).error : undefined;
+  const retry = useMutation({
+    mutationFn: () => api<Job>(`/api/jobs/${job.id}/retry-push`, { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["work"] });
+      toast({ title: "Retrying the push", tone: "success" });
+    },
+  });
   const added = result.files.reduce((n, f) => n + f.added, 0);
   const removed = result.files.reduce((n, f) => n + f.removed, 0);
   return (
     <div className="stack">
+      {pushError && (
+        <Banner tone="danger">
+          <div className="stack-tight">
+            <span>Push failed: {pushError.message}</span>
+            <div className="row">
+              <Button size="sm" variant="primary" pending={retry.isPending} onClick={() => retry.mutate()}>
+                Retry push
+              </Button>
+              {pushError.code === "credential_invalid" && <Link to="/settings/integrations">Update your token first</Link>}
+            </div>
+            <ErrorNote error={retry.error} />
+          </div>
+        </Banner>
+      )}
       {result.failed_checks && reviewing && <Banner tone="warning">Some checks failed after the last attempt. Look at them before you push.</Banner>}
       <Card as="section" className="stack" aria-labelledby="job-files">
         <h2 id="job-files">
