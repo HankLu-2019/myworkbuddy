@@ -109,6 +109,7 @@ jobs:
       - if: failure()
         run: |
           $COMPOSE logs --tail 40 egress-proxy llm-gateway runner > proxy.log 2>&1 || true
+          docker inspect --format '{{.Name}} {{json .State.Health}}' $($COMPOSE ps -aq runner egress-proxy) >> proxy.log 2>&1 || true
           grep -E "^(FAILED|ERROR) |^E  |AssertionError" sandbox-tests.log | head -n 60 > sandbox-failures.log || true
           .github/scripts/annotate-tail.sh "sandbox failures" sandbox-failures.log 60
           .github/scripts/annotate-tail.sh "sandbox tests" sandbox-tests.log 80
