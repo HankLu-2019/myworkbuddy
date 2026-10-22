@@ -14,7 +14,10 @@ from app.audit.service import audit
 from app.deps import DB, CurrentAuth, client_ip
 from app.errors import AppError
 from app.models import Approval, Integration, JiraIssue, Plan, PlanRevision, Project, User, WorkItem
+from app.plans import decisions
+from app.plans.diff import FieldDiff, diff
 from app.plans.planner import defer_draft, start_plan
+from app.plans.schema import PlanDoc
 from app.plans.work_items import create_work_item, visible_project
 
 router = APIRouter(prefix="/api", tags=["work items"])
@@ -179,7 +182,16 @@ async def update_work_item(
     return detail(await load(db, work_item_id, auth.user))
 
 
-# ---------- plans (03 §8; approval and revisions arrive with P4) ----------
+# ---------- plans (03 §6, §8) ----------
+
+
+class RevisionSummary(BaseModel):
+    revision: int
+    content_hash: str
+    author: Literal["planner", "user"]
+    change_note: str | None
+    ok: bool
+    created_at: datetime
 
 
 class RevisionOut(BaseModel):
@@ -209,28 +221,32 @@ class PlanOut(BaseModel):
     updated_at: datetime
 
 
+def revision_out(r: PlanRevision) -> RevisionOut:
+    return RevisionOut(
+        revision=r.revision, content=r.content, content_hash=r.content_hash, author=r.author,
+        change_note=r.change_note, validation=r.validation, session_id=r.session_id,
+        cost_usd=float(r.cost_usd) if r.cost_usd is not None else None, created_at=r.created_at,
+    )  # fmt: skip
+
+
 async def plan_out(db: DB, plan: Plan) -> PlanOut:
     rev = None
-    if plan.current_revision:
-        r = await db.scalar(
-            select(PlanRevision).where(PlanRevision.plan_id == plan.id, PlanRevision.revision == plan.current_revision)
-        )
-        if r is not None:
-            rev = RevisionOut(
-                revision=r.revision, content=r.content, content_hash=r.content_hash, author=r.author,
-                change_note=r.change_note, validation=r.validation, session_id=r.session_id,
-                cost_usd=float(r.cost_usd) if r.cost_usd is not None else None, created_at=r.created_at,
-            )  # fmt: skip
-    ids = list(await db.scalars(select(PlanRevision.id).where(PlanRevision.plan_id == plan.id)))
-    decisions = []
+    r = await decisions.current(db, plan)
+    if r is not None:
+        rev = revision_out(r)
+    rows = await db.execute(select(PlanRevision.id, PlanRevision.revision).where(PlanRevision.plan_id == plan.id))
+    numbers = {rid: n for rid, n in rows}
+    ids = list(numbers)
+    history = []
     if ids:
         rows = await db.scalars(
             select(Approval)
             .where(Approval.subject_type == "plan_revision", Approval.subject_id.in_(ids))
             .order_by(Approval.decided_at)
         )
-        decisions = [
+        history = [
             {
+                "revision": numbers[a.subject_id],
                 "revision_id": str(a.subject_id),
                 "decision": a.decision,
                 "acknowledged": list(a.acknowledged),
@@ -242,13 +258,13 @@ async def plan_out(db: DB, plan: Plan) -> PlanOut:
     return PlanOut(
         id=plan.id, work_item_id=plan.work_item_id, status=plan.status, current_revision=plan.current_revision,
         base_sha=plan.base_sha, base_branch=plan.base_branch, error=plan.error, auto=plan.auto, revision=rev,
-        approvals=decisions, created_at=plan.created_at, updated_at=plan.updated_at,
+        approvals=history, created_at=plan.created_at, updated_at=plan.updated_at,
     )  # fmt: skip
 
 
 async def owned_plan(db: DB, plan_id: uuid.UUID, user: User, *, lock: bool = False) -> Plan:
     q = select(Plan).where(Plan.id == plan_id, Plan.owner_id == user.id)
-    plan = await db.scalar(q.with_for_update() if lock else q)
+    plan = await db.scalar(q.with_for_update().execution_options(populate_existing=True) if lock else q)
     if plan is None:
         raise AppError(status.HTTP_404_NOT_FOUND, "not_found", "Plan not found")
     return plan
@@ -272,3 +288,141 @@ async def start(work_item_id: uuid.UUID, auth: CurrentAuth, db: DB, request: Req
 @router.get("/plans/{plan_id}", response_model=PlanOut)
 async def get_plan(plan_id: uuid.UUID, auth: CurrentAuth, db: DB) -> PlanOut:
     return await plan_out(db, await owned_plan(db, plan_id, auth.user))
+
+
+class RevisionPage(BaseModel):
+    items: list[RevisionSummary]
+    next_cursor: str | None
+
+
+class Decision(BaseModel):
+    revision: int = Field(ge=1)
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    acknowledged: list[str] = Field(default=[], max_length=100)
+
+
+class Rejection(BaseModel):
+    revision: int = Field(ge=1)
+    comment: str | None = Field(None, max_length=2000)
+
+
+class Revise(BaseModel):
+    revision: int = Field(ge=1)
+    feedback: str = Field(min_length=1, max_length=4000)
+
+
+class UserRevisionIn(BaseModel):
+    base_revision: int = Field(ge=1)
+    content: PlanDoc
+    change_note: str | None = Field(None, max_length=500)
+
+
+class DiffOut(BaseModel):
+    from_revision: int
+    to_revision: int
+    fields: list[FieldDiff]
+
+
+async def _revision(db: DB, plan: Plan, n: int) -> PlanRevision:
+    r = await db.scalar(select(PlanRevision).where(PlanRevision.plan_id == plan.id, PlanRevision.revision == n))
+    if r is None:
+        raise AppError(status.HTTP_404_NOT_FOUND, "not_found", f"Revision {n} not found")
+    return r
+
+
+@router.get("/plans/{plan_id}/revisions", response_model=RevisionPage)
+async def list_revisions(
+    plan_id: uuid.UUID, auth: CurrentAuth, db: DB, cursor: str | None = None, limit: int = Query(50, ge=1, le=100)
+) -> RevisionPage:
+    plan = await owned_plan(db, plan_id, auth.user)
+    q = select(PlanRevision).where(PlanRevision.plan_id == plan.id)
+    rows = list(await db.scalars(pagination.page(q, PlanRevision.created_at, PlanRevision.id, cursor, limit)))
+    rows, next_cursor = pagination.result(rows, limit)
+    items = [
+        RevisionSummary(
+            revision=r.revision,
+            content_hash=r.content_hash,
+            author=r.author,
+            change_note=r.change_note,
+            ok=bool(r.validation.get("ok")),
+            created_at=r.created_at,
+        )  # fmt: skip
+        for r in rows
+    ]
+    return RevisionPage(items=items, next_cursor=next_cursor)
+
+
+@router.get("/plans/{plan_id}/revisions/{n}", response_model=RevisionOut)
+async def get_revision(plan_id: uuid.UUID, n: int, auth: CurrentAuth, db: DB) -> RevisionOut:
+    return revision_out(await _revision(db, await owned_plan(db, plan_id, auth.user), n))
+
+
+@router.get("/plans/{plan_id}/diff", response_model=DiffOut)
+async def plan_diff(
+    plan_id: uuid.UUID, auth: CurrentAuth, db: DB, from_: int = Query(alias="from", ge=1), to: int = Query(ge=1)
+) -> DiffOut:
+    plan = await owned_plan(db, plan_id, auth.user)
+    a, b = await _revision(db, plan, from_), await _revision(db, plan, to)
+    return DiffOut(from_revision=from_, to_revision=to, fields=diff(a.content, b.content))
+
+
+@router.post("/plans/{plan_id}/approve", response_model=PlanOut)
+async def approve_plan(plan_id: uuid.UUID, body: Decision, auth: CurrentAuth, db: DB, request: Request) -> PlanOut:
+    plan = await owned_plan(db, plan_id, auth.user, lock=True)
+    row = await decisions.approve(
+        db, plan, revision=body.revision, hash_=body.content_hash, acknowledged=body.acknowledged,
+        ip=client_ip(request),
+    )  # fmt: skip
+    await audit(
+        db, "plan.approve", user_id=auth.user.id, target_type="plan", target_id=str(plan.id),
+        detail={"revision": body.revision, "payload_hash": row.payload_hash, "acknowledged": list(row.acknowledged)},
+        ip=client_ip(request),
+    )  # fmt: skip
+    await db.commit()
+    return await plan_out(db, plan)
+
+
+@router.post("/plans/{plan_id}/reject", response_model=PlanOut)
+async def reject_plan(plan_id: uuid.UUID, body: Rejection, auth: CurrentAuth, db: DB, request: Request) -> PlanOut:
+    plan = await owned_plan(db, plan_id, auth.user, lock=True)
+    await decisions.reject(db, plan, revision=body.revision, comment=body.comment, ip=client_ip(request))
+    await audit(
+        db, "plan.reject", user_id=auth.user.id, target_type="plan", target_id=str(plan.id),
+        detail={"revision": body.revision}, ip=client_ip(request),
+    )  # fmt: skip
+    await db.commit()
+    return await plan_out(db, plan)
+
+
+@router.post("/plans/{plan_id}/revise", response_model=PlanOut, status_code=202)
+async def revise_plan(plan_id: uuid.UUID, body: Revise, auth: CurrentAuth, db: DB, request: Request) -> PlanOut:
+    """Ask the planner for a new revision; poll the plan, or wait for the inbox item."""
+    plan = await owned_plan(db, plan_id, auth.user, lock=True)
+    item = await decisions.revise(db, plan, revision=body.revision)
+    await audit(
+        db, "plan.revise", user_id=auth.user.id, target_type="plan", target_id=str(plan.id),
+        detail={"revision": body.revision, "feedback_chars": len(body.feedback)}, ip=client_ip(request),
+    )  # fmt: skip
+    await db.commit()
+    await defer_draft(plan.id, item.project_id, body.feedback)  # type: ignore[arg-type]
+    return await plan_out(db, plan)
+
+
+@router.post("/plans/{plan_id}/revisions", response_model=PlanOut, status_code=201)
+async def add_revision(
+    plan_id: uuid.UUID, body: UserRevisionIn, auth: CurrentAuth, db: DB, request: Request
+) -> PlanOut:
+    """Save the user's edited copy as a new revision. It is validated like the planner's, and not approved."""
+    plan = await owned_plan(db, plan_id, auth.user)
+    doc, validation = await decisions.validate_user_revision(db, auth.user, plan, body.content)
+    await db.commit()  # validation read the repository; decide in a fresh transaction that re-checks the plan
+    plan = await owned_plan(db, plan_id, auth.user, lock=True)
+    rev = await decisions.add_user_revision(
+        db, plan, base_revision=body.base_revision, doc=doc, validation=validation, change_note=body.change_note
+    )
+    await audit(
+        db, "plan.revision", user_id=auth.user.id, target_type="plan", target_id=str(plan.id),
+        detail={"revision": rev.revision, "ok": validation.ok}, ip=client_ip(request),
+    )  # fmt: skip
+    await db.commit()
+    return await plan_out(db, plan)
