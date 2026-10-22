@@ -176,6 +176,14 @@ class ValidationResult(BaseModel):
 
 Approve is disabled unless `ok` and all `needs_ack` items are ticked. The acknowledgements are part of the approval payload (§6).
 
+*Changed while building P2:*
+
+- **`validate_plan(doc, *, jira_key, existing_paths, visible_refs, optional_hosts)` is pure.** The caller supplies the tracked paths at `base_sha` (`None` when the repository can't be read: existence isn't checked and a warning says so), the knowledge ids the owner can see (`visible_document_ids`, through `app.knowledge.acl`, R2), and `MWB_SANDBOX_OPTIONAL_HOSTS` (added now, read by Phase 4 too). It returns the cleaned document (paths normalised, e.g. `./a//b.py` → `a/b.py`; invisible refs dropped) and the result.
+- **`needs_ack` keys are stable strings**: `ci_config:<path>`, `optional_host:<host>` (lower-case), `large_change`. Paths with backslashes or NUL are errors. Paths over 300 characters are already refused by the schema.
+- **Approval payload:** `payload_hash = sha256(content_hash + "\n" + "\n".join(sorted(set(acknowledged))))`. `approvals` gains `acknowledged text[]`, so Phase 4 can recompute it; `app.plans.approvals.plan_revision_approved(revision)` checks the stored content against `content_hash`, takes the latest decision for the revision, and recomputes the payload hash.
+- **The append-only trigger** refuses every `UPDATE`, and a `DELETE` unless it comes from the foreign-key cascade of a deleted user (`pg_trigger_depth() ≥ 2`). A test scans `app/` for `update(Approval)`/`delete(Approval)` and raw SQL equivalents. `plan_revisions.content_hash` has a `^[0-9a-f]{64}$` CHECK.
+- Migration 0012 creates `plans`, `plan_revisions` and `approvals`, and adds the `work_items.current_plan_id → plans` foreign key.
+
 ## 5. Planner
 
 Agent `planner` (system agent, model alias `planner`, `max_tier=read`, output `PlanDoc`). Tools:

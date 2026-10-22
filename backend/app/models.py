@@ -290,10 +290,69 @@ class WorkItem(Base):
     jira_issue_id: Mapped[int] = mapped_column(ForeignKey("jira_issues.id", ondelete="CASCADE"))
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"))
     state: Mapped[str] = mapped_column(Text, default="new", server_default="new")
-    current_plan_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    current_plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("plans.id", ondelete="SET NULL", use_alter=True, name="fk_work_items_current_plan"),
+    )
     current_job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))  # Phase 4
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = _now()
+
+
+class Plan(Base):
+    """The planning thread for a work item (design 03 §1). Revisions are immutable."""
+
+    __tablename__ = "plans"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    work_item_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("work_items.id", ondelete="CASCADE"), index=True
+    )
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(Text)
+    current_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    base_sha: Mapped[str | None] = mapped_column(Text)
+    base_branch: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = _now()
+
+
+class PlanRevision(Base):
+    """One complete PlanDoc (design 03 §2). Never edited: any change is a new revision."""
+
+    __tablename__ = "plan_revisions"
+    __table_args__ = (UniqueConstraint("plan_id", "revision"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    plan_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("plans.id", ondelete="CASCADE"))
+    revision: Mapped[int] = mapped_column(Integer)
+    content: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    author: Mapped[str] = mapped_column(Text)
+    change_note: Mapped[str | None] = mapped_column(Text)
+    validation: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("chat_sessions.id", ondelete="SET NULL")
+    )
+    cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))
+    created_at: Mapped[datetime] = _now()
+
+
+class Approval(Base):
+    """A decision bound to (subject, payload_hash) (design 03 §2, rule R5). Append-only: a trigger refuses UPDATE,
+    and DELETE except through the cascade from the owning user."""
+
+    __tablename__ = "approvals"
+    __table_args__ = (Index("approvals_subject", "subject_type", "subject_id"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    subject_type: Mapped[str] = mapped_column(Text)
+    subject_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    payload_hash: Mapped[str] = mapped_column(String(64))
+    acknowledged: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")
+    decision: Mapped[str] = mapped_column(Text)
+    comment: Mapped[str | None] = mapped_column(Text)
+    ip: Mapped[str | None] = mapped_column(Text)
+    decided_at: Mapped[datetime] = _now()
 
 
 class OutboundEmail(Base):

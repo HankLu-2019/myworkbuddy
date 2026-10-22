@@ -57,7 +57,11 @@ class Settings(BaseSettings):
     schedule_min_interval_admin_min: int = Field(5, ge=1)
     max_schedules_per_user: int = Field(20, ge=1)  # enabled schedules
     runs_retention_days: int = Field(180, ge=7)  # runs and their transcripts (02 §9)
-    agent_evals_user: str = ""  # username whose AI budget the nightly agent evals use; empty: no nightly evals
+    # Username whose AI budget the nightly agent evals use; empty: no nightly evals.
+    agent_evals_user: str = ""
+    # Hosts a plan may ask the Phase 4 sandbox to reach (ADR-12), comma-separated, e.g. "github.com,pypi.org".
+    sandbox_optional_hosts: str = ""
+    autoplan_per_day: int = Field(5, ge=0)  # plans the intake may auto-draft per user per day (03 §7)
     # Email (design 02 §5). No MWB_SMTP_HOST: emails stay queued and the System page says why.
     smtp_host: str = ""
     smtp_port: int = Field(587, ge=1, le=65535)
@@ -93,6 +97,10 @@ class Settings(BaseSettings):
         if problems:
             raise ValueError("Unsafe production configuration: " + "; ".join(problems) + " (or set MWB_ENV=dev)")
         return self
+
+    @property
+    def optional_hosts(self) -> set[str]:
+        return {h.strip().lower() for h in self.sandbox_optional_hosts.split(",") if h.strip()}
 
     @property
     def fernet_keys(self) -> list[str]:
