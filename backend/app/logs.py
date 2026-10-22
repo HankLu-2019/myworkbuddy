@@ -34,6 +34,9 @@ def setup_logging(level: str = "INFO") -> None:
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         logging.getLogger(name).handlers = []
         logging.getLogger(name).propagate = True
+    # The HTTP clients log every request's full URL at INFO, and a webhook URL is a secret (rule R7, 08 §F8).
+    for name in ("httpx", "httpx2"):
+        logging.getLogger(name).setLevel(max(logging.WARNING, root.level))
 
 
 log = structlog.get_logger()

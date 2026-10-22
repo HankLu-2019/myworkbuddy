@@ -100,6 +100,12 @@ SEEDS["0019"] = [  # 08 §F7: the recreated source CHECK accepts change
     "INSERT INTO documents (id, owner_id, visibility, source_type, source_ref, title, content_hash, metadata) "
     "VALUES (2, 1, 'private', 'change', 'job:seed', 'S-1: x (merged)', 'h2', '{}')",
 ]
+SEEDS["0020"] = [  # 08 §F8: a channel and its outbox row
+    "INSERT INTO notify_channels (id, owner_id, kind, name, url_enc, url_hint, kinds) "
+    "VALUES (1, 1, 'slack', 'Team', 'enc', 'hooks.slack.com/…abcd', '{job}')",
+    "INSERT INTO outbound_messages (owner_id, channel_id, inbox_item_id, dedupe_key, title, severity, link) "
+    "SELECT 1, 1, max(id), '1:seed', 'Job ready', 'info', '/inbox' FROM inbox_items",
+]
 SEEDS["0005"] = []  # 0005 adds a column with a default; the 0001 user must get it
 CHECKS = {
     "users": 1,
@@ -120,6 +126,8 @@ CHECKS = {
     "plans": 1,  # auto defaults to false (0013)
     "approvals": 2,
     "finding_tickets": 1,
+    "notify_channels": 1,
+    "outbound_messages": 1,
 }
 
 

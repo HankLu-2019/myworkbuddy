@@ -978,6 +978,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/notify-channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Channels */
+        get: operations["list_channels_api_notify_channels_get"];
+        put?: never;
+        /** Create Channel */
+        post: operations["create_channel_api_notify_channels_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notify-channels/{channel_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Channel */
+        delete: operations["delete_channel_api_notify_channels__channel_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Channel */
+        patch: operations["update_channel_api_notify_channels__channel_id__patch"];
+        trace?: never;
+    };
+    "/api/notify-channels/{channel_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Channel */
+        post: operations["test_channel_api_notify_channels__channel_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/plans/{plan_id}": {
         parameters: {
             query?: never;
@@ -1900,6 +1953,88 @@ export interface components {
              * @default
              */
             feedback: string;
+        };
+        /** ChannelIn */
+        ChannelIn: {
+            /**
+             * Include Details
+             * @default false
+             */
+            include_details: boolean;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "slack" | "teams";
+            /**
+             * Kinds
+             * @default []
+             */
+            kinds: ("run" | "alert" | "recovered" | "system" | "credential" | "proposal" | "plan" | "job")[];
+            /**
+             * Min Severity
+             * @default warning
+             * @enum {string}
+             */
+            min_severity: "info" | "warning" | "alert";
+            /** Name */
+            name: string;
+            /** Url */
+            url: string;
+        };
+        /** ChannelOut */
+        ChannelOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Disabled Reason */
+            disabled_reason: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Id */
+            id: number;
+            /** Include Details */
+            include_details: boolean;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "slack" | "teams";
+            /** Kinds */
+            kinds: ("run" | "alert" | "recovered" | "system" | "credential" | "proposal" | "plan" | "job")[];
+            /**
+             * Min Severity
+             * @enum {string}
+             */
+            min_severity: "info" | "warning" | "alert";
+            /** Name */
+            name: string;
+            /** Url Hint */
+            url_hint: string;
+        };
+        /** ChannelPatch */
+        ChannelPatch: {
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Include Details */
+            include_details?: boolean | null;
+            /** Kinds */
+            kinds?: ("run" | "alert" | "recovered" | "system" | "credential" | "proposal" | "plan" | "job")[] | null;
+            /** Min Severity */
+            min_severity?: ("info" | "warning" | "alert") | null;
+            /** Name */
+            name?: string | null;
+        };
+        /** ChannelTestResult */
+        ChannelTestResult: {
+            /** Error */
+            error: string | null;
+            /** Ok */
+            ok: boolean;
+            /** Status */
+            status: number | null;
         };
         /** Checklist */
         Checklist: {
@@ -5801,6 +5936,154 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HitOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_channels_api_notify_channels_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelOut"][];
+                };
+            };
+        };
+    };
+    create_channel_api_notify_channels_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_channel_api_notify_channels__channel_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_channel_api_notify_channels__channel_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_channel_api_notify_channels__channel_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelTestResult"];
                 };
             };
             /** @description Validation Error */

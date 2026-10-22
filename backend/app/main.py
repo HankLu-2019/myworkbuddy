@@ -14,6 +14,7 @@ from app.chat.routes import router as chat_router
 from app.config import ensure_runtime_ok, get_settings
 from app.db import get_engine
 from app.home.routes import router as home_router
+from app.inbox.channels import router as channels_router
 from app.inbox.routes import router as inbox_router
 from app.integrations.routes import router as integrations_router
 from app.jobs.routes import router as jobs_router
@@ -79,6 +80,7 @@ for r in (
     agents_router,
     schedules_router,
     inbox_router,
+    channels_router,
     plans_router,
     jobs_router,
 ):
