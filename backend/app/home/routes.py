@@ -52,6 +52,7 @@ class NeedsYou(BaseModel):
         "credential_unreadable",
         "alert",
         "schedule_paused",
+        "plan_ready",
     ]
     key: str  # stable id, so the client can tell cards apart
     message: str
@@ -122,6 +123,7 @@ class HomeOut(BaseModel):
     recent_pages: list[RecentPage]
     librarian: LibrarianSummary | None
     checklists: list[Checklist]
+    board_needs: int = 0  # the Board badge (07 §3.1): tickets waiting for a decision
 
 
 class ActivityOut(BaseModel):
@@ -339,6 +341,25 @@ async def home(auth: CurrentAuth, db: DB) -> HomeOut:
                 at=item.created_at,
             )  # fmt: skip
         )
+    decide = (
+        await db.execute(
+            select(WorkItem.id, JiraIssue.key, WorkItem.updated_at)
+            .join(JiraIssue, JiraIssue.id == WorkItem.jira_issue_id)
+            .where(WorkItem.owner_id == user.id, WorkItem.state == "needs_decision")
+            .order_by(WorkItem.updated_at.desc())
+        )
+    ).all()
+    for item_id, key, at in decide[:5]:
+        needs.append(
+            NeedsYou(
+                kind="plan_ready",
+                key=f"work:{item_id}",
+                message=f"The plan for {key} needs a decision",
+                action="Review plan",
+                href=f"/work/{item_id}/plan",
+                at=at,
+            )  # fmt: skip
+        )
     paused = await db.scalars(
         select(Schedule)
         .where(Schedule.owner_id == user.id, Schedule.enabled.is_(False), Schedule.paused_reason.is_not(None))
@@ -447,4 +468,5 @@ async def home(auth: CurrentAuth, db: DB) -> HomeOut:
         recent_pages=pages,
         librarian=librarian,
         checklists=checklists,
+        board_needs=len(decide),
     )

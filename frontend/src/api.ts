@@ -174,6 +174,23 @@ export type InboxItem = Schemas["InboxItemOut"];
 export type InboxPage = Schemas["InboxPage"];
 export type NotifyMode = Schedule["notify_mode"];
 
+// Phase 3: work items and plans (03 §8).
+export type WorkItem = Schemas["WorkItemOut"];
+export type WorkItemDetail = Schemas["WorkItemDetail"];
+export type WorkItemPage = Schemas["WorkItemPage"];
+export type WorkItemState = WorkItem["state"];
+export type Plan = Schemas["PlanOut"];
+export type PlanStatus = Plan["status"];
+export type Revision = Schemas["RevisionOut"];
+export type RevisionSummary = Schemas["RevisionSummary"];
+export type RevisionPage = Schemas["RevisionPage"];
+export type PlanDoc = Schemas["PlanDoc"];
+export type FieldDiff = Schemas["FieldDiff"];
+export type PlanDiff = Schemas["DiffOut"];
+
+export type PlanValidation = Schemas["ValidationResult"];
+export type PlanDecision = Schemas["DecisionOut"];
+
 /** A finding in a run report as stored (02 §3): the model's fields plus the server's `verified`. */
 export interface Finding {
   fingerprint: string;

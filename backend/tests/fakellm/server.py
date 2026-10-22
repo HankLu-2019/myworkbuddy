@@ -25,7 +25,11 @@ Chat behaviour:
   names a feed URL (a scheduled run's inputs), read it, then report one alert finding per item, with
   fingerprints built from the item links the tool returned.
 
-Also a stand-in feed at GET /fake/feed.xml with one item published a minute ago.
+- Phase 3 (07 §5.8): the planner (an output tool with a `commit_message` field) gets a fixed plan for the fake
+  repository, revised with the user's feedback (tests/fakellm/forge.py).
+
+Also a stand-in feed at GET /fake/feed.xml with one item published a minute ago, and stand-ins for Jira and a Git
+server (tests/fakellm/forge.py).
 """
 
 import asyncio
@@ -40,7 +44,10 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from tests.fakellm import forge
+
 app = FastAPI(title="fake-llm")
+app.include_router(forge.router)
 
 CHAT_COST = 0.001
 EMBED_COST = 0.00001
@@ -308,6 +315,12 @@ def _decide(body: dict[str, Any]) -> tuple[str | None, list[dict[str, Any]]]:
         return None, [_call("feed_latest", {"url": feed.group(0)})]
     if output_tool and last_tool == "feed_latest":
         return None, [_call(output_tool, _feed_report(messages))]
+    if (
+        output_tool
+        and last.get("role") == "user"
+        and "commit_message" in tools[output_tool].get("parameters", {}).get("properties", {})
+    ):
+        return None, [_call(output_tool, forge.plan(user_text))]
     if output_tool and last.get("role") != "tool":
         params = tools[output_tool].get("parameters", {})
         return None, [_call(output_tool, _schema_value(params, params.get("$defs", {})))]

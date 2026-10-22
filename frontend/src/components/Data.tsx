@@ -145,3 +145,21 @@ export function DiffView({ text, label = "Changes" }: { text: string; label?: st
     </pre>
   );
 }
+
+/** Where an item is in a fixed sequence of steps (07 §4.10): done steps, the current one, and those to come. */
+export function ProgressStrip({ steps, current, label }: { steps: readonly string[]; current: number; label: string }) {
+  return (
+    <ol className="progress-strip" aria-label={label}>
+      {steps.map((step, i) => {
+        const state = i < current ? "done" : i === current ? "current" : "todo";
+        return (
+          <li key={step} className={`step step-${state}`} aria-current={state === "current" ? "step" : undefined}>
+            <span className="step-dot" aria-hidden />
+            <span>{step}</span>
+            {state === "done" && <span className="visually-hidden"> (done)</span>}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}

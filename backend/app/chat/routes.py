@@ -26,7 +26,7 @@ from starlette.background import BackgroundTask
 
 from app.audit.service import audit
 from app.chat.agent import ChatDeps, build_agent
-from app.chat.context import context_message, validate_refs
+from app.chat.context import context_message, focus_project, validate_refs
 from app.db import get_engine, get_sessionmaker
 from app.deps import DB, CurrentAuth
 from app.enums import MessageStatus
@@ -47,8 +47,10 @@ HISTORY_CHARS = 200_000
 
 
 class ContextRef(BaseModel):
-    type: Literal["run"]
+    type: Literal["run", "plan_revision"]
     id: str
+    label: str | None = None  # filled in by the server
+    href: str | None = None
 
 
 class SessionOut(BaseModel):
@@ -134,9 +136,10 @@ async def list_sessions(auth: CurrentAuth, db: DB, source: str | None = None, li
 async def create_session(body: SessionCreate, auth: CurrentAuth, db: DB) -> SessionOut:
     await _check_project(db, body.project_id, auth.user)
     context = await validate_refs(db, auth.user, [r.model_dump() for r in body.context])
-    session = ChatSession(
-        owner_id=auth.user.id, title=body.title or "New chat", project_id=body.project_id, context=context
-    )
+    project_id = body.project_id
+    if project_id is None and context:  # "Discuss in chat" focuses on the plan's repository (03 §9)
+        project_id = await focus_project(db, auth.user, context)
+    session = ChatSession(owner_id=auth.user.id, title=body.title or "New chat", project_id=project_id, context=context)
     db.add(session)
     await db.commit()
     await db.refresh(session)

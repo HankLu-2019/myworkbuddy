@@ -14,10 +14,12 @@ services:
     environment:
       MWB_ENV: dev
       MWB_ALLOW_HTTP_INTEGRATIONS: "true"  # the fake GitLab is the fake gateway over plain HTTP
+      MWB_ALLOW_HTTP_REPOS: "true"  # and so is its Git server (07 §5.8)
   worker:
     environment:
       MWB_ENV: dev
       MWB_ALLOW_HTTP_INTEGRATIONS: "true"
+      MWB_ALLOW_HTTP_REPOS: "true"
   migrate:
     environment:
       MWB_ENV: dev

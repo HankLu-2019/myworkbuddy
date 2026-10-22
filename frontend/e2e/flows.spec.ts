@@ -393,3 +393,141 @@ test("5.7: an alert reaches the inbox, the link survives sign-in, and the run op
   await fresh.getByLabel("Message").press("Enter");
   await expect(fresh.getByText("Here is what I found in your knowledge base")).toBeVisible();
 });
+
+const ERIN = `erin${run}`;
+const JIRA = `Jira ${run}`;
+const FORGE = `Forge ${run}`;
+
+/** A member whose one-time password is already changed, through the API. */
+async function readyMember(browser: Browser, username: string) {
+  const oneTime = await createMember(browser, username);
+  const ctx = await browser.newContext();
+  const login = await ctx.request.post("/api/auth/login", { data: { username, password: oneTime } });
+  expect(login.ok()).toBeTruthy();
+  const csrf = (await login.json()).csrf_token as string;
+  const r = await ctx.request.post("/api/auth/password", {
+    data: { current_password: oneTime, new_password: PASSWORD },
+    headers: { "X-CSRF-Token": csrf },
+  });
+  expect(r.ok(), await r.text()).toBeTruthy();
+  await ctx.close();
+}
+
+/** The member's API session in the page's context (same cookies), for setup the flow doesn't cover. */
+async function memberApi(page: Page, username: string) {
+  const login = await page.request.post("/api/auth/login", { data: { username, password: PASSWORD } });
+  expect(login.ok()).toBeTruthy();
+  return { "X-CSRF-Token": (await login.json()).csrf_token as string };
+}
+
+test("5.8: a ticket becomes an approved plan, revised once with feedback, and another is rejected", async ({ browser }) => {
+  test.setTimeout(240_000);
+  // Setup: Jira and a Git server on the fake gateway (backend/tests/fakellm/forge.py), Erin's tokens and repository.
+  const { ctx: adminCtx, headers } = await adminApi(browser);
+  const ids: Record<string, number> = {};
+  for (const data of [
+    { kind: "jira", name: JIRA, base_url: FAKE_GITLAB },
+    { kind: "gitlab", name: FORGE, base_url: FAKE_GITLAB },
+  ]) {
+    const r = await adminCtx.request.post("/api/admin/integrations", { data, headers });
+    expect(r.ok(), await r.text()).toBeTruthy();
+    ids[data.kind] = (await r.json()).id;
+  }
+  await adminCtx.close();
+  await readyMember(browser, ERIN);
+  const page = await signedIn(browser, ERIN);
+  const api = await memberApi(page, ERIN);
+  for (const [kind, value] of [["jira", "jira-e2e-token"], ["gitlab", "glpat-e2e-token"]]) {
+    const r = await page.request.put(`/api/integrations/${ids[kind]}/credentials/token`, { data: { value }, headers: api });
+    expect(r.ok(), await r.text()).toBeTruthy();
+  }
+  const added = await page.request.post("/api/projects", {
+    data: { repo_url: `${FAKE_GITLAB}/fake/git/team/payments.git`, integration_id: ids.gitlab },
+    headers: api,
+  });
+  expect(added.ok(), await added.text()).toBeTruthy();
+  const repoId = (await added.json()).id as number;
+  await expect(async () => {
+    const r = await page.request.get(`/api/projects/${repoId}`);
+    expect((await r.json()).status).toBe("ready");
+  }).toPass({ timeout: 120_000 });
+
+  // Step 1: add the ticket without a repository; Draft plan asks for one first.
+  await page.goto("/work");
+  await page.getByRole("button", { name: "Add ticket" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "Add ticket" });
+  await dialog.getByLabel("Jira key").fill("PROJ-123");
+  await dialog.getByRole("button", { name: "Add ticket" }).click();
+  await expect(page.getByText("PROJ-123 added", { exact: true })).toBeVisible();
+  const fresh = page.getByRole("region", { name: /^New/ });
+  const card = fresh.getByRole("region", { name: "Retry webhook delivery on 5xx" });
+  await expect(card.getByText("Choose repository")).toBeVisible();
+  await card.getByRole("button", { name: "Draft plan" }).click();
+  await card.getByLabel("Repository for PROJ-123").selectOption({ label: "payments" });
+  await card.getByRole("button", { name: "Draft plan" }).click();
+  await expect(page.getByText("Planning PROJ-123; you can leave this page", { exact: true })).toBeVisible();
+  await expectAccessible(page);
+
+  // Steps 2–3: leave while the planner works; the inbox says when the plan is ready and links to the Plan tab.
+  await page.goto("/");
+  const ready = page.getByRole("button", { name: /^Plan ready for PROJ-123/ });
+  await expect(async () => {
+    await page.goto("/inbox");
+    await expect(ready).toBeVisible({ timeout: 2000 });
+  }).toPass({ timeout: 90_000 });
+  await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /Board 1 need a decision/ })).toBeVisible();
+  await ready.click();
+  await expect(page).toHaveURL(/\/work\/[0-9a-f-]{36}\/plan$/);
+  const planUrl = page.url();
+  await expect(page.getByText(/^Revision 1 of 1 · by planner/)).toBeVisible();
+  await expect(page.getByRole("table", { name: "File changes" })).toContainText(".gitlab-ci.yml");
+  await expectAccessible(page);
+
+  // Step 4: answer a question by revising with feedback; revision 2 arrives with "Changed from revision 1".
+  await page.getByLabel("Revise with feedback").fill("Give up after three attempts and log the event id.");
+  await page.getByRole("button", { name: "Revise with feedback" }).click();
+  await expect(page.getByText("Planner is writing revision 2; you can leave this page", { exact: true })).toBeVisible();
+  await expect(async () => {
+    await page.goto(planUrl);
+    await expect(page.getByText(/^Revision 2 of 2 · by planner/)).toBeVisible({ timeout: 2000 });
+  }).toPass({ timeout: 90_000 });
+  await expect(page.getByText("Changed from revision 1: Approach and alternatives, Tests.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: /^Tests/ })).toContainText("test_gives_up_after_three");
+
+  // Step 5: acknowledge the CI warning, then approve revision 2; the progress strip moves to Approved.
+  const approve = page.getByRole("button", { name: "Approve revision 2" });
+  await expect(approve).toBeDisabled();
+  await expect(page.getByText("To approve: Acknowledge 1 warning.", { exact: true })).toBeVisible();
+  await page.getByRole("checkbox", { name: "Changes CI or deployment configuration (.gitlab-ci.yml)" }).click();
+  await approve.click();
+  await expect(page.getByText("Revision 2 approved", { exact: true })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Progress" }).locator("[aria-current=step]")).toHaveText("Approved");
+  await expect(page.getByText(/Revision 2 is approved/)).toBeVisible();
+  await expectAccessible(page);
+
+  // Step 6: another ticket, drafted from its hub and rejected with a reason, goes back to New.
+  await page.goto("/work");
+  await page.getByRole("button", { name: "Add ticket" }).first().click();
+  const second = page.getByRole("dialog", { name: "Add ticket" });
+  await second.getByLabel("Jira key").fill("PROJ-124");
+  await second.getByLabel("Repository").selectOption({ label: "payments" });
+  await second.getByRole("button", { name: "Add ticket" }).click();
+  await expect(page.getByText("PROJ-124 added", { exact: true })).toBeVisible();
+  await page.getByRole("region", { name: /^New/ }).getByRole("region").filter({ hasText: "PROJ-124" }).getByRole("link", { name: "Retry webhook delivery on 5xx" }).click();
+  await expect(page.getByRole("heading", { name: /^PROJ-124:/, level: 1 })).toBeVisible();
+  await page.getByRole("button", { name: "Draft plan" }).click();
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole("link", { name: "Review plan" })).toBeVisible({ timeout: 2000 });
+  }).toPass({ timeout: 90_000 });
+  await page.getByRole("link", { name: "Review plan" }).click();
+  await page.getByRole("button", { name: "Reject" }).click();
+  const confirm = page.getByRole("dialog", { name: "Reject revision 1?" });
+  await confirm.getByLabel("Reason (optional)").fill("Not now");
+  await confirm.getByRole("button", { name: "Reject plan" }).click();
+  await expect(page.getByText("Plan rejected; the ticket is back in New", { exact: true })).toBeVisible();
+  await page.goto("/work");
+  await expect(page.getByRole("region", { name: /^New/ }).getByRole("link", { name: "Retry webhook delivery on 5xx" })).toHaveCount(1);
+  await expect(page.getByRole("region", { name: /^Approved/ }).getByRole("link", { name: "Retry webhook delivery on 5xx" })).toHaveCount(1);
+  await expectAccessible(page);
+});
