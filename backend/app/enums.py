@@ -159,6 +159,31 @@ class WorkItemState(StrEnum):
     dismissed = "dismissed"
 
 
+class PlanStatus(StrEnum):
+    drafting = "drafting"
+    needs_decision = "needs_decision"
+    approved = "approved"
+    rejected = "rejected"
+    superseded = "superseded"
+    failed = "failed"
+
+
+class RevisionAuthor(StrEnum):
+    planner = "planner"
+    user = "user"
+
+
+class ApprovalSubject(StrEnum):
+    plan_revision = "plan_revision"
+    job_push = "job_push"  # Phase 4
+
+
+class ApprovalDecision(StrEnum):
+    approved = "approved"
+    rejected = "rejected"
+    changes_requested = "changes_requested"
+
+
 def check(column: str, enum: type[StrEnum]) -> str:
     """SQL for a CHECK constraint that keeps `column` within `enum`."""
     values = ", ".join(f"'{e.value}'" for e in enum)

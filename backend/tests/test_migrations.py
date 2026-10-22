@@ -66,6 +66,14 @@ SEEDS["0011"] = [
     "SELECT 1, id, 'S-1', 's', 'To Do', now(), '{}' FROM integrations WHERE name = 'Seed Jira'",
     "INSERT INTO work_items (owner_id, jira_issue_id) SELECT 1, id FROM jira_issues",
 ]
+SEEDS["0012"] = [
+    "INSERT INTO plans (id, work_item_id, owner_id, status) "
+    "SELECT '00000000-0000-0000-0000-0000000000bb', id, 1, 'needs_decision' FROM work_items LIMIT 1",
+    "INSERT INTO plan_revisions (plan_id, revision, content, content_hash, author, validation) VALUES "
+    f"('00000000-0000-0000-0000-0000000000bb', 1, '{{}}', '{'0' * 64}', 'planner', '{{}}')",
+    "INSERT INTO approvals (owner_id, subject_type, subject_id, payload_hash, decision) "
+    f"SELECT 1, 'plan_revision', id, '{'0' * 64}', 'approved' FROM plan_revisions",
+]
 SEEDS["0005"] = []  # 0005 adds a column with a default; the 0001 user must get it
 CHECKS = {
     "users": 1,
@@ -81,6 +89,8 @@ CHECKS = {
     "outbound_emails": 1,
     "schedule_proposals": 1,
     "work_items": 1,
+    "plans": 1,
+    "approvals": 1,
 }
 
 
