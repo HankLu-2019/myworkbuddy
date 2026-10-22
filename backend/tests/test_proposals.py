@@ -120,6 +120,8 @@ async def test_chat_streams_a_proposal_card_and_keeps_it_with_the_message(client
     messages = (await c.get(f"/api/chat/sessions/{sid}/messages")).json()
     [stored] = messages[-1]["proposals"]
     assert stored["proposal_id"] == card["proposal_id"] and stored["status"] == "pending"
+    assert stored["description"] == card["description"] and stored["agent_name"] == "Kubernetes health"
+    assert len(stored["next_runs"]) == 3
     assert await _count(Schedule) == 0
     bob = await client_for("bob")
     assert (await bob.get(f"/api/schedules/proposals/{card['proposal_id']}")).status_code == 404

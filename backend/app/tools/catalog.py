@@ -239,8 +239,10 @@ async def feed_latest(ctx: RunContext[Any], url: str, since_hours: int = 24, int
     Args:
         url: one of the feed URLs the admin configured.
         since_hours: how far back, at most two weeks.
-        integration: the feed integration's name, only if there are several.
+        integration: the feed integration's name; usually not needed, the URL picks it.
     """
+    if integration is None:
+        integration = await feed.integration_for(url)
     return await _run(ctx, "feed", integration, lambda c: feed.latest(c, url, since_hours))
 
 

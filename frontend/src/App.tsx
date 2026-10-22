@@ -17,6 +17,11 @@ const UsersPage = lazy(() => import("./features/admin/UsersPage"));
 const IntegrationsAdminPage = lazy(() => import("./features/admin/IntegrationsAdminPage"));
 const SystemPage = lazy(() => import("./features/admin/SystemPage"));
 const GalleryPage = lazy(() => import("./features/dev/GalleryPage"));
+const InboxPage = lazy(() => import("./features/inbox/InboxPage"));
+const SchedulesPage = lazy(() => import("./features/schedules/SchedulesPage"));
+const ScheduleEditPage = lazy(() => import("./features/schedules/ScheduleEditPage"));
+const ScheduleDetailPage = lazy(() => import("./features/schedules/ScheduleDetailPage"));
+const RunPage = lazy(() => import("./features/schedules/RunPage"));
 
 function Page({ children }: { children: ReactNode }) {
   return (
@@ -40,6 +45,12 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route element={<Shell />}>
         <Route path="/" element={<Page><HomePage /></Page>} />
+        <Route path="/inbox" element={<Page><InboxPage /></Page>} />
+        <Route path="/schedules" element={<Page><SchedulesPage /></Page>} />
+        <Route path="/schedules/new" element={<Page><ScheduleEditPage /></Page>} />
+        <Route path="/schedules/:scheduleId" element={<Page><ScheduleDetailPage /></Page>} />
+        <Route path="/schedules/:scheduleId/edit" element={<Page><ScheduleEditPage /></Page>} />
+        <Route path="/runs/:runId" element={<Page><RunPage /></Page>} />
         <Route path="/chat" element={<Page><ChatPage /></Page>} />
         <Route path="/chat/:sessionId" element={<Page><ChatPage /></Page>} />
         <Route path="/search" element={<Page><SearchPage /></Page>} />

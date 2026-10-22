@@ -14,7 +14,7 @@ export interface paths {
         };
         /**
          * Activity
-         * @description Background work of the caller that is still going. Phase 2+ adds runs, plan drafts and jobs.
+         * @description Background work of the caller that is still going: ingests and runs (Phase 3+ adds plan drafts, jobs).
          */
         get: operations["activity_api_activity_get"];
         put?: never;
@@ -491,6 +491,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/inbox/unread": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark Unread
+         * @description Mark items unread again ("Mark unread", and undo of "Mark all read").
+         */
+        post: operations["mark_unread_api_inbox_unread_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/inbox/unread-count": {
         parameters: {
             query?: never;
@@ -503,6 +523,26 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inbox/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Dismiss
+         * @description Dismiss (delete) one item. The UI waits out its undo toast before calling this.
+         */
+        delete: operations["dismiss_api_inbox__item_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1169,12 +1209,12 @@ export interface components {
             /** Href */
             href: string;
             /** Id */
-            id: number;
+            id: number | string;
             /**
              * Kind
-             * @constant
+             * @enum {string}
              */
-            kind: "ingest";
+            kind: "ingest" | "run";
             /**
              * Since
              * Format: date-time
@@ -1439,6 +1479,12 @@ export interface components {
             recent_pages: components["schemas"]["RecentPage"][];
             /** Running */
             running: components["schemas"]["ActivityItem"][];
+            today?: components["schemas"]["TodayBrief"] | null;
+        };
+        /** Ids */
+        Ids: {
+            /** Ids */
+            ids: number[];
         };
         /** ImportResult */
         ImportResult: {
@@ -1616,6 +1662,11 @@ export interface components {
         };
         /** Marked */
         Marked: {
+            /**
+             * Ids
+             * @default []
+             */
+            ids: number[];
             /** Marked */
             marked: number;
         };
@@ -1692,7 +1743,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "ingest_failed" | "budget_warning" | "budget_exceeded" | "credential_invalid" | "credential_unreadable";
+            kind: "ingest_failed" | "budget_warning" | "budget_exceeded" | "credential_invalid" | "credential_unreadable" | "alert" | "schedule_paused";
             /** Message */
             message: string;
         };
@@ -2063,8 +2114,12 @@ export interface components {
             inputs: {
                 [key: string]: unknown;
             };
+            /** New Fingerprints */
+            new_fingerprints: string[];
             /** Notified */
             notified: boolean;
+            /** Previous Run Id */
+            previous_run_id: string | null;
             /** Prompt */
             prompt: string;
             /** Report */
@@ -2073,6 +2128,10 @@ export interface components {
             } | null;
             /** Report Status */
             report_status: ("ok" | "warning" | "alert") | null;
+            /** Resolved */
+            resolved: {
+                [key: string]: unknown;
+            }[];
             /** Schedule Id */
             schedule_id: string | null;
             /** Schedule Name */
@@ -2338,6 +2397,28 @@ export interface components {
              * @enum {string}
              */
             status: "not_set" | "unverified" | "ok" | "invalid" | "unreadable";
+        };
+        /**
+         * TodayBrief
+         * @description The latest morning brief from the last 24 hours (07-ux §4.1 "Today").
+         */
+        TodayBrief: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Headline */
+            headline: string;
+            /** Run Id */
+            run_id: string;
+            /** Schedule Name */
+            schedule_name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "warning" | "alert";
         };
         /** UnreadCount */
         UnreadCount: {
@@ -3524,6 +3605,7 @@ export interface operations {
         parameters: {
             query?: {
                 unread?: boolean;
+                kind?: "alert" | null;
                 cursor?: string | null;
                 limit?: number;
             };
@@ -3573,6 +3655,39 @@ export interface operations {
             };
         };
     };
+    mark_unread_api_inbox_unread_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Ids"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Marked"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     unread_count_api_inbox_unread_count_get: {
         parameters: {
             query?: never;
@@ -3589,6 +3704,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UnreadCount"];
+                };
+            };
+        };
+    };
+    dismiss_api_inbox__item_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

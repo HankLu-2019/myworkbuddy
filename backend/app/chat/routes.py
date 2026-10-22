@@ -37,6 +37,7 @@ from app.llm import client as llm
 from app.llm import usage
 from app.logs import log
 from app.models import ChatSession, Document, Episode, Message, Project, ScheduleProposal, ToolCall, User
+from app.schedules.proposals import proposal_summary
 from app.tasks.app import build_episode_task, defer_once
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -215,7 +216,9 @@ async def list_messages(session_id: uuid.UUID, auth: CurrentAuth, db: DB) -> lis
                     "proposal_id": str(p.id),
                     "status": "expired" if p.status == "pending" and p.expires_at <= datetime.now(UTC) else p.status,
                     "expires_at": p.expires_at.isoformat(),
+                    "schedule_id": str(p.schedule_id) if p.schedule_id else None,
                     **p.payload,
+                    **await proposal_summary(db, p.payload),
                 }
             )
     tools: dict[int, list[dict[str, Any]]] = {}

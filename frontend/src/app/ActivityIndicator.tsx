@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { api, type Activity, type ProjectDetail } from "../api";
+import { api, type Activity, type ProjectDetail, type RunDetail } from "../api";
 import { Popover, formatElapsed, useToast } from "../components/ui";
 
 export const POLL_ACTIVE_MS = 5_000;
@@ -26,10 +26,10 @@ export function ActivityIndicator() {
   });
   const items = activity.data?.items ?? [];
 
-  const previous = useRef<Map<string, { id: number; title: string }> | null>(null);
+  const previous = useRef<Map<string, { kind: string; id: number | string; title: string }> | null>(null);
   useEffect(() => {
     if (!activity.data) return;
-    const now = new Map(activity.data.items.map((i) => [`${i.kind}:${i.id}`, { id: i.id, title: i.title }]));
+    const now = new Map(activity.data.items.map((i) => [`${i.kind}:${i.id}`, { kind: i.kind, id: i.id, title: i.title }]));
     const before = previous.current;
     previous.current = now;
     if (!before) return; // first load: nothing finished "while you were here"
@@ -38,6 +38,18 @@ export function ActivityIndicator() {
     qc.invalidateQueries({ queryKey: ["projects"] });
     qc.invalidateQueries({ queryKey: ["home"] });
     for (const [, item] of finished) {
+      if (item.kind === "run") {
+        qc.invalidateQueries({ queryKey: ["runs"] });
+        qc.invalidateQueries({ queryKey: ["schedules"] });
+        api<RunDetail>(`/api/runs/${item.id}`)
+          .then((r) => {
+            const open = { label: "Open", onClick: () => navigate(`/runs/${r.id}`) };
+            if (r.status === "succeeded") toast({ title: `${r.schedule_name}: ${r.headline ?? "done"}`, tone: "success", action: open });
+            else if (r.status !== "skipped") toast({ title: `${r.schedule_name} didn't finish`, tone: "error", action: open });
+          })
+          .catch(() => undefined);
+        continue;
+      }
       api<ProjectDetail>(`/api/projects/${item.id}`)
         .then((p) => {
           const open = { label: "Open", onClick: () => navigate(`/sources/repos/${p.id}`) };

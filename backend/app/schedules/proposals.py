@@ -42,6 +42,22 @@ async def describe(db: AsyncSession, values: dict[str, Any], count: int = 3) -> 
     }
 
 
+async def proposal_summary(db: AsyncSession, payload: dict[str, Any]) -> dict[str, Any]:
+    """The card's derived fields for a stored payload (description, next runs, agent name)."""
+    try:
+        tz = cronlib.zone(payload["timezone"])
+        times = cronlib.occurrences(payload["cron"], tz, now(), 3)
+        description = cronlib.describe(payload["cron"])
+    except (KeyError, cronlib.CronError, ValueError):
+        return {}
+    agent = await db.scalar(select(Agent).where(Agent.slug == payload.get("agent")))
+    return {
+        "description": description,
+        "next_runs": [t.astimezone(tz).isoformat() for t in times],
+        "agent_name": agent.name if agent else payload.get("agent", ""),
+    }
+
+
 async def _agent_list(db: AsyncSession, user: User) -> str:
     rows = await db.scalars(
         select(Agent)

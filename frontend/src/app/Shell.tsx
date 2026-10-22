@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   ArrowLeft,
+  CalendarClock,
+  Inbox,
   Database,
   Home,
   Library,
@@ -19,7 +21,7 @@ import { api, type Home as HomeData, type Integration, type Project } from "../a
 import { ActivityIndicator } from "./ActivityIndicator";
 import { librarianUnseen } from "./seen";
 import { useAuth } from "../auth";
-import { Button, Dialog, Drawer, Dot, TextField, Tooltip } from "../components/ui";
+import { Button, CountBadge, Dialog, Drawer, Dot, TextField, Tooltip } from "../components/ui";
 import FirstPasswordPage from "../features/auth/FirstPasswordPage";
 import { useCrumbs } from "./pageTitle";
 import { SHORTCUTS, useShortcuts } from "./shortcuts";
@@ -61,7 +63,14 @@ function useBadges(isAdmin: boolean, userId: number | undefined) {
   });
   // Shares Home's query and cache: one request a minute at most.
   const home = useQuery({ queryKey: ["home"], queryFn: () => api<HomeData>("/api/home"), staleTime: 60_000 });
+  const inbox = useQuery({
+    queryKey: ["inbox-count"],
+    queryFn: () => api<{ unread: number }>("/api/inbox/unread-count"),
+    refetchInterval: 30_000,
+  });
   return {
+    unread: inbox.data?.unread ?? 0,
+    schedulePaused: !!home.data?.needs_you.some((n) => n.kind === "schedule_paused"),
     librarianNew: librarianUnseen(userId, home.data?.librarian?.at),
     sourcesFailed: !!projects.data?.some((p) => p.mine && p.status === "failed"),
     settingsUnreadable: !!integrations.data?.some((i) =>
@@ -91,7 +100,8 @@ export default function Shell() {
     go: (where) => {
       if (where === "wiki") navigate("/wiki");
       else if (where === "home") navigate("/");
-      // Inbox and Board arrive with Phases 2 and 3.
+      else if (where === "inbox") navigate("/inbox");
+      // Board arrives with Phase 3.
     },
     help: () => setHelp(true),
   });
@@ -104,6 +114,12 @@ export default function Shell() {
       label: "Work",
       items: [
         { to: "/", label: "Home", icon: <Home size={18} aria-hidden />, end: true },
+        {
+          to: "/inbox",
+          label: "Inbox",
+          icon: <Inbox size={18} aria-hidden />,
+          badge: badges.unread ? <CountBadge count={badges.unread} label="unread" /> : undefined,
+        },
         { to: "/chat", label: "Chat", icon: <MessageSquare size={18} aria-hidden /> },
       ],
     },
@@ -122,6 +138,17 @@ export default function Shell() {
           label: "Sources",
           icon: <Database size={18} aria-hidden />,
           badge: badges.sourcesFailed ? <Dot label="A repository failed to index" /> : undefined,
+        },
+      ],
+    },
+    {
+      label: "Automation",
+      items: [
+        {
+          to: "/schedules",
+          label: "Schedules",
+          icon: <CalendarClock size={18} aria-hidden />,
+          badge: badges.schedulePaused ? <Dot label="A schedule was paused" /> : undefined,
         },
       ],
     },
@@ -225,6 +252,15 @@ export default function Shell() {
       </main>
 
       <nav className="tabbar" aria-label="Tabs">
+        <NavLink to="/" end>
+          <Home size={20} aria-hidden />
+          Home
+        </NavLink>
+        <NavLink to="/inbox">
+          <Inbox size={20} aria-hidden />
+          Inbox
+          {badges.unread > 0 && <CountBadge count={badges.unread} label="unread" />}
+        </NavLink>
         <NavLink to="/chat">
           <MessageSquare size={20} aria-hidden />
           Chat
@@ -232,14 +268,6 @@ export default function Shell() {
         <NavLink to="/search">
           <Search size={20} aria-hidden />
           Search
-        </NavLink>
-        <NavLink to="/wiki">
-          <Library size={20} aria-hidden />
-          Wiki
-        </NavLink>
-        <NavLink to="/sources">
-          <Database size={20} aria-hidden />
-          Sources
         </NavLink>
         <button type="button" onClick={() => setMore(true)}>
           <MenuIcon size={20} aria-hidden />
@@ -249,6 +277,17 @@ export default function Shell() {
 
       <Drawer open={more} onOpenChange={setMore} title="More">
         <ul className="plain-list stack">
+          {[
+            { to: "/wiki", label: "Wiki", icon: <Library size={18} aria-hidden /> },
+            { to: "/sources", label: "Sources", icon: <Database size={18} aria-hidden /> },
+            { to: "/schedules", label: "Schedules", icon: <CalendarClock size={18} aria-hidden /> },
+          ].map((item) => (
+            <li key={item.to}>
+              <NavLink to={item.to} className="list-item" onClick={() => setMore(false)}>
+                {item.icon} {item.label}
+              </NavLink>
+            </li>
+          ))}
           {footer.map((item) => (
             <li key={item.to}>
               <NavLink to={item.to} end={item.end} className="list-item" onClick={() => setMore(false)}>
@@ -256,11 +295,6 @@ export default function Shell() {
               </NavLink>
             </li>
           ))}
-          <li>
-            <Link to="/" className="list-item" onClick={() => setMore(false)}>
-              <Home size={18} aria-hidden /> Home
-            </Link>
-          </li>
           <li>
             <Button variant="ghost" icon={<LogOut size={18} aria-hidden />} onClick={logout}>
               Sign out

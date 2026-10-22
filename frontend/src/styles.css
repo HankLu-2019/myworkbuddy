@@ -436,3 +436,33 @@ td.num, th.num { font-variant-numeric: tabular-nums; text-align: right; }
 .error-action { font-weight: 600; text-decoration: underline; }
 .card.focused { outline: 2px solid var(--accent); outline-offset: 2px; }
 .needs-credential_invalid, .needs-credential_unreadable { border-left-color: var(--st-problem); }
+
+/* ---- Phase 2: inbox, schedules, runs, proposals (07 §4.2, §4.7, §4.8, §5.6) ---- */
+.sev { flex: none; }
+.sev-alert { color: var(--st-problem); }
+.sev-warning { color: var(--st-needs); }
+.sev-info { color: var(--st-working); }
+.sev-ok { color: var(--st-done); }
+.inbox-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r-card, 8px); background: var(--surface); }
+.inbox-row { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-2) var(--s-3); border-top: 1px solid var(--line); }
+.inbox-row:first-child { border-top: 0; }
+.inbox-open { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; background: none; border: 0; padding: 4px 0; text-align: left; color: var(--fg); cursor: pointer; font: inherit; min-width: 0; }
+.inbox-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.inbox-row.unread .inbox-title { font-weight: 600; }
+.stack-tight { display: flex; flex-direction: column; gap: 2px; }
+.finding { border-left: 4px solid var(--st-working); }
+.finding-alert { border-left-color: var(--st-problem); }
+.finding-warning { border-left-color: var(--st-needs); }
+.finding-links { margin-top: var(--s-2); color: var(--muted); word-break: break-all; }
+.badge-new { background: var(--accent-soft); color: var(--accent); }
+.run-headline { font-size: var(--t-xl); margin: var(--s-3) 0 0; }
+.run-summary summary { cursor: pointer; font-weight: 600; }
+.proposal-card { display: flex; flex-direction: column; gap: var(--s-2); margin-top: var(--s-3); padding: var(--s-3); border: 1px solid var(--line-strong); border-radius: var(--r-card, 8px); background: var(--surface-2); }
+.proposal-card p { margin: 0; }
+.context-chips { padding: var(--s-1) 0; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--r-pill); background: var(--accent-soft); font-size: var(--t-sm); }
+.chip-remove { background: none; border: 0; cursor: pointer; color: var(--muted); font-size: var(--t-lg); line-height: 1; padding: 0 2px; min-width: 24px; min-height: 24px; }
+.schedule-form h2 { font-size: var(--t-lg); margin: 0; }
+.needs-alert, .needs-schedule_paused { border-left-color: var(--st-problem); }
+.needs-schedule_paused { border-left-color: var(--st-needs); }
+.banner a, .run-headline a, p a { text-decoration: underline; text-underline-offset: 2px; }

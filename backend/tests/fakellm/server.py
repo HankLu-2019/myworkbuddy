@@ -20,6 +20,12 @@ Chat behaviour:
   JSON schema.
 - Otherwise answer with a fixed sentence that cites [1] when the conversation contains a tool result.
 - A `[[slow:<seconds>]]` marker delays the first token; `[[fail]]` returns HTTP 500.
+- Phase 2 (02 §6, 07 §5.6–5.7): when `propose_schedule` is offered and the user asks for something "every
+  weekday", propose a K8s health check of the payments namespace. When `feed_latest` is offered and the prompt
+  names a feed URL (a scheduled run's inputs), read it, then report one alert finding per item, with
+  fingerprints built from the item links the tool returned.
+
+Also a stand-in feed at GET /fake/feed.xml with one item published a minute ago.
 """
 
 import asyncio
@@ -152,6 +158,70 @@ async def fake_gitlab_user(request: Request) -> JSONResponse:
     return JSONResponse({"id": 1, "username": "e2e-user"})
 
 
+@app.get("/fake/feed.xml")
+async def fake_feed() -> StreamingResponse:
+    """An RSS feed for end-to-end runs of the morning brief (07 §5.7)."""
+    from datetime import UTC, datetime, timedelta
+    from email.utils import format_datetime
+
+    when = format_datetime(datetime.now(UTC) - timedelta(minutes=1))
+    xml = (
+        '<?xml version="1.0"?><rss version="2.0"><channel><title>Status</title>'
+        "<item><title>payments: 1 pod crashlooping</title><link>https://status.example.com/incidents/42</link>"
+        f"<description>payments-7d9f is in CrashLoopBackOff.</description><pubDate>{when}</pubDate></item>"
+        "</channel></rss>"
+    )
+    return StreamingResponse(iter([xml]), media_type="application/rss+xml")
+
+
+PROPOSAL = {
+    "name": "Payments health",
+    "agent": "k8s-health",
+    "cron": "0 8 * * 1-5",
+    "inputs": {"namespaces": ["payments"]},
+    "notify_mode": "on_alert",
+}
+_FEED_URL = re.compile(r"https?://[^\s\"']+\.xml")
+
+
+def _last_tool_name(messages: list[dict[str, Any]]) -> str | None:
+    """The tool whose result is the last message (OpenAI tool messages only carry the call id)."""
+    if not messages or messages[-1].get("role") != "tool":
+        return None
+    call_id = messages[-1].get("tool_call_id")
+    for m in reversed(messages):
+        for call in m.get("tool_calls") or []:
+            if call.get("id") == call_id:
+                return call["function"]["name"]
+    return None
+
+
+def _feed_report(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """A run report from the feed_latest result: one alert per item, fingerprinted by its link."""
+    items: list[dict[str, Any]] = []
+    try:
+        envelope = json.loads(_text_of(messages[-1]))
+        items = json.loads(envelope["content"]).get("items", [])
+    except (ValueError, KeyError, TypeError):
+        pass
+    findings = [
+        {
+            "fingerprint": f"feed:{i['link']}",
+            "severity": "alert",
+            "title": i["title"],
+            "detail": i.get("summary", ""),
+            "links": [],
+        }
+        for i in items
+    ]
+    return {
+        "status": "alert" if findings else "ok",
+        "headline": f"{len(findings)} new item(s) in the status feed" if findings else "Nothing new",
+        "findings": findings,
+        "summary_md": "\n".join(f"- {f['title']}" for f in findings) or "All quiet.",
+    }
+
+
 @app.get("/health/liveliness")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -228,7 +298,16 @@ def _decide(body: dict[str, Any]) -> tuple[str | None, list[dict[str, Any]]]:
     if marker and marker.group(1) == "tool" and marker.group(2) in tools:
         args = dict(kv.split("=", 1) for kv in marker.group(3).split())
         return None, [_call(marker.group(2), args)]
+    last_tool = _last_tool_name(messages)
+    if "propose_schedule" in tools and re.search(r"every weekday", user_text, re.IGNORECASE):
+        return None, [_call("propose_schedule", PROPOSAL)]
+    if last_tool == "propose_schedule":
+        return "I've proposed a schedule for that. Check the card below and click Create to start it.", []
     output_tool = next((n for n in tools if n.startswith("final_result")), None)
+    if output_tool and "feed_latest" in tools and last.get("role") == "user" and (feed := _FEED_URL.search(user_text)):
+        return None, [_call("feed_latest", {"url": feed.group(0)})]
+    if output_tool and last_tool == "feed_latest":
+        return None, [_call(output_tool, _feed_report(messages))]
     if output_tool and last.get("role") != "tool":
         params = tools[output_tool].get("parameters", {})
         return None, [_call(output_tool, _schema_value(params, params.get("$defs", {})))]

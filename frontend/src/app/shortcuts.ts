@@ -54,6 +54,7 @@ export function useShortcuts(handlers: ShortcutHandlers) {
 export const SHORTCUTS: [string, string][] = [
   ["/", "Search everything"],
   ["c", "New chat"],
+  ["g then i", "Go to Inbox"],
   ["g then w", "Go to Wiki"],
   ["g then h", "Go Home"],
   ["Esc", "Close a dialog or drawer"],

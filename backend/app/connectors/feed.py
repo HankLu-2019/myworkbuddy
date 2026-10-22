@@ -7,8 +7,11 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 
 import defusedxml.ElementTree as ET
+from sqlalchemy import select
 
 from app.connectors.base import Connection, ConnectorError, call
+from app.db import get_sessionmaker
+from app.models import Integration
 
 MAX_ITEMS = 30
 SUMMARY_CHARS = 500
@@ -63,6 +66,14 @@ def parse(body: bytes) -> list[dict[str, Any]]:
             }
         )
     return items
+
+
+async def integration_for(url: str) -> str | None:
+    """The enabled feed integration whose allowlist has this URL, when several feed integrations exist."""
+    async with get_sessionmaker()() as db:
+        rows = await db.scalars(select(Integration).where(Integration.kind == "feed", Integration.enabled))
+        names = [i.name for i in rows if url in ((i.settings or {}).get("urls") or [])]
+    return names[0] if len(names) == 1 else None
 
 
 async def latest(conn: Connection, url: str, since_hours: int = 24) -> dict[str, Any]:

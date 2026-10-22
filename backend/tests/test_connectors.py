@@ -476,3 +476,17 @@ def test_k8s_summaries_per_kind() -> None:
     cron = summarize("cronjobs", meta | {"spec": {"suspend": True}, "status": {"lastScheduleTime": "t"}})
     assert cron["suspended"] is True and cron["last_schedule"] == "t"
     assert summarize("services", meta | {"spec": {"type": "ClusterIP"}})["type"] == "ClusterIP"
+
+
+async def test_feed_latest_picks_the_integration_by_url(make_user, api) -> None:
+    alice, _ = await setup_integration(
+        make_user, "feed", "https://news.example.com", {}, {"urls": ["https://news.example.com/rss"]}
+    )
+    async with get_sessionmaker()() as db:
+        db.add(Integration(kind="feed", name="Security", base_url="https://sec.example.com",
+                           settings={"urls": ["https://sec.example.com/atom"]}))  # fmt: skip
+        await db.commit()
+    api.on("/atom", ok(fixture("feed", "atom.xml")))
+    r = await tool("feed_latest", alice, url="https://sec.example.com/atom")
+    assert "content" in r and api.requests[-1].url.host == "sec.example.com"
+    assert (await tool("feed_latest", alice, url="https://other.example.com/x"))["error"] == "invalid_args"

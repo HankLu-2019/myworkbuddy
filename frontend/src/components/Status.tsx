@@ -44,6 +44,8 @@ const STATE_OF: Record<string, VisualState> = {
   skipped: "off",
   not_set: "off",
   not_configured: "off",
+  accepted: "done",
+  expired: "off",
 };
 
 /** Words shown next to the colour and icon (never colour alone). */
@@ -71,6 +73,9 @@ const LABELS: Record<string, string> = {
   invalid: "Rejected",
   active: "Active",
   disabled: "Disabled",
+  alert: "Alert",
+  paused: "Paused",
+  cancelled: "Cancelled",
 };
 
 export function visualState(status: string): VisualState {

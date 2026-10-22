@@ -1,13 +1,24 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Plus, RotateCcw, Send, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, streamPost, type ChatMessage, type Citation, type Project, type Session } from "../../api";
+import {
+  api,
+  ApiError,
+  streamPost,
+  type ChatMessage,
+  type Citation,
+  type Project,
+  type ProposalCard as ProposalCardData,
+  type Session,
+} from "../../api";
+import { ProposalCard } from "./ProposalCard";
 import { useAuth } from "../../auth";
 import { usePageTitle } from "../../app/pageTitle";
 import { draftKey, useDraft } from "../../app/drafts";
 import { CitationDrawer, citationHref } from "./CitationPreview";
 import {
+  Banner,
   Button,
   ConfirmDialog,
   EmptyState,
@@ -65,7 +76,22 @@ function ToolActivity({ tools }: { tools: { name: string; args: Record<string, u
   );
 }
 
-type Pending = { user: string; text: string; tools: { name: string; args: Record<string, unknown> }[]; error?: string };
+type Pending = {
+  user: string;
+  text: string;
+  tools: { name: string; args: Record<string, unknown> }[];
+  proposals?: ProposalCardData[];
+  error?: string;
+};
+
+/** First suggested prompt when a chat starts from a run (07 §5.7). */
+export const INVESTIGATE_PROMPT = "What's the likely cause and what should I check?";
+
+/** `?context=run:<id>` → the refs to attach to a new session. */
+export function contextFromParam(value: string | null): { type: "run"; id: string }[] {
+  const m = value?.match(/^run:([0-9a-f-]{36})$/i);
+  return m ? [{ type: "run", id: m[1] }] : [];
+}
 
 /** The user message a reply answered, for Retry. */
 export function previousUserText(messages: ChatMessage[], replyId: number): string {
@@ -115,6 +141,12 @@ export default function ChatPage() {
     }
   }, [restored, sessionId, toast, acknowledge]);
 
+  const location = useLocation();
+  const prefill = (location.state as { prefill?: string } | null)?.prefill;
+  useEffect(() => {
+    if (prefill && sessionId && !draft) setDraft(prefill);
+  }, [prefill, sessionId]);
+
   const [pending, setPending] = useState<Pending | null>(null);
   const [streaming, setStreaming] = useState(false);
   const stream = useRef<AbortController | null>(null);
@@ -154,15 +186,20 @@ export default function ChatPage() {
   }, [sessionId]);
 
   const create = useMutation({
-    mutationFn: () => api<Session>("/api/chat/sessions", { method: "POST", json: {} }),
+    mutationFn: (context: { type: "run"; id: string }[] = []) =>
+      api<Session>("/api/chat/sessions", {
+        method: "POST",
+        json: context.length ? { context, title: "Investigate a run" } : {},
+      }),
     onSuccess: (s) => {
       qc.invalidateQueries({ queryKey: ["sessions"] });
-      navigate(`/chat/${s.id}`);
+      // A chat started from a run suggests its first question (07 §5.7).
+      navigate(`/chat/${s.id}`, { state: s.context?.length ? { prefill: INVESTIGATE_PROMPT } : undefined });
     },
   });
 
   const patch = useMutation({
-    mutationFn: (body: Partial<Pick<Session, "title" | "visibility" | "project_id">>) =>
+    mutationFn: (body: Partial<Pick<Session, "title" | "visibility" | "project_id" | "context">>) =>
       api<Session>(`/api/chat/sessions/${sessionId}`, { method: "PATCH", json: body }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["session", sessionId] });
@@ -178,10 +215,11 @@ export default function ChatPage() {
   // `c` and the "New chat" links open /chat?new=1 (07 §5); create once, even under StrictMode's double effects.
   const creating = useRef(false);
   useEffect(() => {
-    if (params.get("new") !== "1" || creating.current) return;
+    const context = contextFromParam(params.get("context"));
+    if ((params.get("new") !== "1" && !context.length) || creating.current) return;
     creating.current = true;
     setParams({}, { replace: true });
-    create.mutate(undefined, { onSettled: () => (creating.current = false) });
+    create.mutate(context, { onSettled: () => (creating.current = false) });
   }, [params]);
 
   const remove = useMutation({
@@ -212,6 +250,7 @@ export default function ChatPage() {
         ({ event, data }) => {
           if (event === "delta") state.text += data.text;
           else if (event === "tool_call") state.tools = [...state.tools, data];
+          else if (event === "proposal") state.proposals = [...(state.proposals ?? []), data];
           else if (event === "error") state.error = chatErrorText(data.code, data.message);
           else if (event === "done") savedId = data.message_id ?? null;
           setPending({ ...state });
@@ -248,7 +287,7 @@ export default function ChatPage() {
   return (
     <div className="split">
       <nav className="split-list" aria-label="Chat sessions">
-        <Button variant="primary" icon={<Plus size={16} aria-hidden />} onClick={() => create.mutate()} pending={create.isPending}>
+        <Button variant="primary" icon={<Plus size={16} aria-hidden />} onClick={() => create.mutate([])} pending={create.isPending}>
           New chat
         </Button>
         <ErrorNote error={create.error} />
@@ -294,7 +333,7 @@ export default function ChatPage() {
           <div className="chat-empty">
             <EmptyState
               action={
-                <Button variant="primary" onClick={() => create.mutate()} pending={create.isPending}>
+                <Button variant="primary" onClick={() => create.mutate([])} pending={create.isPending}>
                   Start a chat
                 </Button>
               }
@@ -336,6 +375,31 @@ export default function ChatPage() {
                 </div>
               )}
             </div>
+            {!!session.data?.context?.length && (
+              <div className="row context-chips" aria-label="Attached to this chat">
+                <span className="muted small">Attached:</span>
+                {session.data.context.map((ref) => (
+                  <span key={ref.id} className="chip">
+                    <Link to={`/runs/${ref.id}`}>Run result</Link>
+                    {isOwner && (
+                      <button
+                        type="button"
+                        className="chip-remove"
+                        aria-label="Remove the run from this chat"
+                        onClick={() => patch.mutate({ context: session.data!.context!.filter((r) => r.id !== ref.id) })}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </span>
+                ))}
+              </div>
+            )}
+            {session.data?.source === "run" && (
+              <Banner tone="info">
+                This is the transcript of a scheduled run. To ask about it, open the run and choose Investigate in chat.
+              </Banner>
+            )}
             <ErrorNote error={patch.error ?? summarize.error} />
             <div className="messages" aria-live="polite" aria-busy={streaming}>
               {messages.data?.map((m) => (
@@ -358,6 +422,7 @@ export default function ChatPage() {
                     </div>
                   )}
                   {m.role === "assistant" && <Citations items={m.citations} onOpen={setCited} />}
+                  {m.proposals?.map((p) => <ProposalCard key={p.proposal_id} card={p} />)}
                   {m.role === "assistant" && (m.cost_usd ?? 0) > 0 && (
                     <div className="muted small" aria-label="Cost of this reply">
                       ${(m.cost_usd ?? 0) < 0.01 ? "<0.01" : (m.cost_usd ?? 0).toFixed(2)}
@@ -389,13 +454,14 @@ export default function ChatPage() {
                     ) : (
                       !pending.error && <div className="typing" role="status">Thinking…</div>
                     )}
+                    {pending.proposals?.map((p) => <ProposalCard key={p.proposal_id} card={p} />)}
                     <ErrorNote error={pending.error} />
                   </article>
                 </>
               )}
               <div ref={bottom} />
             </div>
-            {isOwner && (
+            {isOwner && session.data?.source !== "run" && (
               <form className="composer" onSubmit={send}>
                 <TextArea
                   ref={composer}

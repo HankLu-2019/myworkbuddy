@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
 // Toasts are also read out by Radix's live region ("Notification …"), so wait for them with exact: true.
@@ -14,6 +15,15 @@ const DOC = `carol-${run}.md`;
 const FAKE_GITLAB = process.env.MWB_E2E_FAKE_GITLAB ?? "http://llm-gateway:4000";
 const GITLAB = `GitLab ${run}`;
 const GERRIT = `Gerrit ${run}`;
+const FEED = `Status ${run}`;
+const FEED_URL = `${FAKE_GITLAB}/fake/feed.xml`;
+
+/** No serious or critical axe violations on the page as it is now (07 §10). */
+async function expectAccessible(page: Page) {
+  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+  const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+  expect(bad.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).slice(0, 3).join(", ")}`)).toEqual([]);
+}
 
 test.describe.configure({ mode: "serial" });
 
@@ -303,4 +313,83 @@ test("5.12: an admin removes a user after seeing what happens, and the audit log
   await expect(admin.getByText(`${DAVE} deleted`, { exact: true })).toBeVisible();
   await admin.goto("/admin/system");
   await expect(admin.getByRole("table", { name: "Audit log" }).getByRole("row").filter({ hasText: "user.delete" }).first()).toBeVisible();
+});
+
+test("5.6: a schedule proposed in chat is created with one click and test-run from its form", async ({ browser }) => {
+  const page = await signedIn(browser, CAROL);
+  await page.goto("/chat?new=1");
+  await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}$/);
+  await page.getByLabel("Message").fill("Check the payments namespace every weekday morning and tell me only if something's wrong.");
+  await page.getByLabel("Message").press("Enter");
+  const card = page.getByRole("region", { name: "Proposed schedule: Payments health" });
+  await expect(card).toContainText("At 08:00, Monday through Friday");
+  await expect(card).toContainText("Notify on alert only");
+  await expect(page.getByText("I've proposed a schedule for that.")).toBeVisible();
+  await expectAccessible(page);
+  await card.getByRole("button", { name: "Create" }).click();
+  await expect(page.getByText("Schedule “Payments health” created", { exact: true })).toBeVisible();
+  await card.getByRole("link", { name: "Open" }).click();
+  await expect(page.locator(".page-header h1", { hasText: "Payments health" })).toBeVisible();
+  await expect(page.getByText("At 08:00, Monday through Friday (", { exact: false })).toBeVisible();
+  await expectAccessible(page);
+
+  await page.getByRole("link", { name: "Edit" }).click();
+  await expect(page.getByLabel("Name", { exact: true })).toHaveValue("Payments health");
+  await expect(page.getByLabel("Namespaces")).toHaveValue("payments");
+  await page.getByRole("button", { name: "Run once now to test" }).click();
+  const drawer = page.getByRole("dialog", { name: "Test run" });
+  await expect(drawer.getByText("Nothing to report.")).toBeVisible({ timeout: 90_000 });
+  await expectAccessible(page);
+});
+
+test("5.7: an alert reaches the inbox, the link survives sign-in, and the run opens in chat", async ({ browser }) => {
+  const { ctx: adminCtx, headers } = await adminApi(browser);
+  const r = await adminCtx.request.post("/api/admin/integrations", {
+    data: { kind: "feed", name: FEED, base_url: FAKE_GITLAB, settings: { urls: [FEED_URL] } },
+    headers,
+  });
+  expect(r.ok(), await r.text()).toBeTruthy();
+  await adminCtx.close();
+
+  const page = await signedIn(browser, CAROL);
+  await page.goto("/schedules/new");
+  await page.getByLabel("Name", { exact: true }).fill("Morning brief");
+  await page.getByLabel("Check type").selectOption({ label: "Morning brief" });
+  await page.getByLabel("Feeds (optional)").fill(FEED_URL);
+  await page.getByRole("button", { name: "Create schedule" }).click();
+  await expect(page.locator(".page-header h1", { hasText: "Morning brief" })).toBeVisible();
+  await page.getByRole("button", { name: "Run now" }).click();
+  await expect(page.getByText("Run started; you can leave this page", { exact: true })).toBeVisible();
+
+  // Step 1: the alert arrives in the inbox (a manual run notifies in-app).
+  const alert = page.getByRole("button", { name: /^Morning brief: 1 new item\(s\) in the status feed/ });
+  await expect(async () => {
+    await page.goto("/inbox");
+    await expect(alert).toBeVisible({ timeout: 2000 });
+  }).toPass({ timeout: 90_000 });
+  await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /Inbox \d+ unread/ })).toBeVisible();
+  await expectAccessible(page);
+  await alert.click();
+  await expect(page).toHaveURL(/\/runs\/[0-9a-f-]{36}$/);
+  const runUrl = new URL(page.url()).pathname;
+
+  // Step 2: the email's link, opened signed out, comes back to the run after sign-in.
+  const { page: fresh } = await open(browser);
+  await fresh.goto(runUrl);
+  await expect(fresh).toHaveURL(new RegExp(`/login\\?next=${encodeURIComponent(runUrl)}`));
+  await signIn(fresh, CAROL);
+  await expect(fresh).toHaveURL(new RegExp(`${runUrl}$`));
+  await expect(fresh.getByRole("heading", { name: "1 new item(s) in the status feed" })).toBeVisible();
+  const finding = fresh.getByRole("list", { name: "Findings" }).locator(".finding").first();
+  await expect(finding).toContainText("payments: 1 pod crashlooping");
+  await expect(finding).toContainText("New since last run");
+  await expectAccessible(fresh);
+
+  // Step 3: investigate in chat, with the run attached and the first question suggested.
+  await fresh.getByRole("link", { name: "Investigate in chat" }).click();
+  await expect(fresh).toHaveURL(/\/chat\/[0-9a-f-]{36}$/);
+  await expect(fresh.getByRole("link", { name: "Run result" })).toHaveAttribute("href", runUrl);
+  await expect(fresh.getByLabel("Message")).toHaveValue("What's the likely cause and what should I check?");
+  await fresh.getByLabel("Message").press("Enter");
+  await expect(fresh.getByText("Here is what I found in your knowledge base")).toBeVisible();
 });
