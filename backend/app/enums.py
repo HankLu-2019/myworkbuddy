@@ -90,6 +90,7 @@ class InboxKind(StrEnum):
     credential = "credential"
     proposal = "proposal"
     plan = "plan"  # Phase 3: a plan is ready, or drafting failed
+    job = "job"  # Phase 4: a job is ready for review, failed, or was pushed
 
 
 class Severity(StrEnum):
@@ -183,6 +184,36 @@ class ApprovalDecision(StrEnum):
     approved = "approved"
     rejected = "rejected"
     changes_requested = "changes_requested"
+
+
+class JobStatus(StrEnum):
+    """Design 04 §3."""
+
+    created = "created"
+    preparing = "preparing"
+    running = "running"
+    verifying = "verifying"
+    awaiting_review = "awaiting_review"
+    approved_push = "approved_push"
+    pushing = "pushing"
+    pushed = "pushed"
+    merged = "merged"
+    closed = "closed"
+    failed = "failed"
+    timed_out = "timed_out"
+    budget_exceeded = "budget_exceeded"
+    cancelled = "cancelled"
+    discarded = "discarded"
+
+
+class JobEventType(StrEnum):
+    status = "status"
+    agent_text = "agent_text"
+    agent_tool = "agent_tool"
+    verify_cmd = "verify_cmd"
+    check = "check"
+    push = "push"
+    error = "error"
 
 
 def check(column: str, enum: type[StrEnum]) -> str:

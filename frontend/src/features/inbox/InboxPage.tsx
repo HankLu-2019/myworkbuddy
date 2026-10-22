@@ -31,6 +31,7 @@ const SOURCE: Record<InboxItem["kind"], string> = {
   credential: "Integrations",
   proposal: "Chat",
   plan: "Work",
+  job: "Work",
 };
 
 function SeverityIcon({ severity }: { severity: InboxItem["severity"] }) {
