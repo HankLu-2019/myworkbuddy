@@ -4,7 +4,8 @@ import re
 from typing import Any
 from urllib.parse import quote
 
-from app.connectors.base import Connection, ConnectorError, call_json
+from app.connectors.base import Connection, ConnectorError, call, call_json
+from app.integrations import http
 
 KEY = re.compile(r"[A-Z][A-Z0-9_]{0,19}-[0-9]{1,9}")
 MAX_RESULTS = 50
@@ -141,3 +142,37 @@ async def fetch_issue(conn: Connection, key: str) -> dict[str, Any]:
         raise ConnectorError("invalid_args", "key must be an issue key like PROJ-12")
     doc = await call_json(conn, "GET", f"{_api(conn)}/issue/{quote(key)}", params={"fields": ISSUE_FIELDS})
     return full_issue(doc or {})
+
+
+# ---------- writes (08 §F6): used only by the approved "Create ticket" route, never as agent tools ----------
+
+
+def adf(text: str) -> dict[str, Any]:
+    """Plain text as Atlassian Document Format (Cloud, API v3): one paragraph per blank-line block."""
+    return {"type": "doc", "version": 1, "content": [
+        {"type": "paragraph", "content": [{"type": "text", "text": p}]} for p in text.split("\n\n") if p.strip()
+    ]}  # fmt: skip
+
+
+async def projects(conn: Connection) -> list[dict[str, str]]:
+    doc = await call_json(conn, "GET", f"{_api(conn)}/project") or []
+    return [{"key": p.get("key"), "name": p.get("name")} for p in doc if p.get("key")][:200]
+
+
+async def find_by_label(conn: Connection, label: str) -> str | None:
+    doc = await call_json(
+        conn, "GET", f"{_api(conn)}/search", params={"jql": f'labels = "{label}"', "maxResults": 1, "fields": "key"}
+    ) or {}  # fmt: skip
+    issues = doc.get("issues") or []
+    return issues[0].get("key") if issues else None
+
+
+async def create_issue(conn: Connection, fields: dict[str, Any]) -> str:
+    """One attempt only: a retried create could make two issues. The caller searched by label first."""
+    v3 = conn.integration.settings.get("api_version") == "3"
+    body = {**fields, "description": adf(fields["description"]) if v3 else fields["description"]}
+    raw = await call(conn, "POST", f"{_api(conn)}/issue", json={"fields": body}, retries=0)
+    key = (http.parse_json(raw) or {}).get("key")
+    if not key:
+        raise ConnectorError("unavailable", f"{conn.name} didn't return the new issue's key")
+    return key

@@ -178,6 +178,7 @@ class RevisionAuthor(StrEnum):
 class ApprovalSubject(StrEnum):
     plan_revision = "plan_revision"
     job_push = "job_push"  # Phase 4
+    jira_issue = "jira_issue"  # 08 §F6: a Jira issue created from a CI finding
 
 
 class ApprovalDecision(StrEnum):

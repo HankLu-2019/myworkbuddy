@@ -220,6 +220,13 @@ The orchestrator resumes after the last stored step, so a retry never creates a 
 - No issue is created without the approval.
 - The description is exactly the approved text.
 
+*Changed while building F6:*
+- The routes are `GET /api/runs/{id}/ticket-draft?fingerprint=` and `POST /api/runs/{id}/tickets`. Fingerprints contain slashes, so they go in the query and the body.
+- The draft lists the user's Jira projects (`GET /rest/api/2/project`) and guesses the project from the user's latest ticket. It guesses the repository from the fingerprint or the finding's links (the `team/service` part of the path).
+- The approval binds the issue's fields (`subject_type = 'jira_issue'`, migration 0018 also widens that CHECK). Its subject is a stable UUID from the user and the fingerprint.
+- Jira's create is one attempt (`call(..., retries=0)`): a retried POST could make two issues. A failure leaves nothing recorded, and trying again first finds an issue by its label.
+- "Draft a plan" starts the planner directly when the work item has a repository. It doesn't add the auto-plan label, which would need intake to notice it.
+
 ## F7. Learn from past jobs
 
 **Why:** a team's merged changes are the best examples of how it wants things done.

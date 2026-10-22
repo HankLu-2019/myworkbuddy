@@ -311,3 +311,28 @@ export type ChatMessage = Omit<Schemas["MessageOut"], "citations" | "tools" | "p
   tools: ToolActivity[];
   proposals?: ProposalCard[];
 };
+
+/** `GET /api/runs/{id}/ticket-draft` (08 §F6): a Jira issue proposed for one CI finding. */
+export interface TicketDraft {
+  fingerprint: string;
+  existing: { jira_key: string; work_item_id: string | null } | null;
+  integrations: { id: number; name: string }[];
+  integration_id: number | null;
+  projects: { key: string; name: string }[];
+  projects_error?: string;
+  project_key: string | null;
+  issue_type: string;
+  summary: string;
+  description: string;
+  labels: string[];
+  autoplan: boolean;
+  repository_id: number | null;
+}
+
+export interface TicketCreated {
+  jira_key: string;
+  jira_url: string;
+  work_item_id: string | null;
+  plan_started: boolean;
+  created: boolean;
+}

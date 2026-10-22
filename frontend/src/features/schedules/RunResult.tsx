@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, Info, OctagonAlert } from "lucide-react";
 import type { Finding, Report, RunDetail } from "../../api";
-import { Banner, Card, KeyValue, Markdown, StatusPill, formatDate, formatUsd } from "../../components/ui";
+import { Banner, Button, Card, KeyValue, Markdown, StatusPill, formatDate, formatUsd } from "../../components/ui";
+import { TicketDialog } from "./TicketDialog";
 import { describeError } from "../../app/errors";
 import { ApiError } from "../../api";
 
@@ -50,6 +52,21 @@ export function runFailure(run: RunDetail): { message: string; action?: { label:
     default:
       return describeError(new ApiError(500, run.error ?? "", run.error_code ?? "internal"));
   }
+}
+
+/** "Create ticket" on a CI failure finding (08 §F6). */
+function CreateTicket({ runId, fingerprint }: { runId: string; fingerprint: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <div className="row">
+        <Button size="sm" onClick={() => setOpen(true)}>
+          Create ticket
+        </Button>
+      </div>
+      <TicketDialog runId={runId} fingerprint={fingerprint} open={open} onOpenChange={setOpen} />
+    </>
+  );
 }
 
 /** The body of a run result, used on /runs/:id and in the test-run drawer (07 §4.8). */
@@ -118,6 +135,7 @@ export function RunResult({ run }: { run: RunDetail }) {
                       })}
                     </ul>
                   )}
+                  {run.agent === "ci-failures" && f.severity !== "info" && <CreateTicket runId={run.id} fingerprint={f.fingerprint} />}
                 </Card>
               </li>
             ))}

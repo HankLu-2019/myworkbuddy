@@ -212,8 +212,9 @@ Design: [08-follow-through.md](design/08-follow-through.md). Tasks are in priori
 - [x] **F5 Retry a failed push** (08 §F5).
   - Acceptance: a push failure returns the job to review with the error; Retry push resumes after the last stored step (one MR, one comment); refused when the payload no longer matches the approval; `approval_mismatch` still ends the job.
   - Done with the changes recorded in 08 §F5: unexpected push errors also return to review, and a failed push adds an inbox item.
-- [ ] **F6 CI failure → ticket** (08 §F6).
+- [x] **F6 CI failure → ticket** (08 §F6).
   - Acceptance: from a `ci-failures` finding, preview → approve → one Jira issue (approval bound to the draft) and one work item on the chosen repository; the same finding then opens the existing issue; a crash after the create doesn't duplicate (label search); nothing is created without the approval.
+  - Done with the changes recorded in 08 §F6: fingerprints in the query and body, a single-attempt Jira create found again by label, migration 0018 (`finding_tickets`, `jira_issue` approvals), and the plan started directly.
 - [ ] **F7 Learn from past jobs** (08 §F7).
   - Acceptance: a merged job yields one `change` document with the repository's visibility (idempotent); leakage tests show another user's private change never appears in search, chat or planner context; the planner context lists similar changes from the same repository only.
 - [ ] **F8 Slack and Teams notifications** (08 §F8).

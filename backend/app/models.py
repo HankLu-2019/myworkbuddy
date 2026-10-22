@@ -409,6 +409,22 @@ class JobEvent(Base):
     data: Mapped[dict[str, Any]] = mapped_column(JSONB)
 
 
+class FindingTicket(Base):
+    """The Jira issue made from a CI finding (08 §F6), so the same finding opens it instead of making another."""
+
+    __tablename__ = "finding_tickets"
+    __table_args__ = (UniqueConstraint("owner_id", "fingerprint"),)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    fingerprint: Mapped[str] = mapped_column(Text)
+    jira_key: Mapped[str] = mapped_column(Text)
+    work_item_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("work_items.id", ondelete="SET NULL")
+    )
+    run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("runs.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = _now()
+
+
 class Approval(Base):
     """A decision bound to (subject, payload_hash) (design 03 §2, rule R5). Append-only: a trigger refuses UPDATE,
     and DELETE except through the cascade from the owning user."""
