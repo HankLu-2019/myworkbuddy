@@ -205,8 +205,9 @@ Design: [08-follow-through.md](design/08-follow-through.md). Tasks are in priori
   - Acceptance: a question file moves the job to `needs_input` (migration, R9) with an inbox item and email; the answer resumes without spending an attempt and the next run sees `answer.md` and no `question.md`; the per-job cap holds; Cancel and the review-days cleanup work from `needs_input`; the question renders as safe Markdown labelled "Written by the agent".
 - [ ] **F4 Repository conventions** (08 §F4).
   - Acceptance: `.mwb/rules.md` → `AGENTS.md` → `CLAUDE.md` → the repository's Conventions text, ≤ 20 KB; the planner gets them wrapped; `protected` paths fail the new `protected_paths` check and warn in plan validation; only the repository owner edits the Conventions text.
-- [ ] **F5 Retry a failed push** (08 §F5).
+- [x] **F5 Retry a failed push** (08 §F5).
   - Acceptance: a push failure returns the job to review with the error; Retry push resumes after the last stored step (one MR, one comment); refused when the payload no longer matches the approval; `approval_mismatch` still ends the job.
+  - Done with the changes recorded in 08 §F5: unexpected push errors also return to review, and a failed push adds an inbox item.
 - [ ] **F6 CI failure → ticket** (08 §F6).
   - Acceptance: from a `ci-failures` finding, preview → approve → one Jira issue (approval bound to the draft) and one work item on the chosen repository; the same finding then opens the existing issue; a crash after the create doesn't duplicate (label search); nothing is created without the approval.
 - [ ] **F7 Learn from past jobs** (08 §F7).

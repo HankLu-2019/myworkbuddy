@@ -340,6 +340,20 @@ async def approve_push(job_id: uuid.UUID, body: PushPayload, auth: CurrentAuth, 
     return job_out(*await owned_job(db, job_id, auth.user))
 
 
+@router.post("/api/jobs/{job_id}/retry-push", response_model=JobOut)
+async def retry_push(job_id: uuid.UUID, auth: CurrentAuth, db: DB, request: Request) -> JobOut:
+    """Push again after a failure, with the approval already given (08 §F5)."""
+    from app.deps import client_ip
+    from app.jobs import push
+    from app.jobs.pipeline import defer_advance
+
+    job = await _job_or_404(db, job_id, auth.user)
+    await push.retry(db, job, auth.user, client_ip(request))
+    await db.commit()
+    await defer_advance(job.id)
+    return job_out(*await owned_job(db, job_id, auth.user))
+
+
 @router.post("/api/jobs/{job_id}/discard", response_model=JobOut)
 async def discard_job(job_id: uuid.UUID, auth: CurrentAuth, db: DB, request: Request) -> JobOut:
     """Throw the result away: workspace and key go, the ticket is back to approved."""

@@ -162,6 +162,8 @@ The orchestrator resumes after the last stored step, so a retry never creates a 
 - A retry after the payload changed is refused (409).
 - `approval_mismatch` still fails the job.
 
+*Changed while building F5:* an unexpected error during the push (not only a `StepFailed`) also goes back to review, with code `internal`, because the approval and the patch are intact. The failure adds an inbox item ("PROJ-123: the push failed"). Approving a new push payload clears `push.error`. Retry push refuses a stored payload whose `patch_sha256` no longer matches the job's result (409 `plan_changed`).
+
 ## F6. CI failure → ticket
 
 **Why:** the `ci-failures` schedule (02 §3) already explains failures. The next step, a ticket and a plan, is manual today.
