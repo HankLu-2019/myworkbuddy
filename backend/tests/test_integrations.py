@@ -489,7 +489,7 @@ async def test_disabled_integration_stops_ingest(make_user) -> None:
         db.add(project)
         await db.commit()
         with pytest.raises(Exception) as err:
-            await repos._auth_header(db, project)
+            await repos.auth_header(db, project)
     assert "is disabled" in err.value.detail
 
 

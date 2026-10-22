@@ -109,6 +109,21 @@ async def list_jobs(
     return JobPage(items=[job_out(*r) for r in rows if r[0].id in keep], next_cursor=next_cursor)
 
 
+class JobIn(BaseModel):
+    plan_revision_id: uuid.UUID
+
+
+@router.post("/api/work-items/{work_item_id}/jobs", response_model=JobOut, status_code=201)
+async def start_job(work_item_id: uuid.UUID, body: JobIn, auth: CurrentAuth, db: DB, request: Request) -> JobOut:
+    """Start a job from the ticket's approved plan revision (04 §5.1). The pipeline runs in the background."""
+    from app.deps import client_ip
+    from app.jobs.create import create_job
+
+    await db.commit()  # create_job uses its own short transactions around network calls (R1)
+    job_id = await create_job(auth.user, work_item_id, body.plan_revision_id, client_ip(request))
+    return job_out(*await owned_job(db, job_id, auth.user))
+
+
 @router.get("/api/jobs/{job_id}", response_model=JobOut)
 async def get_job(job_id: uuid.UUID, auth: CurrentAuth, db: DB) -> JobOut:
     return job_out(*await owned_job(db, job_id, auth.user))

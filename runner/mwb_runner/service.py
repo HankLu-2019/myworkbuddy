@@ -24,6 +24,7 @@ from mwb_runner.presets import RunRejected, RunRequest, check, container_config,
 log = logging.getLogger("mwb_runner")
 SHA = re.compile(r"^[0-9a-f]{7,64}$")
 RUN_ID = re.compile(r"^[0-9a-f]{16}$")
+MWB_NAME = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$")
 IP_RANGE = range(10, 251)
 GRACE_S = 60  # 04 §4: a run is killed timeout_s + 60 s after it started
 
@@ -81,6 +82,23 @@ class Runner:
             raise RunRejected("patch_too_large", f"The patch is over {self.s.patch_max_bytes // 1024**2} MB.")
         if code != 0:
             raise RunRejected("patch_failed", f"git diff failed: {err.decode(errors='replace')[-300:]}")
+        return out
+
+    def read_mwb(self, job_id: uuid.UUID, name: str) -> bytes:
+        """A file under the workspace's .mwb/ (verify results, logs, the agent's notes), at most 1 MB."""
+        if not MWB_NAME.fullmatch(name) or ".." in name.split("/"):
+            raise RunRejected("bad_path", "Only files under .mwb/ can be read.")
+        vol = volume_name(job_id)
+        if not self.ops.volume_exists(vol):
+            raise NotFound(f"No workspace for job {job_id}.")
+        script = 'f="/workspace/.mwb/$MWB_FILE"; [ -f "$f" ] && [ ! -L "$f" ] || exit 44; exec head -c 1048576 "$f"'
+        code, out, _err = self.ops.run_helper(
+            self.s.sandbox_image, vol, ["sh", "-c", script], {"MWB_FILE": name}, max_bytes=1_048_576
+        )
+        if code == 44:
+            raise NotFound(f".mwb/{name} doesn't exist.")
+        if code != 0:
+            raise RunRejected("read_failed", f"Couldn't read .mwb/{name}.")
         return out
 
     def delete_workspace(self, job_id: uuid.UUID) -> None:

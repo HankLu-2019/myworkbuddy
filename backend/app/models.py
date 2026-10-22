@@ -368,6 +368,7 @@ class Job(Base):
     review_round: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     policy: Mapped[dict[str, Any]] = mapped_column(JSONB)
     gateway_key_alias: Mapped[str | None] = mapped_column(Text)
+    current_run: Mapped[str | None] = mapped_column(Text)  # the runner run being waited on (agent or verify)
     result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     push: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     cost_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=0, server_default="0")

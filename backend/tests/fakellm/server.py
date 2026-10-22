@@ -120,6 +120,7 @@ async def key_generate(request: Request) -> dict[str, Any]:
         "models": body.get("models") or [],
         "max_budget": body.get("max_budget"),
         "budget_duration": body.get("budget_duration"),
+        "duration": body.get("duration"),
         "budget_reset_at": "2026-11-20T00:00:00+00:00" if body.get("budget_duration") else None,
         "metadata": body.get("metadata") or {},
         "spend": 0.0,

@@ -1411,6 +1411,26 @@ export interface paths {
         patch: operations["update_work_item_api_work_items__work_item_id__patch"];
         trace?: never;
     };
+    "/api/work-items/{work_item_id}/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Job
+         * @description Start a job from the ticket's approved plan revision (04 §5.1). The pipeline runs in the background.
+         */
+        post: operations["start_job_api_work_items__work_item_id__jobs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/work-items/{work_item_id}/plans": {
         parameters: {
             query?: never;
@@ -1966,6 +1986,14 @@ export interface components {
             level: "error" | "warning";
             /** Message */
             message: string;
+        };
+        /** JobIn */
+        JobIn: {
+            /**
+             * Plan Revision Id
+             * Format: uuid
+             */
+            plan_revision_id: string;
         };
         /** JobOut */
         JobOut: {
@@ -6458,6 +6486,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkItemDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_job_api_work_items__work_item_id__jobs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                work_item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
                 };
             };
             /** @description Validation Error */

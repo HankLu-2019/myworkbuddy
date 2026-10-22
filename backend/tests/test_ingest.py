@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from app.db import get_sessionmaker
 from app.knowledge.ingest import repos
-from app.knowledge.ingest.repos import _auth_header, ingest_project, run_git
+from app.knowledge.ingest.repos import auth_header, ingest_project, run_git
 from app.knowledge.wiki import find_page, read_page
 from app.llm.models import set_model_override
 from app.models import Document, Project, WikiPage
@@ -195,17 +195,17 @@ async def test_project_api_and_visibility(client_for, task_queue, git_integratio
         assert await db.scalar(select(Document).where(Document.project_id == pid)) is None
 
 
-async def test_auth_header_and_secret_masking(make_user, tmp_path):
+async def testauth_header_and_secret_masking(make_user, tmp_path):
     alice = await make_user("alice")
     async with get_sessionmaker()() as db:
         gitlab = Project(owner_id=alice.id, name="a", repo_url="https://x/a.git", host="gitlab")
         gerrit = Project(owner_id=alice.id, name="b", repo_url="https://x/b", host="gerrit")
-        assert await _auth_header(db, gitlab) is None
+        assert await auth_header(db, gitlab) is None
         await set_secret(db, alice.id, "gitlab_token", "glpat-1")
         await set_secret(db, alice.id, "gerrit_username", "alice")
         await set_secret(db, alice.id, "gerrit_password", "pw")
-        assert await _auth_header(db, gitlab) == "Authorization: Basic " + base64.b64encode(b"oauth2:glpat-1").decode()
-        assert base64.b64decode((await _auth_header(db, gerrit)).split()[-1]) == b"alice:pw"
+        assert await auth_header(db, gitlab) == "Authorization: Basic " + base64.b64encode(b"oauth2:glpat-1").decode()
+        assert base64.b64decode((await auth_header(db, gerrit)).split()[-1]) == b"alice:pw"
 
     header = "Authorization: Basic c2VjcmV0"
     with pytest.raises(RuntimeError) as err:

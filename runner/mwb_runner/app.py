@@ -132,6 +132,12 @@ async def patch(job_id: uuid.UUID, base_sha: str = Query(...)) -> Response:
     return Response(data, media_type="text/x-diff")
 
 
+@app.get("/v1/workspaces/{job_id}/mwb/{name:path}", dependencies=auth)
+async def read_mwb(job_id: uuid.UUID, name: str) -> Response:
+    data = await run_in_threadpool(runner().read_mwb, job_id, name)
+    return Response(data, media_type="application/octet-stream")
+
+
 @app.delete("/v1/workspaces/{job_id}", status_code=204, dependencies=auth)
 async def delete_workspace(job_id: uuid.UUID) -> Response:
     await run_in_threadpool(runner().delete_workspace, job_id)
