@@ -1,8 +1,9 @@
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent, RunContext, Tool
 from pydantic_ai.models import Model
 
 from app.db import get_sessionmaker
@@ -43,11 +44,12 @@ async def _instructions(ctx: RunContext[ChatDeps]) -> str:
     return "\n\n".join(parts)
 
 
-def build_agent(model: Model) -> Agent[ChatDeps, str]:
-    """`model` comes from app.llm.client.model_for(user_id) (rule R11)."""
+def build_agent(model: Model, extra_tools: Sequence[Tool] = ()) -> Agent[ChatDeps, str]:
+    """`model` comes from app.llm.client.model_for(user_id) (rule R11). `extra_tools`: the user's enabled MCP tools
+    (08 §F12), read-only, their output wrapped as untrusted."""
     return Agent(
         model,
         deps_type=ChatDeps,
         instructions=_instructions,
-        tools=[tool_function(name) for name in CHAT_TOOLS],
+        tools=[*(tool_function(name) for name in CHAT_TOOLS), *extra_tools],
     )

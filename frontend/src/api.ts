@@ -330,6 +330,8 @@ export interface TicketDraft {
 }
 
 export type OidcConfig = Schemas["OidcConfig"];
+export type McpServer = Schemas["ServerOut"];
+export type McpTool = Schemas["ToolOut"];
 export type Insights = Schemas["InsightsOut"];
 export type InsightsOptions = Schemas["InsightsOptions"];
 export type NotifyChannel = Schemas["ChannelOut"];

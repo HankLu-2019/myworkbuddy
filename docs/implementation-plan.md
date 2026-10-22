@@ -230,8 +230,9 @@ Design: [08-follow-through.md](design/08-follow-through.md). Tasks are in priori
 - [x] **F11 Single sign-on (OIDC)** (08 §F11).
   - Acceptance (fake OIDC provider): login; wrong state, nonce, signature, audience or an expired token refused; email matched once then `sub` only; auto-create by setting; deactivated users refused; admins keep the local login.
   - Done with the changes recorded in 08 §F11: `MWB_LOCAL_LOGIN=admins` as the members' switch, the flow kept in an encrypted cookie, refusals as `?sso_error=` codes, verified-email matching only, migration 0022.
-- [ ] **F12 Admin-registered MCP servers, read tier** (08 §F12).
+- [x] **F12 Admin-registered MCP servers, read tier** (08 §F12).
   - Acceptance: tools listed and enabled by an admin as read only; write-hinted tools can't be enabled; disabled tools can't be called; results wrapped, capped, timed out; a changed tool definition disables the tool; roles enforced; calls audited.
+  - Done with the changes recorded in 08 §F12: our own small streamable-HTTP client, `mcp__<server>__<tool>` names for the model, write hints by annotation or verb with a DB CHECK, `removed` tools, migration 0023.
 
 **Phase 5 end-to-end checklist** (*manual*, on the VM): a real merge request whose pipeline fails is fixed with Fix CI failure and merged; a reviewer's comment is addressed and replied to; a CI failure becomes a ticket, a plan and a job; notifications reach a Slack or Teams test channel; a teammate signs in with SSO.
 
@@ -251,3 +252,12 @@ What the checklist above still needs by hand: a real ticket through plan → job
 - **What changed from the design:** recorded under "Changed while building X1…X7" in 04 and 07. The larger ones: Squid reloads by `squid -k parse` + SIGHUP (no PID file with `-N`); gitleaks runs as `stdin` and fails closed; the push is deterministic (approval time as commit dates) instead of tracking pushes separately; changes after a push re-prepare from the pushed patch with a new key (`pushed → preparing`).
 - **CI cost:** the e2e job now builds the sandbox image and runs a real job (flow 5.9); expect it to be the slowest job. The sandbox job reaches the runner over its compose address and needs the runner's free-disk threshold lowered on GitHub's runners.
 - **Left for later:** retries of a failed push from the UI (today: start a new job), a budget figure in the Start job confirmation (the job budget is a server setting the UI doesn't see), Sysbox for compose-based verification (Phase 5).
+
+### Phase 5 (F1–F12), automated part
+
+What the checklist above still needs by hand: the Phase 5 end-to-end checklist on the VM, plus F10's Sysbox checks (build `mwb-sandbox-dind`, security tests 1–3 from an inner container, a compose Postgres from verify) and F11 against the company's identity provider.
+
+- **What held:** the job state machine took F1–F5 (Fix CI, review rounds, questions, push retries) as new transitions and a `push.resume` record, without a second scheduler. Fakes in the fake gateway (forge, Jira, OIDC, MCP, webhooks) kept every acceptance criterion testable without the real systems.
+- **What changed from the design:** recorded under "Changed while building F1…F12" in 08. The larger ones: chat notifications keep a per-channel inbox cursor, and the HTTP clients' request logs are turned down to warnings, because the webhook URL is the secret; the inner Docker for F10 runs as the Sysbox-mapped root, not rootless; members' passwords are turned off with `MWB_LOCAL_LOGIN=admins`, not a UI switch; MCP tools have model names `mcp__<server>__<tool>`.
+- **CI:** two e2e failures in this phase were infrastructure (a dropped Go download while building the sandbox image, and one failed push step), both green on re-run.
+- **Left for later:** MCP write tools with per-call approvals; Sysbox in CI; an in-app switch for member passwords.

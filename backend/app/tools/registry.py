@@ -122,7 +122,15 @@ async def toolset_for(agent: AgentLike, user: User) -> FunctionToolset:
     max_tier = TIER_ORDER[Tier(agent.max_tier)]
     usable = await verified_kinds(user.id)
     toolset: FunctionToolset = FunctionToolset()
+    mcp_names = [n for n in agent.tools if n.startswith("mcp.")]
+    if mcp_names:  # 08 §F12: read tier only; a tool not enabled for this user is simply absent
+        from app.mcp.service import tools_for
+
+        for tool in await tools_for(user, mcp_names):
+            toolset.add_tool(tool)
     for name in agent.tools:
+        if name.startswith("mcp."):
+            continue
         spec = REGISTRY.get(name)
         if spec is None:
             raise ValueError(f"unknown tool {name!r}")

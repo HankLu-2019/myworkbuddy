@@ -21,6 +21,7 @@ import {
   useToast,
 } from "../../components/ui";
 import { AdminTabs } from "./AdminTabs";
+import McpServers from "./McpServers";
 
 const KINDS: [IntegrationKind, string][] = [
   ["gitlab", "GitLab"],
@@ -267,6 +268,7 @@ export default function IntegrationsAdminPage() {
           },
         ]}
       />
+      <McpServers />
       {adding && <IntegrationDialog editing={null} open onOpenChange={setAdding} />}
       {editing && <IntegrationDialog key={editing.id} editing={editing} open onOpenChange={(o) => !o && setEditing(null)} />}
       <ConfirmDialog

@@ -444,6 +444,44 @@ class Approval(Base):
     decided_at: Mapped[datetime] = _now()
 
 
+class McpServer(Base):
+    """An admin-registered MCP server (08 §F12): streamable HTTP, one shared credential, read tools only."""
+
+    __tablename__ = "mcp_servers"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, unique=True)  # slug: tools are mcp.<name>.<tool>
+    url: Mapped[str] = mapped_column(Text)
+    auth_header: Mapped[str | None] = mapped_column(Text)  # e.g. Authorization
+    auth_value_enc: Mapped[str | None] = mapped_column(Text)  # encrypted; never returned
+    roles: Mapped[list[str]] = mapped_column(ARRAY(Text), default=lambda: ["admin", "member"],
+                                             server_default="{admin,member}")  # fmt: skip
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    last_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = _now()
+
+
+class McpTool(Base):
+    """One tool of an MCP server as last listed, and whether an admin enabled it (08 §F12)."""
+
+    __tablename__ = "mcp_tools"
+    __table_args__ = (UniqueConstraint("server_id", "name"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    server_id: Mapped[int] = mapped_column(ForeignKey("mcp_servers.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    input_schema: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    annotations: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    definition_hash: Mapped[str] = mapped_column(String(64))
+    write_hint: Mapped[str | None] = mapped_column(Text)  # why it looks like a write tool; such tools stay disabled
+    status: Mapped[str] = mapped_column(Text, default="disabled", server_default="disabled")
+    reason: Mapped[str | None] = mapped_column(Text)  # the admin's reason for enabling it
+    enabled_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = _now()
+
+
 class NotifyChannel(Base):
     """A user's Slack or Teams incoming webhook (08 §F8). The URL is a secret: stored encrypted, shown as a hint."""
 

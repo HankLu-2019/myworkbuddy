@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     oidc_name: str = Field("SSO", max_length=40)  # the sign-in button: "Sign in with <name>"
     oidc_auto_create: bool = False  # unknown users become members; otherwise "Ask an admin to add you"
     local_login: Literal["all", "admins"] = "all"  # "admins": members sign in with SSO only
+    # 08 §F12: admin-registered MCP servers (read tier)
+    mcp_call_timeout_s: int = Field(30, ge=1, le=300)
+    mcp_max_output_chars: int = Field(20000, ge=1000, le=200000)
     session_idle_hours: int = Field(12, gt=0)
     login_max_attempts: int = 5  # per username and IP
     login_max_attempts_ip: int = 30
