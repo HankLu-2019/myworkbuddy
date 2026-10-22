@@ -237,7 +237,10 @@ jobs:
           cp .env.example .env
           key=$(python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
           sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=ci-postgres|; s|^MWB_SECRET_KEY=.*|MWB_SECRET_KEY=$key|; s|^MWB_COOKIE_SECURE=.*|MWB_COOKIE_SECURE=false|; s|^MWB_HOSTNAME=.*|MWB_HOSTNAME=http://localhost:8080|; s|^MWB_TLS_MODE=.*|MWB_TLS_MODE=none|; s|^LITELLM_MASTER_KEY=.*|LITELLM_MASTER_KEY=sk-ci|; s|^LITELLM_DB_PASSWORD=.*|LITELLM_DB_PASSWORD=ci-litellm|; s|^MWB_SANDBOX_RUNTIME=.*|MWB_SANDBOX_RUNTIME=runc|; s|^MWB_RUNNER_TOKEN=.*|MWB_RUNNER_TOKEN=ci-runner-token-0123456789abcdef0123456789|" .env
-      # Flow 5.9 runs a real job: the sandbox image, the runner and the egress proxy (runc on CI's Docker).
+      # Flow 5.9 runs a real job: the sandbox image, the runner and the egress proxy (runc on CI's Docker). The
+      # image is large; without room made first, ingest's disk guard (< 10 % free) refuses the flows' repositories.
+      - name: Make disk room for the sandbox image
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost && df -h /
       - name: Build the sandbox image
         run: docker build -t mwb-sandbox:latest sandbox > stack.log 2>&1 || { tail -n 60 stack.log; exit 1; }
       - name: Start stack with the fake LLM
