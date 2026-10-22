@@ -32,6 +32,7 @@ class SourceType(StrEnum):
     episode = "episode"
     code = "code"
     repo_doc = "repo_doc"
+    change = "change"  # 08 §F7: a merged job's summary
 
 
 class SessionSource(StrEnum):

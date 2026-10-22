@@ -19,19 +19,20 @@ SCOPES: dict[str, list[str] | None] = {
     "sessions": ["episode"],
     "code": ["code", "repo_doc"],
     "documents": ["upload"],
+    "changes": ["change"],
 }
 
 
 async def search_knowledge(
     ctx: RunContext[Any],
     query: str,
-    scope: Literal["all", "wiki", "sessions", "code", "documents"] = "all",
+    scope: Literal["all", "wiki", "sessions", "code", "documents", "changes"] = "all",
 ) -> list[dict[str, Any]]:
     """Search the user's knowledge base (their private items plus team-public ones).
 
     Args:
         query: keywords or a question; include exact identifiers like ticket keys or error names.
-        scope: limit to wiki pages, past session summaries, code, or uploaded documents.
+        scope: limit to wiki pages, past session summaries, code, uploaded documents, or merged changes.
     """
     async with get_sessionmaker()() as db:
         hits = await hybrid_search(db, ctx.deps.user, query, source_types=SCOPES[scope], limit=8)

@@ -372,6 +372,15 @@ async def jobs_cleanup(timestamp: int) -> dict[str, int]:
     return await cleanup()
 
 
+@app.task(name="index_change", queue="llm", retry=NoRetryOnBudget(max_attempts=3))
+async def index_change_task(job_id: str) -> int | None:
+    """A merged job becomes a `change` document for search and the planner (08 §F7)."""
+    from app.jobs.changes import index_change
+
+    structlog.contextvars.bind_contextvars(task="index_change", job_id=job_id)
+    return await index_change(uuid.UUID(job_id))
+
+
 @app.task(name="job_advance", queue="jobs", retry=False)
 async def job_advance_task(job_id: str) -> str | None:
     """A coding job's next steps (design 04 §5): prepare, run the agent, verify; locked per job."""

@@ -215,8 +215,9 @@ Design: [08-follow-through.md](design/08-follow-through.md). Tasks are in priori
 - [x] **F6 CI failure → ticket** (08 §F6).
   - Acceptance: from a `ci-failures` finding, preview → approve → one Jira issue (approval bound to the draft) and one work item on the chosen repository; the same finding then opens the existing issue; a crash after the create doesn't duplicate (label search); nothing is created without the approval.
   - Done with the changes recorded in 08 §F6: fingerprints in the query and body, a single-attempt Jira create found again by label, migration 0018 (`finding_tickets`, `jira_issue` approvals), and the plan started directly.
-- [ ] **F7 Learn from past jobs** (08 §F7).
+- [x] **F7 Learn from past jobs** (08 §F7).
   - Acceptance: a merged job yields one `change` document with the repository's visibility (idempotent); leakage tests show another user's private change never appears in search, chat or planner context; the planner context lists similar changes from the same repository only.
+  - Done with the changes recorded in 08 §F7: the user's round notes kept in status events, `index_change` on the `llm` queue, migration 0019, and a `changes` search scope.
 - [ ] **F8 Slack and Teams notifications** (08 §F8).
   - Acceptance: one message per inbox item and matching channel, deduplicated; webhook hosts allowlisted; the webhook URL never appears in logs or API responses; failures retried, then the channel disabled with an inbox notice; Send test.
 - [ ] **F9 Outcome dashboard** (08 §F9).

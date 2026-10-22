@@ -96,13 +96,17 @@ SEEDS["0018"] = [  # 08 §F6: the recreated subject CHECK accepts jira_issue
     f"INSERT INTO approvals (owner_id, subject_type, subject_id, payload_hash, decision) "
     f"VALUES (1, 'jira_issue', gen_random_uuid(), '{'1' * 64}', 'approved')",
 ]
+SEEDS["0019"] = [  # 08 §F7: the recreated source CHECK accepts change
+    "INSERT INTO documents (id, owner_id, visibility, source_type, source_ref, title, content_hash, metadata) "
+    "VALUES (2, 1, 'private', 'change', 'job:seed', 'S-1: x (merged)', 'h2', '{}')",
+]
 SEEDS["0005"] = []  # 0005 adds a column with a default; the 0001 user must get it
 CHECKS = {
     "users": 1,
     "chat_sessions": 1,
     "messages": 1,
     "projects": 1,
-    "documents": 1,
+    "documents": 2,
     "chunks": 1,
     "inbox_items": 3,
     "jobs": 1,

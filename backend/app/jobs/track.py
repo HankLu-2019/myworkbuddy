@@ -110,6 +110,10 @@ async def track_pushed() -> dict[str, int]:
                          link=f"/work/{job.work_item_id}/job")  # fmt: skip
                 counts[outcome] += 1
             await db.commit()
+        if new == S.merged and moved is not None:
+            from app.tasks.app import defer_once, index_change_task
+
+            await defer_once(index_change_task, f"change:{job.id}", job_id=str(job.id))  # 08 §F7
     log.info("jobs_track.done", **counts)
     return counts
 
