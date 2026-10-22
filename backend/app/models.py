@@ -519,6 +519,8 @@ class Project(Base):
     # The integration whose credentials clone it; null only for projects the 0006 migration couldn't match.
     integration_id: Mapped[int | None] = mapped_column(ForeignKey("integrations.id", ondelete="SET NULL"), index=True)
     conventions_md: Mapped[str | None] = mapped_column(Text)  # 08 §F4, for repositories without a rules file
+    # 08 §F10: an admin lets this repository's verification run containers (Sysbox preset verify-services).
+    verify_services: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     status: Mapped[str] = mapped_column(String(16), default="new")
     error: Mapped[str | None] = mapped_column(Text)
     progress: Mapped[str | None] = mapped_column(Text)

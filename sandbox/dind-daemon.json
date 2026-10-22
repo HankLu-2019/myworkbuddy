@@ -1,0 +1,10 @@
+{
+  "proxies": {
+    "http-proxy": "http://egress-proxy:3129",
+    "https-proxy": "http://egress-proxy:3129",
+    "no-proxy": "localhost,127.0.0.1"
+  },
+  "dns": ["127.0.0.1"],
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m" }
+}

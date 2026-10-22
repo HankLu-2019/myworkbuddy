@@ -50,6 +50,7 @@ class SandboxRequest(_Strict):
     memory_gb: int = Field(default=4, ge=2, le=8)
     timeout_min: int = Field(default=45, ge=10, le=120)
     max_attempts: int = Field(default=3, ge=1, le=5)
+    services: bool = False  # 08 §F10: verification may start containers (only where an admin enabled it)
 
 
 class PlanDoc(_Strict):

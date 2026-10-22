@@ -1264,6 +1264,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/verify-services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Verify Services
+         * @description 08 §F10: an admin lets this repository's verification start containers (needs Sysbox on the host).
+         */
+        put: operations["set_verify_services_api_projects__project_id__verify_services_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/visibility": {
         parameters: {
             query?: never;
@@ -2931,6 +2951,7 @@ export interface components {
              *       "max_attempts": 3,
              *       "memory_gb": 4,
              *       "optional_hosts": [],
+             *       "services": false,
              *       "timeout_min": 45
              *     }
              */
@@ -3093,6 +3114,11 @@ export interface components {
              */
             updated_at: string;
             /**
+             * Verify Services
+             * @default false
+             */
+            verify_services: boolean;
+            /**
              * Visibility
              * @enum {string}
              */
@@ -3144,6 +3170,11 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            /**
+             * Verify Services
+             * @default false
+             */
+            verify_services: boolean;
             /**
              * Visibility
              * @enum {string}
@@ -3529,6 +3560,11 @@ export interface components {
              * @default []
              */
             optional_hosts: string[];
+            /**
+             * Services
+             * @default false
+             */
+            services: boolean;
             /**
              * Timeout Min
              * @default 45
@@ -3959,6 +3995,11 @@ export interface components {
             needs_ack: string[];
             /** Ok */
             ok: boolean;
+        };
+        /** VerifyServicesIn */
+        VerifyServicesIn: {
+            /** Enabled */
+            enabled: boolean;
         };
         /** VersionOut */
         VersionOut: {
@@ -6747,6 +6788,41 @@ export interface operations {
                     "application/json": {
                         [key: string]: boolean;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_verify_services_api_projects__project_id__verify_services_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyServicesIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectOut"];
                 };
             };
             /** @description Validation Error */

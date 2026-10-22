@@ -2,11 +2,16 @@
 from a request (design 04 invariant 3)."""
 
 import ipaddress
+import re
 from functools import lru_cache
 from typing import Literal
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+REGISTRY_HOST = re.compile(
+    r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+)
 
 
 class RunnerSettings(BaseSettings):
@@ -21,6 +26,10 @@ class RunnerSettings(BaseSettings):
     proxy_jobs_dir: str = "/etc/squid/jobs"  # shared with the proxy
     reconfigure_wait_s: float = Field(1.0, ge=0)
     docker_root: str = "/docker-root"  # Docker's data root, mounted read-only, for the free-space check
+    # 08 §F10: verification with containers (opt-in per repository). Sysbox gives the sandbox its own Docker.
+    services_image: str = "mwb-sandbox-dind:latest"  # the sandbox image plus dockerd (sandbox/Dockerfile.dind)
+    services_runtime: Literal["sysbox-runc"] = "sysbox-runc"
+    proxy_registry_hosts: str = ""  # comma-separated: the registry (mirror) the inner Docker may pull from
 
     # Limits: a run may ask for less, never more (04 §4).
     max_cpus: float = Field(4, gt=0, le=16)
@@ -41,9 +50,16 @@ class RunnerSettings(BaseSettings):
     @model_validator(mode="after")
     def _check(self) -> "RunnerSettings":
         ipaddress.ip_network(f"{self.sandbox_prefix}.0/24")
+        for host in self.registry_hosts:
+            if not REGISTRY_HOST.fullmatch(host):
+                raise ValueError(f"MWB_PROXY_REGISTRY_HOSTS: {host!r} isn't a host name")
         if self.env == "prod" and len(self.runner_token) < 32:
             raise ValueError("MWB_RUNNER_TOKEN must be at least 32 characters")
         return self
+
+    @property
+    def registry_hosts(self) -> list[str]:
+        return [h.strip().lower() for h in self.proxy_registry_hosts.split(",") if h.strip()]
 
     @property
     def proxy_ip(self) -> str:

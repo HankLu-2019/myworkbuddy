@@ -5,7 +5,7 @@ import uuid
 import pytest
 
 from mwb_runner.config import RunnerSettings
-from mwb_runner.presets import RunRejected, RunRequest, check, cli_args, container_config
+from mwb_runner.presets import PRESETS, RunRejected, RunRequest, acl_hosts, check, cli_args, container_config
 
 JOB = uuid.UUID("00000000-0000-4000-8000-000000000001")
 S = RunnerSettings(env="dev", sandbox_runtime="runc")
@@ -50,6 +50,40 @@ def test_verify_preset_uses_the_mirrors_only_port_and_no_key() -> None:
     with pytest.raises(RunRejected) as e:
         check(req(preset="verify", env={"ANTHROPIC_AUTH_TOKEN": "x"}), S)
     assert e.value.code == "env_not_allowed"
+
+
+def test_verify_services_preset_is_fixed() -> None:
+    """08 §F10: Sysbox, the dind image, its own Docker volume, the verify port, and twice the plan's limits."""
+    s = RunnerSettings(env="dev", sandbox_runtime="runc", proxy_registry_hosts="registry.example.com, mirror.gcr.io")
+    c = container_config(req(preset="verify-services", cpus=2, memory_gb=4), run_id="r4", ip="172.31.0.13", settings=s)
+    h = c["host_config"]
+    assert c["image"] == "mwb-sandbox-dind:latest" and h["runtime"] == "sysbox-runc"
+    assert c["command"] == ["/usr/local/bin/mwb-dind-verify", "/workspace/.mwb/verify.json"]
+    assert c["user"] == "0:0" and h["cap_drop"] == [] and h["security_opt"] == ["no-new-privileges"]
+    assert h["read_only"] and h["network_mode"] == "mwb-sandbox" and h["dns"] == ["127.0.0.1"]
+    assert h["nano_cpus"] == 4_000_000_000 and h["mem_limit"] == h["memswap_limit"] == "8g" and h["pids_limit"] == 1024
+    assert h["binds"] == {f"mwb-job-{JOB}": {"bind": "/workspace", "mode": "rw"},
+                          f"mwb-dind-{JOB}": {"bind": "/var/lib/docker", "mode": "rw"}}  # fmt: skip
+    assert h["tmpfs"]["/run"] == "size=64m"
+    assert "/var/run/docker.sock" not in str(c) and "docker.sock" not in str(h["binds"])  # never the host's socket
+    env = c["environment"]
+    assert (
+        env["HTTPS_PROXY"] == "http://egress-proxy:3129" and env["DOCKER_HOST"] == "unix:///run/mwb-docker/docker.sock"
+    )
+    assert "ANTHROPIC_BASE_URL" not in env
+    assert acl_hosts(PRESETS["verify-services"], req(preset="verify-services", extra_hosts_acl=["pypi.org"]), s) == [
+        "mirror.gcr.io", "pypi.org", "registry.example.com"]  # fmt: skip
+    assert acl_hosts(PRESETS["verify"], req(preset="verify"), s) == []  # only services runs reach the registry
+    line = " ".join(cli_args(req(preset="verify-services"), run_id="r5", ip="172.31.0.14", settings=s))
+    for flag in ["--runtime=sysbox-runc", "--user 0:0", "--cpus 4", "--memory 8g", f"-v mwb-dind-{JOB}:/var/lib/docker",
+                 "--tmpfs /run:size=64m", "mwb-sandbox-dind:latest"]:  # fmt: skip
+        assert flag in line, flag
+    assert "--cap-drop" not in line
+    with pytest.raises(RunRejected) as e:
+        check(req(preset="verify-services", extra_hosts_acl=["llm-gateway"]), s)
+    assert e.value.code == "host_invalid"
+    with pytest.raises(ValueError):
+        RunnerSettings(env="dev", proxy_registry_hosts="evil.example/x")
 
 
 def test_fixed_values_win_over_the_caller() -> None:

@@ -88,6 +88,7 @@ def validate_plan(
     visible_refs: Iterable[int],
     optional_hosts: Iterable[str],
     conventions: dict | None = None,
+    services_enabled: bool = False,
 ) -> tuple[PlanDoc, ValidationResult]:
     """The document with paths normalised and invisible knowledge refs dropped, and what's wrong with it.
 
@@ -134,6 +135,14 @@ def validate_plan(
             out.error(where, f"{host} isn't one of the hosts an admin allows for sandboxes.")
         else:
             out.warn(where, f"The sandbox will be able to reach {host}.", ack=f"optional_host:{host.strip().lower()}")
+
+    if clean.sandbox.services:
+        if not services_enabled:
+            out.error("sandbox.services", "This repository can't run containers in verification; an admin can turn "
+                      "that on for the repository.")  # fmt: skip
+        else:
+            out.warn("sandbox.services", "Verification will run its own Docker, with twice the CPU, memory and disk.",
+                     ack="services")  # fmt: skip
 
     suggested = (conventions or {}).get("test")
     if suggested and suggested not in clean.verification:

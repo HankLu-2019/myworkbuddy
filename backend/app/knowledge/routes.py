@@ -2,14 +2,14 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 
 from app.audit.service import audit
 from app.chat.agent import SCOPES
 from app.config import get_settings
-from app.deps import DB, CurrentAuth
+from app.deps import DB, AdminAuth, CurrentAuth, client_ip
 from app.errors import DEFAULT_CODES, AppError
 from app.integrations.service import credential_rows, integration_for_repo
 from app.knowledge.acl import (
@@ -517,6 +517,7 @@ class ProjectOut(BaseModel):
     mine: bool
     integration_id: int | None = None
     notice: str | None = None  # set on create when the URL was adjusted (e.g. Gerrit /a/)
+    verify_services: bool = False  # 08 §F10: verification may run containers (an admin's choice)
 
 
 class ProjectCreate(BaseModel):
@@ -544,6 +545,7 @@ def _project_out(p: Project, user: User) -> ProjectOut:
         updated_at=p.updated_at,
         mine=p.owner_id == user.id,
         integration_id=p.integration_id,
+        verify_services=p.verify_services,
     )
 
 
@@ -713,6 +715,25 @@ async def set_conventions(project_id: int, body: ConventionsIn, auth: CurrentAut
     project.conventions_md = body.text.strip() or None
     await audit(db, "project.conventions", user_id=auth.user.id, target_type="project", target_id=project.id,
                 detail={"chars": len(body.text.strip())})  # fmt: skip
+    await db.commit()
+    return _project_out(project, auth.user)
+
+
+class VerifyServicesIn(BaseModel):
+    enabled: bool
+
+
+@router.put("/projects/{project_id}/verify-services", response_model=ProjectOut)
+async def set_verify_services(
+    project_id: int, body: VerifyServicesIn, request: Request, auth: AdminAuth, db: DB
+) -> ProjectOut:
+    """08 §F10: an admin lets this repository's verification start containers (needs Sysbox on the host)."""
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise AppError(status.HTTP_404_NOT_FOUND, "not_found", "Repository not found")
+    project.verify_services = body.enabled
+    await audit(db, "project.verify_services", user_id=auth.user.id, target_type="project", target_id=project.id,
+                detail={"enabled": body.enabled}, ip=client_ip(request))  # fmt: skip
     await db.commit()
     return _project_out(project, auth.user)
 

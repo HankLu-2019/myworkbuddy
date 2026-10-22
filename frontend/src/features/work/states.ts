@@ -72,6 +72,7 @@ export function ackLabel(key: string): string {
   if (kind === "ci_config") return `Changes CI or deployment configuration (${rest})`;
   if (kind === "optional_host") return `Lets the sandbox reach ${rest}`;
   if (kind === "large_change") return "Large change: more than 30 files or estimated XL";
+  if (key === "services") return "Verification runs its own Docker, with twice the CPU, memory and disk";
   if (kind === "protected_path") return `Changes a path the repository's conventions protect (${rest})`;
   return key;
 }

@@ -148,6 +148,7 @@ export function PlanSections({ doc, problems, changed }: { doc: PlanDoc; problem
         <KeyValue
           items={[
             ["Extra hosts", doc.sandbox.optional_hosts.length ? doc.sandbox.optional_hosts.join(", ") : "None"],
+            ["Containers in verification", doc.sandbox.services ? "Yes: its own Docker, twice the limits" : "No"],
             ["CPUs", doc.sandbox.cpus],
             ["Memory", `${doc.sandbox.memory_gb} GB`],
             ["Time limit", `${doc.sandbox.timeout_min} min`],

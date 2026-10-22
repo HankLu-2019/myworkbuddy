@@ -258,7 +258,10 @@ def prompt_for(
             ensure_ascii=False,
         ),
         f"Optional sandbox hosts an admin allows: {', '.join(hosts) if hosts else 'none'}.",
-    ]
+        "Verification may start containers (set sandbox.services to true only if the tests need a database or other "
+        "service in Docker)." if inputs.project.verify_services else
+        "Verification can't start containers here: leave sandbox.services false.",
+    ]  # fmt: skip
     if rules is not None:
         where = rules.source if rules.source == conventions.SETTINGS_SOURCE else f"repo:{rules.source}"
         parts.append(
@@ -372,6 +375,7 @@ async def _run_planner(inputs: _Inputs, checkout: Path, sha: str, branch: str, f
                 visible_refs=refs,
                 optional_hosts=get_settings().optional_hosts,
                 conventions=inputs.conventions,
+                services_enabled=inputs.project.verify_services,
             )
             if validation.ok or attempts == 2:
                 break

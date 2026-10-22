@@ -18,7 +18,7 @@ from app.connectors.base import ConnectorError
 from app.enums import ApprovalDecision, ApprovalSubject, PlanStatus, RevisionAuthor, WorkItemState
 from app.errors import AppError
 from app.knowledge.ingest.repos import cache_dir
-from app.models import Approval, JiraIssue, Plan, PlanRevision, User, WorkItem
+from app.models import Approval, JiraIssue, Plan, PlanRevision, Project, User, WorkItem
 from app.plans import approvals, repo
 from app.plans.schema import PlanDoc, approval_payload_hash, content_hash
 from app.plans.validation import ValidationResult, validate_plan, visible_document_ids
@@ -136,9 +136,11 @@ async def validate_user_revision(
         except ConnectorError:
             existing = None
     refs = await visible_document_ids(db, user, doc.knowledge_refs)
+    project = await db.get(Project, item.project_id) if item.project_id else None
     return validate_plan(
         doc, jira_key=issue.key, existing_paths=existing, visible_refs=refs,
         optional_hosts=get_settings().optional_hosts, conventions=plan.conventions,
+        services_enabled=bool(project and project.verify_services),
     )  # fmt: skip
 
 

@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from mwb_runner.config import RunnerSettings
-from mwb_runner.presets import RunRejected, RunRequest, volume_name
+from mwb_runner.presets import RunRejected, RunRequest, dind_volume_name, volume_name
 from mwb_runner.service import NotFound, Runner
 from mwb_runner.tarsafe import UnsafeArchive
 from tests.fake_docker import FakeOps
@@ -171,7 +171,10 @@ def test_a_run_whose_workspace_grows_too_large_is_killed(setup, tmp_path) -> Non
 def test_health(setup) -> None:
     ops, runner, _ = setup
     checks = {"docker": "ok", "runtime": "ok", "proxy_config": "ok", "proxy": "ok", "disk": "ok"}
-    assert runner.health() == {"ok": True, "runtime": "runc", "checks": checks}
+    services = "Runtime sysbox-runc isn't installed"
+    assert runner.health() == {"ok": True, "runtime": "runc", "checks": checks, "services": services}
+    ops.runtimes["sysbox-runc"] = {}
+    assert runner.health()["services"] == "ok"  # optional (08 §F10): never makes the runner unhealthy
     runner.s.sandbox_runtime = "runsc"
     ops.proxies = []
     report = runner.health()
@@ -214,3 +217,28 @@ def test_delete_mwb_files_only(setup) -> None:
         runner.delete_mwb(JOB, "question.md")
     with pytest.raises(NotFound):
         runner.delete_mwb(uuid.UUID(int=7), "question.md")
+
+
+def test_a_services_run_gets_its_own_docker_volume_and_the_registry(setup, tmp_path) -> None:
+    """08 §F10: the inner Docker's volume is created with the job's label, removed with the workspace; the run's
+    ACL adds the registry hosts; the disk limit counts both volumes, doubled."""
+    ops, runner, jobs_dir = setup
+    runner.s.proxy_registry_hosts = "registry.example.com"
+    runner.create_workspace(JOB)
+    run = runner.start_run(RunRequest(job_id=JOB, preset="verify-services", timeout_s=600))
+    assert ops.volumes_[dind_volume_name(JOB)] == {"mwb.job": str(JOB), "mwb.kind": "dind"}
+    assert "dstdomain registry.example.com" in (jobs_dir / f"run-{run}.conf").read_text()
+    assert "verify_port" in (jobs_dir / f"run-{run}.conf").read_text()
+    root = tmp_path / "docker-root" / "volumes"
+    (root / volume_name(JOB) / "_data").mkdir(parents=True)
+    (root / dind_volume_name(JOB) / "_data").mkdir(parents=True)
+    runner.s.docker_root = str(tmp_path / "docker-root")
+    runner.s.job_disk_gb = 64 / 1024**2  # 64 KiB, doubled to 128 KiB for a services run
+    (root / volume_name(JOB) / "_data" / "a.bin").write_bytes(os.urandom(48 * 1024))
+    (root / dind_volume_name(JOB) / "_data" / "b.bin").write_bytes(os.urandom(48 * 1024))
+    now = datetime(2026, 10, 22, 10, 0, 10, tzinfo=UTC)
+    assert runner.sweep(None, now=now)["too_large"] == 0  # 96 KiB: over one limit, under the doubled one
+    (root / dind_volume_name(JOB) / "_data" / "c.bin").write_bytes(os.urandom(64 * 1024))
+    assert runner.sweep(None, now=now)["too_large"] == 1  # the inner Docker's images count too
+    runner.delete_workspace(JOB)
+    assert ops.volumes_ == {}

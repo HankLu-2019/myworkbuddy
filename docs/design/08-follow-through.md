@@ -340,6 +340,15 @@ Everything is computed in SQL from `jobs`, `plans`, `plan_revisions`, `job_event
 - A plan with `services: true` on a repository that isn't enabled is a validation error.
 - `docker compose up` of a Postgres service works from verify on the VM (*manual*).
 
+*Changed while building F10:*
+- The inner `dockerd` runs as the container's root, not rootless. Under Sysbox that root is an unprivileged host user (user namespace), and rootless Docker inside would need setuid `newuidmap`, which `no-new-privileges` blocks. The entrypoint (`mwb-dind-verify`) starts `dockerd` with its socket in `/run` (a tmpfs), then runs `mwb-verify` as uid 1000 with `setpriv`. The preset keeps `no-new-privileges`, the read-only root, the pids limit and the sandbox network; it doesn't drop capabilities, because Sysbox confines them to the user namespace and `dockerd` needs them there.
+- The inner Docker's data is its own volume (`mwb-dind-<job>`, labelled with the job), mounted at `/var/lib/docker`, removed with the workspace and by the orphan sweep. The disk watchdog counts it with the workspace, against twice `MWB_JOB_DISK_GB`.
+- The limits a plan asks for are checked against the runner's maxima, then doubled (CPU, memory, processes, disk).
+- `MWB_PROXY_REGISTRY_HOSTS` is a runner setting: the run's proxy ACL adds those hosts on the verify port, for this preset only. Inner containers get the same proxy (daemon and client config) and no resolver, so they reach nothing else; compose service names resolve through Docker's own DNS.
+- The approval names it: `sandbox.services` is a warning to acknowledge (`services`), and an error where the repository isn't enabled. Job start checks again, in case an admin turned it off after the approval.
+- Admins turn it on with `PUT /api/projects/{id}/verify-services` (audited), on the repository page. The System page has a Sandboxes block: the runner's checks, and whether `sysbox-runc` is installed (optional: it never makes the runner unhealthy). Migration 0021.
+- CI builds neither the dind image nor runs Sysbox (GitHub's runners can't): the preset's flags, ACL, volume and limits are unit tests; the security tests from an inner container stay manual on the VM.
+
 ## F11. Single sign-on (OIDC)
 
 **Why:** a team rollout shouldn't mean another password.

@@ -398,8 +398,9 @@ async def verify(ctx: dict[str, Any]) -> None:
     run_id = job.current_run
     try:
         if run_id is None or (await runner_client.run_status(run_id)) is None:
+            preset = "verify-services" if policy.get("services") else "verify"  # 08 §F10
             run_id = await runner_client.start_run(
-                job.id, "verify", timeout_s=timeout_s, cpus=policy["cpus"], memory_gb=policy["memory_gb"],
+                job.id, preset, timeout_s=timeout_s, cpus=policy["cpus"], memory_gb=policy["memory_gb"],
                 extra_hosts=policy.get("optional_hosts") or [],
             )  # fmt: skip
             await _set(job.id, current_run=run_id)
