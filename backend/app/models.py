@@ -313,6 +313,8 @@ class Plan(Base):
     base_sha: Mapped[str | None] = mapped_column(Text)
     base_branch: Mapped[str | None] = mapped_column(Text)
     auto: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))  # started by intake
+    # 08 §F4: the repository conventions read at the base commit ({source, protected, test}), for validation.
+    conventions: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = _now()
@@ -458,6 +460,7 @@ class Project(Base):
     card_page_id: Mapped[int | None] = mapped_column(Integer)
     # The integration whose credentials clone it; null only for projects the 0006 migration couldn't match.
     integration_id: Mapped[int | None] = mapped_column(ForeignKey("integrations.id", ondelete="SET NULL"), index=True)
+    conventions_md: Mapped[str | None] = mapped_column(Text)  # 08 §F4, for repositories without a rules file
     status: Mapped[str] = mapped_column(String(16), default="new")
     error: Mapped[str | None] = mapped_column(Text)
     progress: Mapped[str | None] = mapped_column(Text)

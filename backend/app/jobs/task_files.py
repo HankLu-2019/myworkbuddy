@@ -28,7 +28,9 @@ RULES = """\
 """
 
 
-def task_md(key: str, doc: dict[str, Any]) -> str:
+def task_md(
+    key: str, doc: dict[str, Any], conventions_source: str | None = None, protected: list[str] | None = None
+) -> str:
     lines = [f"# {key}: {doc['title']}", "", doc["summary"], "", "## Approach", "", doc["approach"], ""]
     lines += ["## File changes", ""]
     lines += [f"- {c['action']} `{c['path']}`: {c['description']}" for c in doc["changes"]]
@@ -42,6 +44,13 @@ def task_md(key: str, doc: dict[str, Any]) -> str:
         lines += ["", "## Risks to keep in mind", ""]
         lines += [f"- {r['risk']} (mitigation: {r['mitigation']})" for r in doc["risks"]]
     lines += ["", "## Verification commands", "", "```sh", *doc["verification"], "```", "", RULES]
+    if conventions_source:  # 08 §F4
+        where = ".mwb/conventions.md" if conventions_source.startswith("the repository's") else conventions_source
+        lines += ["## Repository conventions", "", f"Follow the team's rules in `{where}`."]
+        if protected:
+            lines += ["Don't change these protected paths unless the plan lists them: "
+                      + ", ".join(f"`{p}`" for p in protected) + "."]  # fmt: skip
+        lines.append("")
     return "\n".join(lines)
 
 

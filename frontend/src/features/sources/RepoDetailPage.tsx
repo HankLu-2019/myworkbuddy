@@ -14,10 +14,56 @@ import {
   RelativeTime,
   SkeletonRows,
   StatusPill,
+  TextArea,
   VisibilityBadge,
   VisibilityControl,
+  useToast,
 } from "../../components/ui";
 import { RemoveRepositoryDialog } from "./repoParts";
+
+/** The owner's conventions text (08 §F4), for repositories that carry no rules file of their own. */
+function Conventions({ p }: { p: ProjectDetail }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [text, setText] = useState(p.conventions_md ?? "");
+  const save = useMutation({
+    mutationFn: () => api(`/api/projects/${p.id}/conventions`, { method: "PUT", json: { text } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", p.id] });
+      toast({ title: "Conventions saved", tone: "success" });
+    },
+  });
+  return (
+    <Card as="section" className="stack" aria-labelledby="repo-conventions">
+      <h2 id="repo-conventions">Conventions for the planner and the agent</h2>
+      <p className="muted small">
+        Used when the repository has no <code>.mwb/rules.md</code>, <code>AGENTS.md</code> or <code>CLAUDE.md</code>. A front-matter block can protect
+        paths: <code>mwb: {"{"} protected: ["migrations/**"], test: "pytest -q" {"}"}</code>.
+      </p>
+      {p.mine ? (
+        <form
+          className="stack-tight"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate();
+          }}
+        >
+          <TextArea label="Conventions" hideLabel rows={8} maxLength={20000} className="mono" value={text} onChange={(e) => setText(e.target.value)} />
+          <div className="row">
+            <Button type="submit" pending={save.isPending} disabled={text === (p.conventions_md ?? "")}>
+              Save conventions
+            </Button>
+          </div>
+          <ErrorNote error={save.error} />
+        </form>
+      ) : p.conventions_md ? (
+        <pre className="pre-wrap small">{p.conventions_md}</pre>
+      ) : (
+        <p className="muted">None set.</p>
+      )}
+    </Card>
+  );
+}
 
 /** Repository detail (07 §4.6): status, the last error with what to do, counts, project card, actions. */
 export default function RepoDetailPage() {
@@ -124,6 +170,7 @@ export default function RepoDetailPage() {
         )}
         {working && <p className="muted small">Still working — large repositories take a few minutes. You can leave this page.</p>}
       </Card>
+      <Conventions p={p} />
       <RemoveRepositoryDialog
         project={removing ? p : null}
         onOpenChange={setRemoving}

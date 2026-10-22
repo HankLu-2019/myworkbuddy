@@ -264,7 +264,7 @@ async def test_a_job_runs_to_review(make_user, client_for, forge_url, runner) ->
     assert [f["path"] for f in r["files"]] == ["app/webhooks.py"] and r["files"][0]["added"] == 2
     assert {c["name"]: c["status"] for c in r["checks"]} == {
         "no_changes": "pass", "outside_plan": "pass", "size": "pass", "binary": "pass", "file_modes": "pass",
-        "ci_config": "pass", "secret_scan": "pass", "verification": "pass",
+        "ci_config": "pass", "protected_paths": "pass", "secret_scan": "pass", "verification": "pass",
     }  # fmt: skip
     assert r["verify"][0]["command"] == VERIFY_OK and r["verify"][0]["exit_code"] == 0
     assert r["agent_notes"] == "Changed app/webhooks.py as the task asked.\n"
