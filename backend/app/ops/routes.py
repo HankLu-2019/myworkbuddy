@@ -27,6 +27,7 @@ STATE_KEYS = (
     health.HEARTBEAT_KEY,
     "wiki_reconcile",
     "disk_guard",
+    "agent_evals",
 )
 
 
@@ -104,6 +105,9 @@ def _alerts(
     state: dict[str, dict[str, Any]], checks: dict[str, str], stuck: int, disk: dict[str, Any], outbox: dict[str, Any]
 ) -> list[str]:
     alerts = [v for v in checks.values() if v != "ok"]
+    evals = state.get("agent_evals")
+    if evals and evals.get("passed") != evals.get("total"):
+        alerts.append(f"Agent evals: {evals['total'] - evals['passed']} of {evals['total']} cases failed last night")
     if outbox["failed_24h"]:
         alerts.append(f"{outbox['failed_24h']} email(s) couldn't be delivered in the last 24 hours")
     if outbox["pending"] and not outbox["configured"]:
@@ -169,6 +173,7 @@ async def system(auth: AdminAuth, db: DB) -> dict[str, Any]:
         "disk": disk,
         "disk_guard": states.get("disk_guard"),
         "wiki_reconcile": states.get("wiki_reconcile"),
+        "agent_evals": states.get("agent_evals"),
         "embeddings": {"failed": stuck, "sample": stuck_sample},
         "llm_spend": spend,
         "audit": audit_rows,

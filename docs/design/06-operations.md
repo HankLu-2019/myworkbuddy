@@ -48,10 +48,13 @@ Then sign in at `https://$MWB_HOSTNAME`, create integrations (Phase 2+), create 
 | `MWB_SESSION_TTL_HOURS` / `MWB_SESSION_IDLE_HOURS` | `72` / `12` | |
 | `MWB_LOGIN_MAX_ATTEMPTS` / `_IP` / `_USER`, `MWB_LOGIN_WINDOW_MINUTES` | `5` / `30` / `20`, `15` | Failed sign-ins per username+IP, per IP, per username |
 | `MWB_SMTP_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_FROM`, `_STARTTLS` | — / 587 / — / — / — / true | Phase 2 |
-| `MWB_SMTP_TIMEOUT_S`, `MWB_MAX_EMAILS_PER_DAY` | 30 / 30 | Phase 2; the cap is per user per local day |
-| `MWB_MAX_EMAILS_PER_DAY` | `30` | Per user |
+| `MWB_SMTP_TIMEOUT_S` | 30 | Phase 2 |
+| `MWB_MAX_EMAILS_PER_DAY` | `30` | Per user, per local day |
 | `MWB_SCHEDULE_MIN_INTERVAL_MIN` | `15` | Members |
 | `MWB_MAX_SCHEDULES_PER_USER` | `20` | |
+| `MWB_SCHEDULE_MIN_INTERVAL_ADMIN_MIN` | `5` | Admins |
+| `MWB_RUNS_RETENTION_DAYS` | `180` | Runs and their transcripts (`runs_retention`, daily 02:40 UTC) |
+| `MWB_AGENT_EVALS_USER` | — | Username whose AI budget the nightly agent evals use (03:10 UTC); unset: no nightly evals. Run by hand with `mwb eval-agents --user <name> [--agent <slug>]` |
 | `MWB_INGEST_MAX_SUMMARY_FILES` | `150` | Per ingest |
 | `MWB_REPO_CACHE_MAX_GB` | `50` | Ingest refuses to clone or fetch above this, or when `/data` has < 10 % free |
 | `MWB_TRANSCRIPT_MAX_MB` | `50` | Per imported Claude Code transcript |

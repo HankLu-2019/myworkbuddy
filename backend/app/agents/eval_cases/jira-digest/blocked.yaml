@@ -1,0 +1,24 @@
+description: Three issues, one of them blocked; only the blocked one is a warning.
+inputs: {jql: "project = SPIN AND updated >= -1d"}
+tools:
+  jira_search:
+    - result:
+        total: 3
+        truncated: false
+        issues:
+          - {key: SPIN-4412, summary: "OOMKilled spark executors on nightly ETL", status: Blocked, assignee: Alice Andersson, updated: "2026-10-20T09:12:00.000+0200"}
+          - {key: SPIN-4398, summary: "Add retention to the audit table", status: In Progress, assignee: Bob, updated: "2026-10-20T08:00:00.000+0200"}
+          - {key: SPIN-4390, summary: "Upgrade Airflow to 2.10", status: To Do, assignee: null, updated: "2026-10-19T16:00:00.000+0200"}
+  jira_get_issue:
+    - args: {key: SPIN-4412}
+      result:
+        key: SPIN-4412
+        summary: "OOMKilled spark executors on nightly ETL"
+        status: Blocked
+        description: "Executors die with exit code 137 since the 2.3 upgrade."
+        comments: [{author: Bob, created: "2026-10-19T10:00:00.000+0200", body: "Blocked on the platform team raising the quota."}]
+  search_knowledge:
+    - result: []
+expect:
+  status: warning
+  fingerprints: ["jira:SPIN-4412:Blocked"]

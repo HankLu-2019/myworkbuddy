@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     schedule_min_interval_min: int = Field(15, ge=1)  # smallest gap between runs for members
     schedule_min_interval_admin_min: int = Field(5, ge=1)
     max_schedules_per_user: int = Field(20, ge=1)  # enabled schedules
+    runs_retention_days: int = Field(180, ge=7)  # runs and their transcripts (02 §9)
+    agent_evals_user: str = ""  # username whose AI budget the nightly agent evals use; empty: no nightly evals
     # Email (design 02 §5). No MWB_SMTP_HOST: emails stay queued and the System page says why.
     smtp_host: str = ""
     smtp_port: int = Field(587, ge=1, le=65535)

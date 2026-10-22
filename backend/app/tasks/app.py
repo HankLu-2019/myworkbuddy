@@ -275,3 +275,45 @@ async def send_emails(timestamp: int) -> None:
     from app.inbox.sender import send_pending
 
     await send_pending()
+
+
+# ---------- Phase 2 system tasks (design 02 §9) ----------
+
+
+@app.periodic(cron="0 1 * * *")
+@app.task(name="projects_refresh", queueing_lock="projects_refresh", lock="projects_refresh")
+async def projects_refresh(timestamp: int) -> dict[str, int]:
+    """Nightly at 01:00 UTC: re-ingest ready repositories whose branch moved."""
+    from app.knowledge.ingest.refresh import refresh_projects
+
+    result = await refresh_projects()
+    queued = sum([await defer_ingest(pid) for pid in result.moved])
+    counts = {"checked": result.checked, "moved": len(result.moved), "queued": queued, "failed": len(result.failed)}
+    log.info("projects_refresh.done", **counts)
+    return counts
+
+
+@app.periodic(cron="40 2 * * *")
+@app.task(name="runs_retention", queueing_lock="runs_retention", lock="runs_retention")
+async def runs_retention(timestamp: int) -> dict[str, int]:
+    from app.schedules.retention import prune_runs
+
+    counts = await prune_runs()
+    log.info("runs_retention.done", **counts)
+    return counts
+
+
+@app.periodic(cron="10 3 * * *")
+@app.task(name="agent_evals", queueing_lock="agent_evals", lock="agent_evals")
+async def agent_evals(timestamp: int) -> dict[str, int] | None:
+    """Nightly agent evals against the real model, when MWB_AGENT_EVALS_USER is set (not a CI gate)."""
+    from app.agents.evals import STATE_KEY, run_evals, summary
+    from app.ops.health import put_state
+
+    username = get_settings().agent_evals_user
+    if not username:
+        return None
+    s = summary(await run_evals(username))
+    await put_state(STATE_KEY, s | {"at": _now().isoformat()})
+    log.info("agent_evals.done", passed=s["passed"], total=s["total"], cost_usd=s["cost_usd"])
+    return {"passed": s["passed"], "total": s["total"]}

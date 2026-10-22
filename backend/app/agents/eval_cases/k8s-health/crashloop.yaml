@@ -1,0 +1,38 @@
+description: One crash-looping, OOM-killed pod in prod among healthy ones; events and the previous log agree.
+inputs: {namespaces: [prod]}
+tools:
+  k8s_get:
+    - args: {kind: pods}
+      result:
+        kind: pods
+        truncated: false
+        items:
+          - {name: payments-7d9f-abcde, namespace: prod, phase: Running, ready: "0/1", restarts: 14, reasons: [CrashLoopBackOff, OOMKilled], node: node-3}
+          - {name: checkout-5c6d-xyz12, namespace: prod, phase: Running, ready: "1/1", restarts: 0, reasons: [], node: node-1}
+    - args: {kind: deployments}
+      result:
+        kind: deployments
+        truncated: false
+        items:
+          - {name: payments, namespace: prod, desired: 1, ready: 0, available: 0, conditions: [Progressing]}
+          - {name: checkout, namespace: prod, desired: 1, ready: 1, available: 1, conditions: [Available, Progressing]}
+    - result: {kind: statefulsets, truncated: false, items: []}
+  k8s_events:
+    - result:
+        since_minutes: 60
+        truncated: false
+        events:
+          - {reason: BackOff, object: Pod/payments-7d9f-abcde, count: 31, last_seen: "2026-10-21T07:58:00Z", message: "Back-off restarting failed container payments in pod payments-7d9f-abcde"}
+  k8s_pod_logs:
+    - result:
+        lines: 4
+        log: |
+          Starting payments 2.3.0
+          Loading 1.2M rows into the cache
+          java.lang.OutOfMemoryError: Java heap space
+          Exiting with code 137
+  search_knowledge:
+    - result: []
+expect:
+  status: alert
+  fingerprints: ["k8s:prod/payments-7d9f-abcde:CrashLoopBackOff"]

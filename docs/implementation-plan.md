@@ -9,8 +9,8 @@ Last revised 2026-10-21 after the [design review](review/2026-10-21-design-revie
 | 0 Foundation | Done (commit `e45c666`) |
 | 1 Knowledge & memory | Done (commit `e45c666`) |
 | H Hardening | Built (PRs #2–#17); the manual release gate on the VM is still to run |
-| **2 Schedules & connectors** | **In progress** ([02](design/02-schedules-connectors.md)): S1 done |
-| 3 Plans | Designed: [03](design/03-plans.md) |
+| 2 Schedules & connectors | Built (PRs #18–#25, [02](design/02-schedules-connectors.md)); the manual release gate is still to run |
+| **3 Plans** | **In progress**: [03](design/03-plans.md) |
 | 4 Execution | Designed: [04](design/04-execution.md) |
 | 5 Polish | Backlog below |
 
@@ -137,7 +137,8 @@ Design: [02-schedules-connectors.md](design/02-schedules-connectors.md).
 - [x] **S7 Frontend** (02 §8, 07 §4.2, §4.7, §4.8, §5.6, §5.7, §5.10): Inbox, Schedules, editor with presets, inputs form, cron preview and test run, Run result with "Investigate in chat", chat context attachments, proposal card, Home sections for alerts and paused schedules (Settings → Integrations, Admin → Integrations and the invalid-credential Home card came with S1).
   - Acceptance: vitest for each page's states (loading, empty, error, populated); Playwright flows 07 §5.6 and §5.7 (email link → login → run → chat with context); axe clean on new pages.
   - Done with the changes recorded in 02 §8 ("Changed while building S7"): inbox unread/dismiss/filter endpoints, new/resolved findings on run detail, Home alert and paused cards with "Today", run activity, and a fake gateway that drives flows 5.6 and 5.7.
-- [ ] **S8 System tasks and agent prompts** (02 §3, §9): `projects_refresh`, `runs_retention`, prompts for the four agents with fingerprint conventions, eval fixtures (recorded tool outputs → expected fingerprints) run nightly against real Bedrock (not a CI gate).
+- [x] **S8 System tasks and agent prompts** (02 §3, §9): `projects_refresh`, `runs_retention`, prompts for the four agents with fingerprint conventions, eval fixtures (recorded tool outputs → expected fingerprints) run nightly against real Bedrock (not a CI gate).
+  - Done with the changes recorded in 02 §9 ("Changed while building S8"): evals run as a named user (`mwb eval-agents`, nightly with `MWB_AGENT_EVALS_USER`) with results on Admin → System; GitLab results carry `project` so CI fingerprints verify; retention also prunes old emails and proposals.
 
 **Phase 2 end-to-end checklist** (*manual*): morning brief at 08:00 local arrives in inbox and email; k8s-health against a real read-only kubeconfig alerts on a crashlooping test pod, stays quiet on the next unchanged run, and sends "recovered" after the fix.
 

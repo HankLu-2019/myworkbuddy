@@ -24,6 +24,7 @@ async def list_mrs(
         params["scope"] = "created_by_me"
     mrs = await call_json(conn, "GET", f"/api/v4/projects/{_project(project)}/merge_requests", params=params) or []
     return {
+        "project": project.strip().strip("/"),
         "merge_requests": [
             {
                 "iid": m.get("iid"),
@@ -58,6 +59,7 @@ async def pipeline_status(conn: Connection, project: str, ref: str) -> dict[str,
         or []
     )
     return {
+        "project": project.strip().strip("/"),
         "pipeline_id": p.get("id"),
         "status": p.get("status"),
         "ref": p.get("ref"),
@@ -70,4 +72,4 @@ async def pipeline_status(conn: Connection, project: str, ref: str) -> dict[str,
 async def job_log_tail(conn: Connection, project: str, job_id: int, lines: int = 200) -> dict[str, Any]:
     n = max(1, min(lines, MAX_LOG_LINES))
     body = await call(conn, "GET", f"/api/v4/projects/{_project(project)}/jobs/{int(job_id)}/trace", tail=n * 400)
-    return {"job_id": job_id, "lines": n, "log": tail_lines(body, n)}
+    return {"project": project.strip().strip("/"), "job_id": job_id, "lines": n, "log": tail_lines(body, n)}

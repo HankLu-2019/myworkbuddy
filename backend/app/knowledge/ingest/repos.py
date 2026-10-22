@@ -167,7 +167,9 @@ def _redact(text: str, auth_header: str | None) -> str:
     return text
 
 
-async def run_git(*args: str, cwd: Path, auth_header: str | None = None, ca_file: Path | None = None) -> str:
+async def run_git(
+    *args: str, cwd: Path, auth_header: str | None = None, ca_file: Path | None = None, timeout: float | None = None
+) -> str:
     proc = await asyncio.create_subprocess_exec(
         "git",
         *args,
@@ -176,7 +178,12 @@ async def run_git(*args: str, cwd: Path, auth_header: str | None = None, ca_file
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    out, err = await proc.communicate()
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout)
+    except TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise RuntimeError(f"git {args[0]} timed out after {timeout:g} s") from None
     if proc.returncode != 0:
         msg = _redact(err.decode(errors="replace").strip(), auth_header)
         raise RuntimeError(f"git {args[0]} failed: {msg[-400:]}")
