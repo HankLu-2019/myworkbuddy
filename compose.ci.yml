@@ -33,3 +33,9 @@ services:
       MWB_TLS_MODE: none
     ports: !override
       - "8080:8080"
+
+  runner:
+    environment:
+      MWB_ENV: dev
+      # Tests drive the orphan sweep themselves; the background one would race them.
+      MWB_SWEEP_INTERVAL_S: "3600"

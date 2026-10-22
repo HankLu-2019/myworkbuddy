@@ -17,8 +17,10 @@ class RunnerSettings(BaseSettings):
     sandbox_runtime: Literal["runsc", "runc"] = "runsc"
     sandbox_network: str = "mwb-sandbox"
     sandbox_prefix: str = "172.31.0"  # the sandbox network's /24; .2 is the proxy, .10–.250 are sandboxes
-    proxy_container: str = "egress-proxy"  # name or id, for `squid -k reconfigure`
+    proxy_container: str = ""  # name or id for `squid -k reconfigure`; empty: the compose service egress-proxy
     proxy_jobs_dir: str = "/etc/squid/jobs"  # shared with the proxy
+    reconfigure_wait_s: float = Field(1.0, ge=0)
+    docker_root: str = "/docker-root"  # Docker's data root, mounted read-only, for the free-space check
 
     # Limits: a run may ask for less, never more (04 §4).
     max_cpus: float = Field(4, gt=0, le=16)
@@ -31,6 +33,9 @@ class RunnerSettings(BaseSettings):
     # Service
     runner_token: str = Field("", min_length=0)
     env: Literal["prod", "dev"] = "prod"
+    api_url: str = "http://api:8000"  # GET /internal/jobs/active for the orphan sweep
+    sweep_interval_s: int = Field(300, ge=10)
+    upload_max_bytes: int = 3 * 1024**3
 
     @model_validator(mode="after")
     def _check(self) -> "RunnerSettings":

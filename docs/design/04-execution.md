@@ -162,6 +162,16 @@ Claude Code reaches the gateway at `http://llm-gateway:4000` **through the proxy
 
 **Orphans.** On start and every 5 minutes the runner lists containers and volumes labelled `mwb.job`, asks the API-side status (`GET /internal/jobs/active` on `api`, same bearer token in reverse) and removes anything whose job is not active. It also kills any container running longer than its `timeout_s` + 60 s.
 
+*Changed while building X2:*
+
+- **Uploads** are sanitised by the runner itself (`mwb_runner/tarsafe.py`), then extracted by Docker into the volume through a created-but-never-started helper container. Refused: absolute paths, `..`, links that are absolute or leave the tree, devices and FIFOs, over 200 000 entries or 2 GB. Kept entries get uid/gid 1000 and lose setuid/setgid/sticky bits. A refused upload extracts nothing (`422 unsafe_archive`).
+- **Helpers** (upload, patch) run the sandbox image with no network, uid 1000, a read-only root, no capabilities, 1 GB and 1 CPU. The patch helper runs `git add -A && git diff --cached --binary "$BASE_SHA"`, with the sha passed as an environment variable and checked as hex.
+- **Runs** get the lowest free address from `.10`–`.250` and are named `mwb-run-<run_id>` (16 hex characters). A run's extra hosts become `/etc/squid/jobs/run-<run_id>.conf` (per **run**, not per job, so an agent run and a verify run of the same job get their own profile port), followed by `squid -k reconfigure` through `docker exec`. The file is removed when the run is seen to have ended, is killed, or is swept. The proxy is found by its compose service label unless `MWB_PROXY_CONTAINER` names it.
+- **Status** is `running`, `exited` or `killed` (the runner killed it: timeout or `DELETE`), plus `exit_code`, `oom_killed` and times. `DELETE /v1/runs/{id}?remove=true` also removes the container. Logs are NDJSON lines `{"stream": "stdout"|"stderr", "line": ...}`.
+- **Errors** are `{"detail", "code"}`: `422` with `unknown_preset`, `env_not_allowed`, `env_invalid`, `limit_exceeded`, `host_invalid`, `unsafe_archive`, `bad_sha`, `patch_too_large`, `disk_full`, `no_capacity`; `404 not_found`; `401` without the bearer token. There is no OpenAPI or docs page.
+- **The sweep** runs on start and every `MWB_SWEEP_INTERVAL_S` (300). It always kills runs past `timeout_s + 60 s` and removes stale ACL files. It removes containers and volumes only when the API answered `GET /internal/jobs/active` (added with X3); if the API can't be asked, nothing is deleted.
+- **Disk:** Docker's data root is mounted read-only at `/docker-root` (`MWB_DOCKER_ROOT` on the host), and runs are refused below 15 % free. The runner image is `python:3.12-slim` plus uv; its compose service has a read-only root, the Docker socket, the `squid-jobs` volume, and a health check on `/v1/health`.
+
 ## 5. Job pipeline
 
 All steps run in `worker-jobs` with `lock=f"job:{job_id}"`. Each step is idempotent: it inspects the job's status and artifacts and resumes or no-ops.

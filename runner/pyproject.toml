@@ -34,6 +34,8 @@ addopts = "-m 'not docker'"
 
 [tool.coverage.run]
 source = ["mwb_runner"]
+# docker_ops talks to a real daemon: the `docker` tests in the CI job `sandbox` exercise it.
+omit = ["mwb_runner/docker_ops.py"]
 
 [tool.ruff]
 line-length = 120

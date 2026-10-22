@@ -63,7 +63,8 @@ Then sign in at `https://$MWB_HOSTNAME`, create integrations (Phase 2+), create 
 | `MWB_SANDBOX_RUNTIME` | `runsc` | Phase 4. `runc` only where gVisor can't run; the System page then warns |
 | `MWB_CODER_MODEL_ID` | the chat model | Phase 4. A Claude model: Claude Code uses LiteLLM's Anthropic route |
 | `MWB_SANDBOX_NETWORK`, `MWB_SANDBOX_PREFIX` | `mwb-sandbox`, `172.31.0` | Phase 4. The internal sandbox network; change only to run a second stack on the same host |
-| `MWB_RUNNER_TOKEN` | — | Phase 4, random 32 bytes |
+| `MWB_RUNNER_TOKEN` | — | Phase 4, at least 32 characters; api, worker and runner share it |
+| `MWB_DOCKER_ROOT` | `/var/lib/docker` | Phase 4. Docker's data root, mounted read-only into the runner for the free-space check |
 | `MWB_PROXY_AGENT_HOSTS`, `MWB_PROXY_VERIFY_HOSTS`, `MWB_SANDBOX_OPTIONAL_HOSTS` | see 04 §1 | Phase 4 |
 | `MWB_JOB_MAX_CHANGED_LINES`, `MWB_JOB_DISK_GB` | `3000`, `10` | Phase 4 |
 | `MWB_BACKUP_REPO`, `RESTIC_PASSWORD` | — | §5. Any restic repository (`s3:…`, `sftp:…`, `rest:…`) or a path under `/backup-local` |
