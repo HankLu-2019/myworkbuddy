@@ -77,6 +77,15 @@ SEEDS["0012"] = [
 SEEDS["0013"] = [  # plans written before 0013 get auto = false; the recreated kind CHECK accepts "plan"
     "INSERT INTO inbox_items (owner_id, kind, title, severity) VALUES (1, 'plan', 'Plan ready for S-1', 'info')",
 ]
+SEEDS["0014"] = [
+    "INSERT INTO jobs (id, owner_id, work_item_id, plan_revision_id, plan_approval_id, base_branch, base_sha, "
+    "branch_name, status, policy) SELECT '00000000-0000-0000-0000-0000000000cc', 1, p.work_item_id, r.id, a.id, "
+    "'main', 'abc1234', 'mwb/S-1-x', 'awaiting_review', '{}' FROM plans p JOIN plan_revisions r ON r.plan_id = p.id "
+    "JOIN approvals a ON a.subject_id = r.id LIMIT 1",
+    "INSERT INTO job_events (job_id, seq, type, data) "
+    "VALUES ('00000000-0000-0000-0000-0000000000cc', 1, 'status', '{}')",
+    "INSERT INTO inbox_items (owner_id, kind, title, severity) VALUES (1, 'job', 'Job ready', 'info')",
+]
 SEEDS["0005"] = []  # 0005 adds a column with a default; the 0001 user must get it
 CHECKS = {
     "users": 1,
@@ -85,7 +94,9 @@ CHECKS = {
     "projects": 1,
     "documents": 1,
     "chunks": 1,
-    "inbox_items": 2,
+    "inbox_items": 3,
+    "jobs": 1,
+    "job_events": 1,
     "agents": 1,
     "schedules": 1,
     "runs": 1,

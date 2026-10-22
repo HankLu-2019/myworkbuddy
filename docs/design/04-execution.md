@@ -122,6 +122,15 @@ Every transition: short transaction that checks the expected current status (`UP
 
 A job that ends in `awaiting_review` after failing verification at max attempts is allowed to be pushed only after the user ticks "Push despite failing checks" (part of the approval payload).
 
+*Changed while building X3:*
+
+- **Migration 0014**, not 0007 (Phases 2–3 used 0007–0013). `artifacts.job_id` cascades with the job. Inbox items gain kind `job`. CHECKs cover `jobs.status`, `job_events.type`, `branch_name` length ≤ 100 and `review_round` 0–5.
+- **Three more transitions to `failed`**, each for a step that can break before the next status exists: `created → failed` (the LLM key can't be created), `verifying → failed` (the verify run or the patch can't be fetched) and `approved_push → failed` (the push task finds the approval doesn't match before it starts). That makes 25 transitions in `app/jobs/state.TRANSITIONS`.
+- **Transitions** lock the job row, check that the status is one the caller expected, update it, append a `status` event (`{"from", "to", ...detail}`) and audit `job.<status>`, all in one transaction. `started_at` is set on the first `preparing`, `finished_at` on reaching a terminal status. Another status → `None` and no side effects. A pair the machine doesn't have raises `InvalidTransition`.
+- **The work item follows its job:** `preparing`/`running` → `in_progress`, `pushed` → `in_review`, `merged` → `done`, `closed`/`failed`/`timed_out`/`budget_exceeded`/`cancelled`/`discarded` → `approved`. This includes `pushed → running` (request changes after push), which takes the work item back to `in_progress`.
+- **Events:** sequence numbers are allocated under the job row lock. `GET /api/jobs/{id}/events?after=` replays everything after `after` (or `Last-Event-ID`) with `id: <seq>`, then polls every second while the job is working on its own. It ends with `event: end {status}` once the job is awaiting review, pushed or finished, and sends a keep-alive comment every 15 s. The status is read before the events, so a stream never ends one event early.
+- `GET /api/jobs` (cursor, filter by `status` and `work_item_id`) and `GET /api/jobs/{id}` are owner only. `GET /internal/jobs/active` needs `MWB_RUNNER_TOKEN`; Caddy routes only `/api/*`, so it can't be reached from outside.
+
 ## 4. Runner API (internal)
 
 All requests carry `Authorization: Bearer $MWB_RUNNER_TOKEN`. The runner refuses everything not listed.

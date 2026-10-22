@@ -16,6 +16,7 @@ from app.db import get_engine
 from app.home.routes import router as home_router
 from app.inbox.routes import router as inbox_router
 from app.integrations.routes import router as integrations_router
+from app.jobs.routes import router as jobs_router
 from app.knowledge.routes import router as knowledge_router
 from app.llm.routes import router as usage_router
 from app.logs import log, setup_logging
@@ -79,5 +80,6 @@ for r in (
     schedules_router,
     inbox_router,
     plans_router,
+    jobs_router,
 ):
     app.include_router(r)

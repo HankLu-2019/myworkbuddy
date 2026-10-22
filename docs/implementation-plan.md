@@ -174,8 +174,9 @@ Design: [04-execution.md](design/04-execution.md).
 - [x] **X2 Runner service** (04 §4).
   - Acceptance: security tests 4, 5 and 9; unit tests for preset and limit validation; tar extraction rejects traversal and absolute symlinks.
   - Done with the changes recorded in 04 §4 ("Changed while building X2"): uploads sanitised by the runner, proxy ACL files per run, `killed` status, NDJSON logs, and a sweep that deletes only when the API answers. CI calls the runner container over HTTP.
-- [ ] **X3 Jobs model, state machine, events** (04 §2–3).
+- [x] **X3 Jobs model, state machine, events** (04 §2–3).
   - Acceptance: every allowed transition works and every disallowed one is rejected; one active job per work item; events SSE replays from `after`.
+  - Done with the changes recorded in 04 §3 ("Changed while building X3"): migration 0014, three more transitions to `failed`, the work item following its job, and the internal active-jobs endpoint for the runner's sweep.
 - [ ] **X4 Prepare, run, verify loop** (04 §5.1–5.4).
   - Acceptance: job key created with the right budget and expiry and deleted at the end; clone sanitised (no remote, no hooks); retry loop stops at `max_attempts`; timeout and budget states (security tests 5–6); verification failures produce feedback files.
 - [ ] **X5 Checks and Job tab** (04 §5.4–5.5, 07 §4.10–4.11).

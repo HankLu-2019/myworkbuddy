@@ -338,6 +338,69 @@ class PlanRevision(Base):
     created_at: Mapped[datetime] = _now()
 
 
+ACTIVE_JOB_STATUSES = ("created", "preparing", "running", "verifying", "awaiting_review", "approved_push", "pushing")
+
+
+class Job(Base):
+    """A sandboxed coding job for an approved plan revision (design 04 §2)."""
+
+    __tablename__ = "jobs"
+    __table_args__ = (
+        Index(
+            "one_active_job_per_item",
+            "work_item_id",
+            unique=True,
+            postgresql_where=text("status IN (" + ", ".join(f"'{s}'" for s in ACTIVE_JOB_STATUSES) + ")"),
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    work_item_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("work_items.id", ondelete="CASCADE"))
+    plan_revision_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("plan_revisions.id"))
+    plan_approval_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("approvals.id"))
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"))
+    base_branch: Mapped[str] = mapped_column(Text)
+    base_sha: Mapped[str] = mapped_column(Text)
+    branch_name: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    failed_stage: Mapped[str | None] = mapped_column(Text)
+    attempt: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    review_round: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    policy: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    gateway_key_alias: Mapped[str | None] = mapped_column(Text)
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    push: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=0, server_default="0")
+    error_code: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _now()
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = _now()
+
+
+class JobSecret(Base):
+    """The job's LLM key, encrypted; deleted when the job leaves an active state (04 §2)."""
+
+    __tablename__ = "job_secrets"
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), primary_key=True
+    )
+    ciphertext: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = _now()
+
+
+class JobEvent(Base):
+    __tablename__ = "job_events"
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), primary_key=True
+    )
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True)
+    at: Mapped[datetime] = _now()
+    type: Mapped[str] = mapped_column(Text)
+    data: Mapped[dict[str, Any]] = mapped_column(JSONB)
+
+
 class Approval(Base):
     """A decision bound to (subject, payload_hash) (design 03 §2, rule R5). Append-only: a trigger refuses UPDATE,
     and DELETE except through the cascade from the owning user."""
@@ -448,6 +511,11 @@ class Artifact(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     session_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("chat_sessions.id", ondelete="SET NULL"))
+    # Phase 4 (04 §2): transcripts, patches, verify logs and check reports of a job.
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), index=True
+    )
+    sha256: Mapped[str | None] = mapped_column(String(64))
     key: Mapped[str] = mapped_column(Text)
     mime: Mapped[str] = mapped_column(String(128))
     size: Mapped[int] = mapped_column(BigInteger)
