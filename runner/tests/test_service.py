@@ -158,3 +158,18 @@ def test_health(setup) -> None:
     assert report["checks"]["proxy"] == "The egress proxy isn't running"
     ops.alive = False
     assert runner.health() == {"ok": False, "checks": {"docker": "Docker isn't reachable"}}
+
+
+def test_read_mwb_files_only(setup) -> None:
+    ops, runner, _ = setup
+    runner.create_workspace(JOB)
+    ops.helper_result = (0, b'[{"command": "pytest", "exit_code": 0}]', b"")
+    assert runner.read_mwb(JOB, "verify-result.json").startswith(b"[")
+    vol, command, env = ops.helpers[-1]
+    assert env == {"MWB_FILE": "verify-result.json"} and "/workspace/.mwb/$MWB_FILE" in command[2]
+    for bad in ["../etc/passwd", "/etc/passwd", "a/../../x", "logs/../../../x", "a b"]:
+        with pytest.raises(RunRejected):
+            runner.read_mwb(JOB, bad)
+    ops.helper_result = (44, b"", b"")
+    with pytest.raises(NotFound):
+        runner.read_mwb(JOB, "notes.md")

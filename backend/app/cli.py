@@ -197,7 +197,10 @@ def reembed_cmd(dry_run: bool = typer.Option(False, "--dry-run", help="Report co
 
 
 @cli.command("worker")
-def worker_cmd(concurrency: int = typer.Option(4, "--concurrency")) -> None:
+def worker_cmd(
+    concurrency: int = typer.Option(4, "--concurrency"),
+    queues: str = typer.Option("", "--queues", help="Comma-separated queues; empty for all (design 04 §1)"),
+) -> None:
     """Run the background worker with its heartbeat (design 01 §H14). SIGTERM finishes running jobs first."""
     from app.ops.health import heartbeat_loop
     from app.tasks.app import app as tasks_app
@@ -206,7 +209,11 @@ def worker_cmd(concurrency: int = typer.Option(4, "--concurrency")) -> None:
         async with tasks_app.open_async():
             beat = asyncio.create_task(heartbeat_loop())
             try:
-                await tasks_app.run_worker_async(concurrency=concurrency, install_signal_handlers=True)
+                await tasks_app.run_worker_async(
+                    concurrency=concurrency,
+                    install_signal_handlers=True,
+                    queues=[q.strip() for q in queues.split(",") if q.strip()] or None,
+                )
             finally:
                 beat.cancel()
 

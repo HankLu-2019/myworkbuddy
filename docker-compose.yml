@@ -112,7 +112,7 @@ services:
       MWB_DB_STATEMENT_TIMEOUT_MS: "300000"
       MWB_DB_POOL_SIZE: "6"
     # `mwb worker` runs Procrastinate plus a heartbeat in the same process (design 01 §H14).
-    command: ["sh", "-c", "mwb check-config && { mwb wiki-reconcile || echo wiki-reconcile failed, continuing; } && exec mwb worker --concurrency=4"]
+    command: ["sh", "-c", "mwb check-config && { mwb wiki-reconcile || echo wiki-reconcile failed, continuing; } && exec mwb worker --concurrency=4 --queues=default,llm"]
     mem_limit: 3g
     cpu_shares: 2048
     # SIGTERM: running jobs finish (or reach a retry point) before the container stops.
@@ -127,6 +127,32 @@ services:
       migrate:
         condition: service_completed_successfully
       api:
+        condition: service_healthy
+
+  # Phase 4 (design 04 §1): coding jobs, one per slot (MWB_MAX_CONCURRENT_JOBS). Holds the users' git tokens for
+  # clone and push and talks to the runner; never to Docker itself.
+  worker-jobs:
+    <<: *backend
+    environment:
+      <<: *backend-env
+      MWB_DB_POOL_SIZE: "4"
+      MWB_RUNNER_URL: http://runner:8000
+    command: ["sh", "-c", "mwb check-config && exec mwb worker --concurrency=${MWB_MAX_CONCURRENT_JOBS:-2} --queues=jobs"]
+    mem_limit: 2g
+    cpu_shares: 1024
+    stop_grace_period: 60s
+    healthcheck:
+      test: ["CMD", "mwb", "worker-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+      runner:
         condition: service_healthy
 
   web:

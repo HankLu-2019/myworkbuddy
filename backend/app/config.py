@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     sandbox_runtime: Literal["runsc", "runc"] = "runsc"
     runner_url: str = "http://runner:8000"
     runner_token: SecretStr = SecretStr("")  # shared with the runner; it also calls /internal/jobs/active
+    job_budget_usd: float = Field(10, gt=0)  # per job's LLM key, at most the owner's remaining budget
+    job_max_turns: int = Field(60, ge=1, le=500)
+    job_max_changed_lines: int = Field(3000, ge=1)
+    job_review_days: int = Field(7, ge=1)  # workspaces of jobs left in review are removed after this
     # Email (design 02 §5). No MWB_SMTP_HOST: emails stay queued and the System page says why.
     smtp_host: str = ""
     smtp_port: int = Field(587, ge=1, le=65535)

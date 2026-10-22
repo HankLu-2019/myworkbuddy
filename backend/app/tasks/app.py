@@ -352,3 +352,12 @@ async def draft_plan_task(plan_id: str, feedback: str | None = None) -> None:
 
     structlog.contextvars.bind_contextvars(task="draft_plan", plan_id=plan_id)
     await draft_plan(uuid.UUID(plan_id), feedback)
+
+
+@app.task(name="job_advance", queue="jobs", retry=False)
+async def job_advance_task(job_id: str) -> str | None:
+    """A coding job's next steps (design 04 §5): prepare, run the agent, verify; locked per job."""
+    from app.jobs.pipeline import advance
+
+    structlog.contextvars.bind_contextvars(task="job_advance", job_id=job_id)
+    return await advance(uuid.UUID(job_id))

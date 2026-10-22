@@ -177,8 +177,9 @@ Design: [04-execution.md](design/04-execution.md).
 - [x] **X3 Jobs model, state machine, events** (04 §2–3).
   - Acceptance: every allowed transition works and every disallowed one is rejected; one active job per work item; events SSE replays from `after`.
   - Done with the changes recorded in 04 §3 ("Changed while building X3"): migration 0014, three more transitions to `failed`, the work item following its job, and the internal active-jobs endpoint for the runner's sweep.
-- [ ] **X4 Prepare, run, verify loop** (04 §5.1–5.4).
+- [x] **X4 Prepare, run, verify loop** (04 §5.1–5.4).
   - Acceptance: job key created with the right budget and expiry and deleted at the end; clone sanitised (no remote, no hooks); retry loop stops at `max_attempts`; timeout and budget states (security tests 5–6); verification failures produce feedback files.
+  - Done with the changes recorded in 04 §5 ("Changed while building X4"): one idempotent `job_advance` task per job on a `worker-jobs` service, `jobs.current_run` (migration 0015), clone with the job owner's credentials, a runner route to read `.mwb/` files, and the first two checks (the rest in X5).
 - [ ] **X5 Checks and Job tab** (04 §5.4–5.5, 07 §4.10–4.11).
   - Acceptance: each check in the table has a test; gitleaks blocks a planted key; Job tab renders timeline (live), diff (split and unified), checks, logs and agent notes label (vitest); request changes and discard; Jobs list page.
 - [ ] **X6 Push gate and orchestrator** (04 §5.6, §6, 07 §5.9).

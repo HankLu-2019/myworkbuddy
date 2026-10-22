@@ -67,6 +67,7 @@ Then sign in at `https://$MWB_HOSTNAME`, create integrations (Phase 2+), create 
 | `MWB_DOCKER_ROOT` | `/var/lib/docker` | Phase 4. Docker's data root, mounted read-only into the runner for the free-space check |
 | `MWB_PROXY_AGENT_HOSTS`, `MWB_PROXY_VERIFY_HOSTS`, `MWB_SANDBOX_OPTIONAL_HOSTS` | see 04 §1 | Phase 4 |
 | `MWB_JOB_MAX_CHANGED_LINES`, `MWB_JOB_DISK_GB` | `3000`, `10` | Phase 4 |
+| `MWB_JOB_MAX_TURNS` | `60` | Phase 4. Claude Code's turn cap per agent run |
 | `MWB_BACKUP_REPO`, `RESTIC_PASSWORD` | — | §5. Any restic repository (`s3:…`, `sftp:…`, `rest:…`) or a path under `/backup-local` |
 | `MWB_BACKUP_AWS_ACCESS_KEY_ID`, `MWB_BACKUP_AWS_SECRET_ACCESS_KEY` | — | Only for an S3 repository; kept apart from the Bedrock `AWS_*` |
 | `MWB_BACKUP_LOCAL_DIR` | `./backups` | Host directory mounted at `/backup-local` (owned by uid 1000) |

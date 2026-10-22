@@ -93,7 +93,7 @@ def project_name(url: str) -> str:
     return Path(urlparse(url).path.rstrip("/")).name.removesuffix(".git") or "repo"
 
 
-async def _integration(db: AsyncSession, project: Project) -> Integration | None:
+async def project_integration(db: AsyncSession, project: Project) -> Integration | None:
     if project.integration_id is None:
         return None
     integration = await db.get(Integration, project.integration_id)
@@ -105,12 +105,13 @@ async def _integration(db: AsyncSession, project: Project) -> Integration | None
     return integration
 
 
-async def _auth_header(db: AsyncSession, project: Project) -> str | None:
-    """Basic auth for git over HTTPS from the owner's credentials for the project's integration (design 02 §1).
-    Projects the 0006 migration couldn't link to an integration still use the Phase 1 tokens."""
-    integration = await _integration(db, project)
+async def auth_header(db: AsyncSession, project: Project, user_id: int | None = None) -> str | None:
+    """Basic auth for git over HTTPS from a user's credentials for the project's integration (design 02 §1): the
+    project owner's for ingest, the job owner's for jobs (04 §5.2). Projects the 0006 migration couldn't link to an
+    integration still use the owner's Phase 1 tokens."""
+    integration = await project_integration(db, project)
     if integration is not None:
-        creds = await get_credentials(db, project.owner_id, integration)
+        creds = await get_credentials(db, user_id if user_id is not None else project.owner_id, integration)
         if project.host == "gitlab":
             pair = ("oauth2", creds.get("token"))
         else:
@@ -301,8 +302,8 @@ async def sync_checkout(db: AsyncSession, project: Project) -> Path:
     root = get_settings().repo_cache_dir
     root.mkdir(parents=True, exist_ok=True)
     dest = cache_dir(project.id)
-    header = await _auth_header(db, project)
-    ca = ca_file_for(await _integration(db, project))
+    header = await auth_header(db, project)
+    ca = ca_file_for(await project_integration(db, project))
     await check_disk_space(db)
     await commit_before_network(db)  # rule R1: git fetch/clone below talks to the remote
     if (dest / ".git").exists():

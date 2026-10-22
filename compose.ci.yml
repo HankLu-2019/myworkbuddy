@@ -20,6 +20,11 @@ services:
       MWB_ENV: dev
       MWB_ALLOW_HTTP_INTEGRATIONS: "true"
       MWB_ALLOW_HTTP_REPOS: "true"
+  worker-jobs:
+    environment:
+      MWB_ENV: dev
+      MWB_ALLOW_HTTP_INTEGRATIONS: "true"
+      MWB_ALLOW_HTTP_REPOS: "true"
   migrate:
     environment:
       MWB_ENV: dev

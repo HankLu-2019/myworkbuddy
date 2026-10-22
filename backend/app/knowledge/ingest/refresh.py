@@ -13,7 +13,7 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.db import get_sessionmaker
-from app.knowledge.ingest.repos import _auth_header, _integration, ca_file_for, run_git
+from app.knowledge.ingest.repos import auth_header, ca_file_for, project_integration, run_git
 from app.logs import log
 from app.models import Project
 
@@ -42,8 +42,8 @@ async def remote_head(project_id: int) -> tuple[Project, str | None]:
     async with get_sessionmaker()() as db:
         project = await db.get(Project, project_id)
         assert project is not None
-        header = await _auth_header(db, project)
-        ca = ca_file_for(await _integration(db, project))
+        header = await auth_header(db, project)
+        ca = ca_file_for(await project_integration(db, project))
         db.expunge(project)
         await db.commit()
     ref = f"refs/heads/{project.branch}" if project.branch else "HEAD"

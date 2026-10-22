@@ -1,5 +1,6 @@
 """Stand-ins for Jira and a Git server, served by the fake gateway for end-to-end runs (07 §5.8).
 
+- GitLab token introspection: `GET /api/v4/personal_access_tokens/self` (`glpat-readonly…` has no push scopes).
 - Jira (REST v2): `GET /rest/api/2/myself` (the Test button), `GET /rest/api/2/issue/{key}` for any key that looks
   like one, and `GET /rest/api/2/search` returning the same tickets. Bearer tokens starting `jira-` are accepted.
 - Git: `team/payments.git` over smart HTTP at `/fake/git/...`, served by `git http-backend` (the app clones with
@@ -84,6 +85,16 @@ async def jira_search(request: Request) -> JSONResponse:
         return JSONResponse({"errorMessages": ["Unauthorized"]}, status_code=401)
     issues = [issue("PAY-101")]
     return JSONResponse({"startAt": 0, "maxResults": 50, "total": len(issues), "issues": issues})
+
+
+@router.get("/api/v4/personal_access_tokens/self")
+async def gitlab_token_self(request: Request) -> JSONResponse:
+    """GitLab's token introspection (04 §5.1 push check): `glpat-readonly…` tokens can't push."""
+    token = request.headers.get("PRIVATE-TOKEN", "")
+    if not token.startswith("glpat-"):
+        return JSONResponse({"message": "401 Unauthorized"}, status_code=401)
+    scopes = ["read_api", "read_repository"] if token.startswith("glpat-readonly") else ["api", "write_repository"]
+    return JSONResponse({"id": 1, "name": "mwb", "scopes": scopes, "active": True})
 
 
 # ---------- git over smart HTTP ----------
