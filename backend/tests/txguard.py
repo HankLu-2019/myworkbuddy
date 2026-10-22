@@ -1,9 +1,14 @@
 """Test guard for rule R1: fail any LLM or embedding call made while a DB transaction is open.
 
-Transactions are tracked with engine events on every connection of the app's engine; the embedder and the
-test model are wrapped so each call checks the count first.
+Transactions are tracked with engine events on every connection of the app's engine, together with the asyncio
+task that opened them; the embedder and the test model are wrapped so each call checks first. A call is a
+violation when a transaction is open in the calling task or in a task it was started from (a transaction left
+open across `asyncio.gather` counts). A sibling task's own short transaction (a progress write while other files
+are summarised) does not: that call is not inside it.
 """
 
+import asyncio
+import weakref
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -13,8 +18,16 @@ from pydantic_ai.models.wrapper import WrapperModel
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-_open: set[int] = set()
+_open: dict[int, asyncio.Task | None] = {}  # connection id -> the task that began its transaction
+_parents: "weakref.WeakKeyDictionary[asyncio.Task, asyncio.Task]" = weakref.WeakKeyDictionary()
 violations: list[str] = []
+
+
+def _current() -> asyncio.Task | None:
+    try:
+        return asyncio.current_task()
+    except RuntimeError:  # no running loop: synchronous use
+        return None
 
 
 def install(engine: AsyncEngine) -> None:
@@ -22,20 +35,45 @@ def install(engine: AsyncEngine) -> None:
 
     @event.listens_for(sync, "begin")
     def _begin(conn) -> None:
-        _open.add(id(conn))
+        _open[id(conn)] = _current()
 
     @event.listens_for(sync, "commit")
     def _commit(conn) -> None:
-        _open.discard(id(conn))
+        _open.pop(id(conn), None)
 
     @event.listens_for(sync, "rollback")
     def _rollback(conn) -> None:
-        _open.discard(id(conn))
+        _open.pop(id(conn), None)
+
+
+def _task_factory(loop: asyncio.AbstractEventLoop, coro, **kwargs: Any) -> asyncio.Task:
+    task = asyncio.Task(coro, loop=loop, **kwargs)
+    parent = asyncio.current_task(loop)
+    if parent is not None:
+        _parents[task] = parent
+    return task
+
+
+def track_tasks() -> None:
+    """Record which task started which, so a parent's open transaction is seen from its children."""
+    loop = asyncio.get_running_loop()
+    if loop.get_task_factory() is not _task_factory:
+        loop.set_task_factory(_task_factory)
+
+
+def _lineage(task: asyncio.Task | None) -> set[asyncio.Task | None]:
+    seen: set[asyncio.Task | None] = {None}  # a transaction begun outside any task is everyone's
+    while task is not None and task not in seen:
+        seen.add(task)
+        task = _parents.get(task)
+    return seen
 
 
 def check(what: str) -> None:
-    if _open:
-        violations.append(f"{what} called with {len(_open)} DB transaction(s) open (rule R1)")
+    mine = _lineage(_current())
+    count = sum(1 for owner in _open.values() if owner in mine)
+    if count:
+        violations.append(f"{what} called with {count} DB transaction(s) open (rule R1)")
 
 
 def reset() -> None:
