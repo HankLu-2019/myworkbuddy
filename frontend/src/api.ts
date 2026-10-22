@@ -18,6 +18,7 @@ export type ErrorCode =
   | "bad_request"
   | "wiki_conflict"
   | "session_busy"
+  | "plan_changed"
   | "budget_exceeded"
   | "llm_unavailable"
   | "unsupported_file"

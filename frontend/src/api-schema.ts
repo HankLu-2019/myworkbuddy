@@ -726,6 +726,115 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/plans/{plan_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Plan */
+        post: operations["approve_plan_api_plans__plan_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plans/{plan_id}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Plan Diff */
+        get: operations["plan_diff_api_plans__plan_id__diff_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plans/{plan_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject Plan */
+        post: operations["reject_plan_api_plans__plan_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plans/{plan_id}/revise": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revise Plan
+         * @description Ask the planner for a new revision; poll the plan, or wait for the inbox item.
+         */
+        post: operations["revise_plan_api_plans__plan_id__revise_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plans/{plan_id}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Revisions */
+        get: operations["list_revisions_api_plans__plan_id__revisions_get"];
+        put?: never;
+        /**
+         * Add Revision
+         * @description Save the user's edited copy as a new revision. It is validated like the planner's, and not approved.
+         */
+        post: operations["add_revision_api_plans__plan_id__revisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plans/{plan_id}/revisions/{n}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Revision */
+        get: operations["get_revision_api_plans__plan_id__revisions__n__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects": {
         parameters: {
             query?: never;
@@ -1374,6 +1483,22 @@ export interface components {
             /** Slug */
             slug: string;
         };
+        /** Alternative */
+        Alternative: {
+            /** Cons */
+            cons: string[];
+            /** Name */
+            name: string;
+            /** Pros */
+            pros: string[];
+        };
+        /** Ambiguity */
+        Ambiguity: {
+            /** Assumption */
+            assumption: string;
+            /** Question */
+            question: string;
+        };
         /** Body_import_claude_code_api_imports_claude_code_post */
         Body_import_claude_code_api_imports_claude_code_post: {
             /** Files */
@@ -1459,6 +1584,27 @@ export interface components {
             /** Verified At */
             verified_at: string | null;
         };
+        /** Decision */
+        Decision: {
+            /**
+             * Acknowledged
+             * @default []
+             */
+            acknowledged: string[];
+            /** Content Hash */
+            content_hash: string;
+            /** Revision */
+            revision: number;
+        };
+        /** DiffOut */
+        DiffOut: {
+            /** Fields */
+            fields: components["schemas"]["FieldDiff"][];
+            /** From Revision */
+            from_revision: number;
+            /** To Revision */
+            to_revision: number;
+        };
         /** DocumentOut */
         DocumentOut: {
             /** Chunks */
@@ -1490,6 +1636,34 @@ export interface components {
              * @enum {string}
              */
             visibility: "private" | "public";
+        };
+        /** FieldDiff */
+        FieldDiff: {
+            /** After */
+            after?: unknown;
+            /** Before */
+            before?: unknown;
+            /** Field */
+            field: string;
+            /** Key */
+            key?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "added" | "removed" | "changed" | "reordered";
+        };
+        /** FileChange */
+        FileChange: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "create" | "modify" | "delete";
+            /** Description */
+            description: string;
+            /** Path */
+            path: string;
         };
         /**
          * FixHint
@@ -1912,6 +2086,54 @@ export interface components {
             /** New Password */
             new_password: string;
         };
+        /** PlanDoc */
+        PlanDoc: {
+            /** Alternatives */
+            alternatives: components["schemas"]["Alternative"][];
+            /** Ambiguities */
+            ambiguities: components["schemas"]["Ambiguity"][];
+            /** Approach */
+            approach: string;
+            /** Changes */
+            changes: components["schemas"]["FileChange"][];
+            /** Commit Message */
+            commit_message: string;
+            /**
+             * Estimate
+             * @enum {string}
+             */
+            estimate: "S" | "M" | "L" | "XL";
+            /** Knowledge Refs */
+            knowledge_refs: number[];
+            /** Risks */
+            risks: components["schemas"]["Risk"][];
+            /** Rollback */
+            rollback: string;
+            /**
+             * @default {
+             *       "cpus": 2,
+             *       "max_attempts": 3,
+             *       "memory_gb": 4,
+             *       "optional_hosts": [],
+             *       "timeout_min": 45
+             *     }
+             */
+            sandbox: components["schemas"]["SandboxRequest"];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /** Summary */
+            summary: string;
+            /** Tests */
+            tests: components["schemas"]["TestItem"][];
+            /** Title */
+            title: string;
+            /** Verification */
+            verification: string[];
+        };
         /** PlanOut */
         PlanOut: {
             /** Approvals */
@@ -2206,10 +2428,24 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /** Rejection */
+        Rejection: {
+            /** Comment */
+            comment?: string | null;
+            /** Revision */
+            revision: number;
+        };
         /** RevertOut */
         RevertOut: {
             /** Reverted */
             reverted: string[];
+        };
+        /** Revise */
+        Revise: {
+            /** Feedback */
+            feedback: string;
+            /** Revision */
+            revision: number;
         };
         /** RevisionOut */
         RevisionOut: {
@@ -2241,6 +2477,41 @@ export interface components {
             validation: {
                 [key: string]: unknown;
             };
+        };
+        /** RevisionPage */
+        RevisionPage: {
+            /** Items */
+            items: components["schemas"]["RevisionSummary"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /** RevisionSummary */
+        RevisionSummary: {
+            /**
+             * Author
+             * @enum {string}
+             */
+            author: "planner" | "user";
+            /** Change Note */
+            change_note: string | null;
+            /** Content Hash */
+            content_hash: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Ok */
+            ok: boolean;
+            /** Revision */
+            revision: number;
+        };
+        /** Risk */
+        Risk: {
+            /** Mitigation */
+            mitigation: string;
+            /** Risk */
+            risk: string;
         };
         /** RunDetail */
         RunDetail: {
@@ -2386,6 +2657,34 @@ export interface components {
              * Format: uuid
              */
             run_id: string;
+        };
+        /** SandboxRequest */
+        SandboxRequest: {
+            /**
+             * Cpus
+             * @default 2
+             */
+            cpus: number;
+            /**
+             * Max Attempts
+             * @default 3
+             */
+            max_attempts: number;
+            /**
+             * Memory Gb
+             * @default 4
+             */
+            memory_gb: number;
+            /**
+             * Optional Hosts
+             * @default []
+             */
+            optional_hosts: string[];
+            /**
+             * Timeout Min
+             * @default 45
+             */
+            timeout_min: number;
         };
         /** ScheduleIn */
         ScheduleIn: {
@@ -2546,6 +2845,18 @@ export interface components {
             /** Visibility */
             visibility?: ("private" | "public") | null;
         };
+        /** TestItem */
+        TestItem: {
+            /** Description */
+            description: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "unit" | "integration" | "e2e" | "manual";
+            /** Name */
+            name: string;
+        };
         /** TestOut */
         TestOut: {
             /** Message */
@@ -2662,6 +2973,14 @@ export interface components {
             timezone_confirmed: boolean;
             /** Username */
             username: string;
+        };
+        /** UserRevisionIn */
+        UserRevisionIn: {
+            /** Base Revision */
+            base_revision: number;
+            /** Change Note */
+            change_note?: string | null;
+            content: components["schemas"]["PlanDoc"];
         };
         /** UserUpdate */
         UserUpdate: {
@@ -4401,6 +4720,246 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlanOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_plan_api_plans__plan_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Decision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    plan_diff_api_plans__plan_id__diff_get: {
+        parameters: {
+            query: {
+                from: number;
+                to: number;
+            };
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiffOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_plan_api_plans__plan_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Rejection"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revise_plan_api_plans__plan_id__revise_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Revise"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_revisions_api_plans__plan_id__revisions_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevisionPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_revision_api_plans__plan_id__revisions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserRevisionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_revision_api_plans__plan_id__revisions__n__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: string;
+                n: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevisionOut"];
                 };
             };
             /** @description Validation Error */

@@ -231,6 +231,15 @@ Task `draft_plan(plan_id, feedback: str | None)`, queue `llm`, `lock=f"plan:{pla
 
 **Revise with feedback.** `POST /api/plans/{id}/revise {"feedback": "..."}` (≤ 4000 chars) defers `draft_plan` with feedback.
 
+*Changed while building P4:*
+
+- **Every decision names the revision it is about.** Approve takes `{revision, content_hash, acknowledged}`; reject `{revision, comment?}`; revise `{revision, feedback}`; a user revision `{base_revision, content, change_note?}`. A stale revision or hash, or a plan that isn't `needs_decision`, is 409 with the new code `plan_changed` (so the UI can say "reload" rather than a generic conflict). A revision whose stored content no longer matches its hash is a 409 `conflict` and is never approved.
+- **422 details.** Validation errors → `field: "validation"`; missing acknowledgements → `field: "acknowledged"` with `missing: [...]`; acknowledging a key the revision doesn't list → `unknown: [...]` (an approval binds exactly what was shown). Duplicates are collapsed before hashing.
+- **Reject** records `decision='rejected'` with `payload_hash = approval_payload_hash(content_hash, [])`. A rejected plan isn't revised; starting a new plan supersedes it.
+- **User revisions** are validated in the request against `git ls-tree` of the ingest cache at the plan's `base_sha` (local only, no network); if the cache is gone, paths aren't checked and a warning says so. The validation runs before the plan row is locked; the write then re-checks `base_revision` in a fresh transaction. An approved plan can't take new revisions.
+- **History** is cursor-paginated (R13): `GET /api/plans/{id}/revisions` returns summaries (`revision, content_hash, author, change_note, ok, created_at`); `/revisions/{n}` the full revision. `GET /api/plans/{id}` lists decisions with their revision number.
+- **Diff** (`app/plans/diff.py`): `{field, key, kind: added|removed|changed|reordered, before, after}`. Lists of objects are matched by key (`changes` by path, `tests`/`alternatives` by name, `ambiguities` by question, `risks` by risk); lists of values (`verification`, `knowledge_refs`, `sandbox.optional_hosts`) report added/removed values; `sandbox` is diffed per field (`sandbox.cpus`).
+
 ## 7. Intake
 
 Not an LLM run. Periodic `jira_intake_tick` (every 30 minutes, queue `default`) defers `jira_intake(user_id)` with `lock=f"intake:{user_id}"` for each active user who enabled intake in Settings (`users.jira_intake_jql`, default `assignee = currentUser() AND resolution = Unresolved`; `users.jira_intake_enabled`, default false). Each run:
