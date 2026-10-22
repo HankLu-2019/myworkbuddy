@@ -104,7 +104,10 @@ jobs:
         run: |
           uv sync --frozen --group dev > /dev/null
           # The runner is called as deployed: over HTTP on its compose network address.
-          export MWB_RUNNER_URL="http://$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $($COMPOSE ps -q runner)):8000"
+          # $COMPOSE names files relative to the repository root, so ask from there.
+          ip=$(cd .. && docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$($COMPOSE ps -q runner)" | awk '{print $1}')
+          [ -n "$ip" ] || { echo "::error::No address for the runner container"; exit 1; }
+          export MWB_RUNNER_URL="http://$ip:8000"
           uv run --frozen pytest -m docker -v -p no:cacheprovider > ../sandbox-tests.log 2>&1; status=$?; tail -n 60 ../sandbox-tests.log; exit $status
       - if: failure()
         run: |
