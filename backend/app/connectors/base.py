@@ -165,16 +165,18 @@ async def call(
     *,
     tail: int | None = None,
     limit: int = http.MAX_RESPONSE_BYTES,
+    retries: int = RETRIES,
     **kw: Any,
 ) -> bytes:
-    """The response body of a successful call, or ConnectorError. `tail` keeps only the last N bytes (logs)."""
+    """The response body of a successful call, or ConnectorError. `tail` keeps only the last N bytes (logs).
+    `retries=0` for a create that mustn't be repeated blindly (the caller looks for it first, 08 §F6)."""
     c = conn.client()
-    for attempt in range(RETRIES + 1):
+    for attempt in range(retries + 1):
         try:
             async with asyncio.timeout(http.TIMEOUT.pool or 60.0):
                 async with c.stream(method, path, **kw) as resp:
                     status, headers = resp.status_code, resp.headers
-                    if status in RETRY_STATUSES and attempt < RETRIES:
+                    if status in RETRY_STATUSES and attempt < retries:
                         wait = _retry_after(headers, attempt)
                         await resp.aclose()
                         await sleep(wait)
@@ -189,7 +191,7 @@ async def call(
                                 "too_large", f"{conn.name} sent more than {limit // 1024} KB; narrow the request"
                             )
         except (httpx2.TransportError, TimeoutError) as exc:
-            if attempt < RETRIES:
+            if attempt < retries:
                 await sleep(BACKOFF[min(attempt, len(BACKOFF) - 1)])
                 continue
             if isinstance(exc, (httpx2.TimeoutException, TimeoutError)):

@@ -20,6 +20,7 @@ from app.plans import decisions
 from app.plans.diff import FieldDiff, diff
 from app.plans.planner import defer_draft, start_plan
 from app.plans.schema import PlanDoc
+from app.plans.tickets import TicketIn
 from app.plans.validation import ValidationResult
 from app.plans.work_items import create_work_item, jira_integrations, visible_project
 
@@ -477,3 +478,22 @@ async def add_revision(
     )  # fmt: skip
     await db.commit()
     return await plan_out(db, plan)
+
+
+# ---------- CI failure → ticket (08 §F6) ----------
+
+
+@router.get("/runs/{run_id}/ticket-draft")
+async def ticket_draft(run_id: uuid.UUID, fingerprint: str, auth: CurrentAuth, db: DB) -> dict:
+    """A Jira issue proposed for one finding of a CI failures run; `existing` when one was made already."""
+    from app.plans import tickets
+
+    return await tickets.draft(db, run_id, fingerprint, auth.user)
+
+
+@router.post("/runs/{run_id}/tickets", status_code=201)
+async def create_ticket(run_id: uuid.UUID, body: TicketIn, auth: CurrentAuth, db: DB, request: Request) -> dict:
+    """Approve the (edited) draft and make the issue and its work item (rule R5)."""
+    from app.plans import tickets
+
+    return await tickets.create(db, run_id, body, auth.user, client_ip(request))

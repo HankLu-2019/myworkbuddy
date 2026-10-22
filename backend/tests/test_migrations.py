@@ -91,6 +91,11 @@ SEEDS["0016"] = [  # the recreated status CHECK accepts needs_input; the job kee
     'question = \'{"text": "Which header?", "number": 1}\' WHERE id = \'00000000-0000-0000-0000-0000000000cc\'',
 ]
 SEEDS["0017"] = ["UPDATE projects SET conventions_md = 'Use structlog.'"]  # 08 §F4
+SEEDS["0018"] = [  # 08 §F6: the recreated subject CHECK accepts jira_issue
+    "INSERT INTO finding_tickets (owner_id, fingerprint, jira_key) VALUES (1, 'gitlab:x:1', 'S-2')",
+    f"INSERT INTO approvals (owner_id, subject_type, subject_id, payload_hash, decision) "
+    f"VALUES (1, 'jira_issue', gen_random_uuid(), '{'1' * 64}', 'approved')",
+]
 SEEDS["0005"] = []  # 0005 adds a column with a default; the 0001 user must get it
 CHECKS = {
     "users": 1,
@@ -109,7 +114,8 @@ CHECKS = {
     "schedule_proposals": 1,
     "work_items": 1,
     "plans": 1,  # auto defaults to false (0013)
-    "approvals": 1,
+    "approvals": 2,
+    "finding_tickets": 1,
 }
 
 

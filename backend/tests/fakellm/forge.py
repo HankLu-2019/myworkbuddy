@@ -47,6 +47,7 @@ STATE: dict[str, Any] = {
     "gerrit_ci": {},  # change number → {"verified": -1|1, "message": str}
     "discussions": {},  # MR iid → GitLab discussions (`POST /fake/discussion`)
     "gerrit_comments": {},  # change number → {path: [CommentInfo]} (`POST /fake/gerrit-comment/{n}`)
+    "issues": [],  # Jira issues created through `POST /rest/api/2/issue` (08 §F6)
 }  # fmt: skip
 
 
@@ -120,10 +121,30 @@ async def jira_comment(key: str, request: Request) -> JSONResponse:
     return JSONResponse(comment, status_code=201)
 
 
+@router.get("/rest/api/2/project")
+async def jira_projects(request: Request) -> JSONResponse:
+    if not _authorized(request):
+        return JSONResponse({"errorMessages": ["Unauthorized"]}, status_code=401)
+    return JSONResponse([{"key": "PAY", "name": "Payments"}, {"key": "OPS", "name": "Operations"}])
+
+
+@router.post("/rest/api/2/issue")
+async def jira_create(request: Request) -> JSONResponse:
+    if not _authorized(request):
+        return JSONResponse({"errorMessages": ["Unauthorized"]}, status_code=401)
+    fields = (await request.json())["fields"]
+    key = f"{fields['project']['key']}-{1000 + len(STATE['issues']) + 1}"
+    STATE["issues"].append({"key": key, "fields": fields})
+    return JSONResponse({"id": str(len(STATE["issues"])), "key": key}, status_code=201)
+
+
 @router.get("/rest/api/2/search")
 async def jira_search(request: Request) -> JSONResponse:
     if not _authorized(request):
         return JSONResponse({"errorMessages": ["Unauthorized"]}, status_code=401)
+    if m := re.search(r'labels = "([^"]+)"', request.query_params.get("jql", "")):
+        found = [{"key": i["key"]} for i in STATE["issues"] if m.group(1) in i["fields"].get("labels", [])]
+        return JSONResponse({"startAt": 0, "maxResults": 1, "total": len(found), "issues": found[:1]})
     issues = [issue("PAY-101")]
     return JSONResponse({"startAt": 0, "maxResults": 50, "total": len(issues), "issues": issues})
 
@@ -398,7 +419,7 @@ async def fake_state() -> JSONResponse:
 @router.post("/fake/reset")
 async def fake_reset() -> JSONResponse:
     STATE.update(mrs=[], comments={}, posts={"mr": 0, "comment": 0}, merge={}, gerrit={}, fail={}, pipelines=[],
-                 gerrit_ci={}, discussions={}, gerrit_comments={})  # fmt: skip
+                 gerrit_ci={}, discussions={}, gerrit_comments={}, issues=[])  # fmt: skip
     repo = git_root() / "team" / "payments.git"
     refs = subprocess.run(["git", "for-each-ref", "--format=%(refname)"], cwd=repo, capture_output=True,
                           text=True).stdout.split()  # fmt: skip

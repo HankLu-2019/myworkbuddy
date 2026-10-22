@@ -1232,6 +1232,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/ticket-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ticket Draft
+         * @description A Jira issue proposed for one finding of a CI failures run; `existing` when one was made already.
+         */
+        get: operations["ticket_draft_api_runs__run_id__ticket_draft_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{run_id}/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Ticket
+         * @description Approve the (edited) draft and make the issue and its work item (rule R5).
+         */
+        post: operations["create_ticket_api_runs__run_id__tickets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/schedules": {
         parameters: {
             query?: never;
@@ -3431,6 +3471,33 @@ export interface components {
              * @enum {string}
              */
             status: "not_set" | "unverified" | "ok" | "invalid" | "unreadable";
+        };
+        /** TicketIn */
+        TicketIn: {
+            /**
+             * Autoplan
+             * @default false
+             */
+            autoplan: boolean;
+            /** Description */
+            description: string;
+            /** Fingerprint */
+            fingerprint: string;
+            /** Integration Id */
+            integration_id: number;
+            /** Issue Type */
+            issue_type: string;
+            /**
+             * Labels
+             * @default []
+             */
+            labels: string[];
+            /** Project Key */
+            project_key: string;
+            /** Repository Id */
+            repository_id?: number | null;
+            /** Summary */
+            summary: string;
         };
         /**
          * TodayBrief
@@ -6274,6 +6341,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ticket_draft_api_runs__run_id__ticket_draft_get: {
+        parameters: {
+            query: {
+                fingerprint: string;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_ticket_api_runs__run_id__tickets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TicketIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
