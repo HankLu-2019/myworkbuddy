@@ -53,7 +53,7 @@ async def _set(job_id: uuid.UUID, status: JobStatus) -> None:
 async def test_every_allowed_transition_works_and_logs_an_event(make_user, tmp_path) -> None:
     job = await make_job(make_user, tmp_path)
     pairs = [(a, b) for a, nexts in TRANSITIONS.items() for b in nexts]
-    assert len(pairs) == 26
+    assert len(pairs) == 30
     for current, new in pairs:
         await _set(job.id, current)
         moved = await transition(job.id, current, new, detail={"why": "test"})
@@ -61,9 +61,9 @@ async def test_every_allowed_transition_works_and_logs_an_event(make_user, tmp_p
     async with get_sessionmaker()() as db:
         events = list(await db.scalars(select(JobEvent).where(JobEvent.job_id == job.id).order_by(JobEvent.seq)))
         audits = await db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.target_id == str(job.id)))
-    assert [e.seq for e in events] == list(range(1, 27))
+    assert [e.seq for e in events] == list(range(1, 31))
     assert [(e.data["from"], e.data["to"]) for e in events] == [(str(a), str(b)) for a, b in pairs]
-    assert all(e.type == "status" and e.data["why"] == "test" for e in events) and audits == 26
+    assert all(e.type == "status" and e.data["why"] == "test" for e in events) and audits == 30
 
 
 async def test_every_other_transition_is_rejected(make_user, tmp_path) -> None:

@@ -76,6 +76,10 @@ async def read_mwb(job_id: uuid.UUID, name: str) -> bytes | None:
         raise
 
 
+async def delete_mwb(job_id: uuid.UUID, name: str) -> None:
+    await _call("DELETE", f"/v1/workspaces/{job_id}/mwb/{name}")
+
+
 async def delete_workspace(job_id: uuid.UUID) -> None:
     await _call("DELETE", f"/v1/workspaces/{job_id}")
 

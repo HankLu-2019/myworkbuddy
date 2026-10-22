@@ -194,6 +194,7 @@ class JobStatus(StrEnum):
     running = "running"
     verifying = "verifying"
     awaiting_review = "awaiting_review"
+    needs_input = "needs_input"  # 08 §F3: the agent asked a question
     approved_push = "approved_push"
     pushing = "pushing"
     pushed = "pushed"

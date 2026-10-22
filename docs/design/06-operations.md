@@ -45,6 +45,7 @@ Then sign in at `https://$MWB_HOSTNAME`, create integrations (Phase 2+), create 
 | `MWB_DEFAULT_USER_BUDGET_USD` | `50` | Monthly, per user; admins override per user |
 | `LITELLM_DB_PASSWORD` | — | Required: the gateway's own database (virtual keys, budgets, spend logs) |
 | `MWB_JOB_BUDGET_USD` | `10` | Per coding job |
+| `MWB_JOB_MAX_QUESTIONS` | `3` | Questions the agent may ask per job before it must decide itself (08 §F3) |
 | `MWB_JOB_REVIEW_DAYS` | `7` | A job waiting for review this long is discarded (notice a day before; `jobs_cleanup`, hourly) |
 | `MWB_ARTIFACT_RETENTION_DAYS` | `90` | Transcripts, patches and logs of finished jobs (`jobs_cleanup`) |
 | `MWB_JOB_DISK_GB` | `10` | Runner: a run whose workspace grows past this is killed (sweep) and the job fails `workspace_too_large` |

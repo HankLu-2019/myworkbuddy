@@ -203,8 +203,9 @@ Design: [08-follow-through.md](design/08-follow-through.md). Tasks are in priori
 - [x] **F2 Address review comments** (08 §F2).
   - Acceptance: only the selected, still-unresolved comments (GitLab discussions, Gerrit comments) reach `feedback.md`, re-fetched by the server and wrapped; replies are posted only when approved in the push preview, once each, including after a crash between posting and recording; resolved comments and system notes are never offered.
   - Done with the changes recorded in 08 §F2: Gerrit threads judged by their latest comment, replies tied to the round's addressed comments, `<commit placeholder>` in reply text.
-- [ ] **F3 The agent can ask** (08 §F3).
+- [x] **F3 The agent can ask** (08 §F3).
   - Acceptance: a question file moves the job to `needs_input` (migration, R9) with an inbox item and email; the answer resumes without spending an attempt and the next run sees `answer.md` and no `question.md`; the per-job cap holds; Cancel and the review-days cleanup work from `needs_input`; the question renders as safe Markdown labelled "Written by the agent".
+  - Done with the changes recorded in 08 §F3: migration 0016 (`needs_input`, `jobs.question`, `jobs.questions`), the remaining-questions count in `prompt.md`, and a Home card instead of a Board card label.
 - [ ] **F4 Repository conventions** (08 §F4).
   - Acceptance: `.mwb/rules.md` → `AGENTS.md` → `CLAUDE.md` → the repository's Conventions text, ≤ 20 KB; the planner gets them wrapped; `protected` paths fail the new `protected_paths` check and warn in plan validation; only the repository owner edits the Conventions text.
 - [x] **F5 Retry a failed push** (08 §F5).

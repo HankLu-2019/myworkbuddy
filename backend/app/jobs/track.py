@@ -151,14 +151,16 @@ async def cleanup(now: datetime | None = None) -> dict[str, int]:
     remind_after = now - timedelta(days=max(s.job_review_days - 1, 0))
     async with get_sessionmaker()() as db:
         waiting = list(
-            await db.scalars(select(Job).where(Job.status == S.awaiting_review, Job.updated_at < remind_after))
+            await db.scalars(
+                select(Job).where(Job.status.in_([S.awaiting_review, S.needs_input]), Job.updated_at < remind_after)
+            )
         )
         await db.commit()
     for job in waiting:
         async with get_sessionmaker()() as db:
             if job.updated_at < review_until:
                 moved = await transition_in(
-                    db, job.id, S.awaiting_review, S.discarded, error_code="review_expired",
+                    db, job.id, [S.awaiting_review, S.needs_input], S.discarded, error_code="review_expired",
                     error=f"Discarded after {s.job_review_days} days without a review.",
                     detail={"note": f"Discarded after {s.job_review_days} days without a review."},
                 )  # fmt: skip
@@ -174,7 +176,8 @@ async def cleanup(now: datetime | None = None) -> dict[str, int]:
                     await remove_workspace_and_key(job.id)  # network: committed first (R1)
                 continue
             fresh = await db.scalar(select(Job).where(Job.id == job.id).with_for_update())
-            if fresh is None or fresh.status != S.awaiting_review or (fresh.push or {}).get("expiry_notice"):
+            waiting = (S.awaiting_review, S.needs_input)
+            if fresh is None or fresh.status not in waiting or (fresh.push or {}).get("expiry_notice"):
                 await db.commit()
                 continue
             fresh.push = {**(fresh.push or {}), "expiry_notice": now.isoformat()}

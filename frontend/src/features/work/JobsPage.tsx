@@ -8,7 +8,7 @@ import { DataTable, EmptyState, ErrorNote, PageHeader, RelativeTime, Select, Sta
 const FILTERS: [string, string, JobStatus[]][] = [
   ["", "All", []],
   ["working", "Working", ["created", "preparing", "running", "verifying"]],
-  ["review", "Waiting for review", ["awaiting_review"]],
+  ["review", "Waiting for you", ["awaiting_review", "needs_input"]],
   ["pushed", "Pushed", ["approved_push", "pushing", "pushed", "merged", "closed"]],
   ["stopped", "Stopped", ["failed", "timed_out", "budget_exceeded", "cancelled", "discarded"]],
 ];

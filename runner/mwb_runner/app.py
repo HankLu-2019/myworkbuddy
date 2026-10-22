@@ -138,6 +138,12 @@ async def read_mwb(job_id: uuid.UUID, name: str) -> Response:
     return Response(data, media_type="application/octet-stream")
 
 
+@app.delete("/v1/workspaces/{job_id}/mwb/{name:path}", status_code=204, dependencies=auth)
+async def delete_mwb(job_id: uuid.UUID, name: str) -> Response:
+    await run_in_threadpool(runner().delete_mwb, job_id, name)
+    return Response(status_code=204)
+
+
 @app.delete("/v1/workspaces/{job_id}", status_code=204, dependencies=auth)
 async def delete_workspace(job_id: uuid.UUID) -> Response:
     await run_in_threadpool(runner().delete_workspace, job_id)

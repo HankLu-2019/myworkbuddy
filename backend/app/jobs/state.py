@@ -23,9 +23,10 @@ S = JobStatus
 TRANSITIONS: dict[JobStatus, frozenset[JobStatus]] = {
     S.created: frozenset({S.preparing, S.cancelled, S.failed}),
     S.preparing: frozenset({S.running, S.failed, S.cancelled}),
-    S.running: frozenset({S.verifying, S.failed, S.timed_out, S.budget_exceeded, S.cancelled}),
+    S.running: frozenset({S.verifying, S.failed, S.timed_out, S.budget_exceeded, S.cancelled, S.needs_input}),
     S.verifying: frozenset({S.running, S.awaiting_review, S.failed, S.cancelled}),
     S.awaiting_review: frozenset({S.running, S.approved_push, S.discarded}),
+    S.needs_input: frozenset({S.running, S.cancelled, S.discarded}),  # 08 §F3: answered, cancelled, or left too long
     S.approved_push: frozenset({S.pushing, S.failed}),
     S.pushing: frozenset({S.pushed, S.failed, S.awaiting_review}),  # F5: a failed push goes back to review
     S.pushed: frozenset({S.merged, S.closed, S.preparing}),  # request changes after push: a fresh workspace
@@ -46,6 +47,7 @@ WORKING = frozenset({S.created, S.preparing, S.running, S.verifying, S.approved_
 WORK_ITEM_STATE: dict[JobStatus, WorkItemState] = {
     S.preparing: WorkItemState.in_progress,
     S.running: WorkItemState.in_progress,
+    S.needs_input: WorkItemState.in_progress,
     S.pushed: WorkItemState.in_review,
     S.merged: WorkItemState.done,
     S.closed: WorkItemState.approved,

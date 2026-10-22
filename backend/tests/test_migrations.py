@@ -86,6 +86,10 @@ SEEDS["0014"] = [
     "VALUES ('00000000-0000-0000-0000-0000000000cc', 1, 'status', '{}')",
     "INSERT INTO inbox_items (owner_id, kind, title, severity) VALUES (1, 'job', 'Job ready', 'info')",
 ]
+SEEDS["0016"] = [  # the recreated status CHECK accepts needs_input; the job keeps its row
+    "UPDATE jobs SET status = 'needs_input', questions = 1, "
+    'question = \'{"text": "Which header?", "number": 1}\' WHERE id = \'00000000-0000-0000-0000-0000000000cc\'',
+]
 SEEDS["0005"] = []  # 0005 adds a column with a default; the 0001 user must get it
 CHECKS = {
     "users": 1,

@@ -338,7 +338,9 @@ class PlanRevision(Base):
     created_at: Mapped[datetime] = _now()
 
 
-ACTIVE_JOB_STATUSES = ("created", "preparing", "running", "verifying", "awaiting_review", "approved_push", "pushing")
+ACTIVE_JOB_STATUSES = (
+    "created", "preparing", "running", "verifying", "awaiting_review", "needs_input", "approved_push", "pushing",
+)  # fmt: skip
 
 
 class Job(Base):
@@ -371,6 +373,9 @@ class Job(Base):
     current_run: Mapped[str | None] = mapped_column(Text)  # the runner run being waited on (agent or verify)
     result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     push: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # 08 §F3: the agent's open question ({text, number, patch_artifact_id, asked_at}) and how many it has asked.
+    question: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    questions: Mapped[int] = mapped_column(Integer, server_default="0")
     cost_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=0, server_default="0")
     error_code: Mapped[str | None] = mapped_column(Text)
     error: Mapped[str | None] = mapped_column(Text)

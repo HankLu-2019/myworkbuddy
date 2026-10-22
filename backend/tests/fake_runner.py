@@ -61,6 +61,18 @@ def planned_change(workspace: Path, env: dict) -> tuple[int, list[str]]:
     return 0, stream(tool("cat .mwb/TASK.md"), text(f"I'll change {path}."), tool(f"printf >> {path}"), result())
 
 
+def ask(question: str, *, change: bool = False):
+    """An agent that stops with a question (08 §F3), after making the planned change when `change`."""
+
+    def behaviour(workspace: Path, env: dict) -> tuple[int, list[str]]:
+        if change:
+            planned_change(workspace, env)
+        (workspace / ".mwb" / "question.md").write_text(question)
+        return 0, stream(tool("cat .mwb/TASK.md"), text("I need to ask first."), result(message="Asked a question."))
+
+    return behaviour
+
+
 class FakeRunner:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -113,6 +125,11 @@ class FakeRunner:
             if not f.is_file():
                 return JSONResponse({"detail": "missing", "code": "not_found"}, status_code=404)
             return Response(f.read_bytes())
+
+        @app.delete("/v1/workspaces/{job_id}/mwb/{name:path}", status_code=204)
+        async def delete_mwb(job_id: str, name: str):
+            (self.ws(job_id) / ".mwb" / name).unlink(missing_ok=True)
+            return Response(status_code=204)
 
         @app.delete("/v1/workspaces/{job_id}", status_code=204)
         async def delete(job_id: str):

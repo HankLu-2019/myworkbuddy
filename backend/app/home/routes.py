@@ -56,6 +56,7 @@ class NeedsYou(BaseModel):
         "plan_ready",
         "job_review",
         "pipeline_failed",
+        "job_question",
     ]
     key: str  # stable id, so the client can tell cards apart
     message: str
@@ -387,6 +388,26 @@ async def home(auth: CurrentAuth, db: DB) -> HomeOut:
             .order_by(Job.updated_at.desc())
         )
     ).all()
+    asking = (
+        await db.execute(
+            select(Job.work_item_id, JiraIssue.key, Job.updated_at)
+            .join(WorkItem, WorkItem.id == Job.work_item_id)
+            .join(JiraIssue, JiraIssue.id == WorkItem.jira_issue_id)
+            .where(Job.owner_id == user.id, Job.status == "needs_input")
+            .order_by(Job.updated_at.desc())
+        )
+    ).all()
+    for item_id, key, at in asking[:5]:
+        needs.append(
+            NeedsYou(
+                kind="job_question",
+                key=f"question:{item_id}",
+                message=f"The agent working on {key} has a question",
+                action="Answer",
+                href=f"/work/{item_id}/job",
+                at=at,
+            )  # fmt: skip
+        )
     for item_id, key, at in review[:5]:
         needs.append(
             NeedsYou(
@@ -540,6 +561,6 @@ async def home(auth: CurrentAuth, db: DB) -> HomeOut:
         recent_pages=pages,
         librarian=librarian,
         checklists=checklists,
-        board_needs=len(decide) + len(review),
+        board_needs=len(decide) + len(review) + len(asking),
         jobs_running=sum(1 for r in running if r.kind == "job"),
     )
