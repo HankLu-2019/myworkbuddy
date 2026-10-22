@@ -20,6 +20,7 @@ RUN curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/
  && UV_PYTHON_INSTALL_DIR=/opt/python uv python install "${PYTHON_VERSION}" \
  && ln -s "$(UV_PYTHON_INSTALL_DIR=/opt/python uv python find ${PYTHON_VERSION})" /usr/local/bin/python3 \
  && ln -s /usr/local/bin/python3 /usr/local/bin/python \
+ && rm -f "$(python3 -c 'import sysconfig; print(sysconfig.get_path("stdlib"))')/EXTERNALLY-MANAGED" \
  && python3 -m ensurepip --upgrade >/dev/null && python3 -m pip --version
 
 # Go, pinned.
