@@ -420,6 +420,8 @@ async function memberApi(page: Page, username: string) {
   return { "X-CSRF-Token": (await login.json()).csrf_token as string };
 }
 
+let approvedHub = ""; // PROJ-123's hub, approved in 5.8 and taken to a merge request in 5.9
+
 test("5.8: a ticket becomes an approved plan, revised once with feedback, and another is rejected", async ({ browser }) => {
   test.setTimeout(240_000);
   // Setup: Jira and a Git server on the fake gateway (backend/tests/fakellm/forge.py), Erin's tokens and repository.
@@ -479,6 +481,7 @@ test("5.8: a ticket becomes an approved plan, revised once with feedback, and an
   await ready.click();
   await expect(page).toHaveURL(/\/work\/[0-9a-f-]{36}\/plan$/);
   const planUrl = page.url();
+  approvedHub = planUrl.replace(/\/plan$/, "");
   await expect(page.getByText(/^Revision 1 of 1 · by planner/)).toBeVisible();
   await expect(page.getByRole("table", { name: "File changes" })).toContainText(".gitlab-ci.yml");
   await expectAccessible(page);
@@ -529,5 +532,66 @@ test("5.8: a ticket becomes an approved plan, revised once with feedback, and an
   await page.goto("/work");
   await expect(page.getByRole("region", { name: /^New/ }).getByRole("link", { name: "Retry webhook delivery on 5xx" })).toHaveCount(1);
   await expect(page.getByRole("region", { name: /^Approved/ }).getByRole("link", { name: "Retry webhook delivery on 5xx" })).toHaveCount(1);
+  await expectAccessible(page);
+});
+
+test("5.9: an approved plan becomes a job, is reviewed despite failing checks, and opens a merge request", async ({ browser }) => {
+  // The job runs for real: runner, egress proxy and the sandbox image (runc in CI), Claude Code against the fake
+  // gateway's Anthropic API, and the fake Git server, merge request API and Jira (backend/tests/fakellm/forge.py).
+  test.setTimeout(600_000);
+  expect(approvedHub, "5.8 approves PROJ-123 first").not.toBe("");
+  const page = await signedIn(browser, ERIN);
+
+  // Step 1: Start job states the limits, then the Job tab opens with the live timeline.
+  await page.goto(approvedHub);
+  await page.getByRole("button", { name: "Start job" }).click();
+  const confirm = page.getByRole("dialog", { name: "Start a job for PROJ-123?" });
+  await expect(confirm.getByText(/^Up to 45 min, 3 attempts/)).toBeVisible();
+  await confirm.getByRole("button", { name: "Start job" }).click();
+  await expect(page.getByText("Job started for PROJ-123; you can leave this page", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/work\/[0-9a-f-]{36}\/job$/);
+  const jobUrl = page.url();
+  await expect(page.getByRole("list", { name: "Job timeline" })).toBeVisible();
+  await expectAccessible(page);
+
+  // Steps 2–3: leave; the job comes back for review. The fake repository has no pytest in the sandbox, so the
+  // verification fails on every attempt and the review shows failed checks (step 6).
+  await page.goto("/jobs");
+  await expect(page.getByRole("table", { name: "Jobs" }).getByRole("link", { name: "PROJ-123" })).toBeVisible();
+  await expect(async () => {
+    await page.goto(jobUrl);
+    await expect(page.getByRole("heading", { name: /^Files changed/ })).toBeVisible({ timeout: 3000 });
+  }).toPass({ timeout: 480_000, intervals: [5000] });
+  await expect(page.getByLabel("Changes in app/webhooks.py")).toContainText("Retry transient failures (fake agent)");
+  await expect(page.getByRole("heading", { name: /Agent notes\s*Written by the agent/ })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Checks" })).toContainText("Verification commands");
+  await expectAccessible(page);
+
+  // Step 4: Review push → edit the merge request title → push. Failing checks need the acknowledgement.
+  await page.getByRole("button", { name: "Review push" }).click();
+  const preview = page.getByRole("dialog", { name: "Review push" });
+  const title = preview.getByLabel("Merge request title");
+  await expect(title).toHaveValue("Draft: PROJ-123: Retry webhook delivery on 5xx");
+  await title.fill("Draft: PROJ-123: Retry webhooks (reviewed)");
+  const pushButton = preview.getByRole("button", { name: "Push branch and open merge request" });
+  const ack = preview.getByRole("checkbox", { name: "Push despite failing checks" });
+  if (await ack.count()) {
+    await expect(pushButton).toBeDisabled();
+    await ack.click();
+  }
+  await expectAccessible(page);
+  await pushButton.click();
+  await expect(page.getByText("Push approved; pushing now", { exact: true })).toBeVisible();
+
+  // Step 5: links to the merge request and the Jira comment; the card moves to In review.
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole("link", { name: "Merge request" })).toBeVisible({ timeout: 3000 });
+  }).toPass({ timeout: 120_000, intervals: [3000] });
+  await expect(page.getByRole("link", { name: "Merge request" })).toHaveAttribute("href", /\/merge_requests\/\d+$/);
+  await expect(page.getByRole("link", { name: "Jira comment" })).toBeVisible();
+  await expect(page.getByText("Watching for merge.", { exact: true })).toBeVisible();
+  await page.goto("/work");
+  await expect(page.getByRole("region", { name: /^In review/ }).getByRole("link", { name: "Retry webhook delivery on 5xx" })).toHaveCount(1);
   await expectAccessible(page);
 });

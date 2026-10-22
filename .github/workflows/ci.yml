@@ -236,9 +236,12 @@ jobs:
         run: |
           cp .env.example .env
           key=$(python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
-          sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=ci-postgres|; s|^MWB_SECRET_KEY=.*|MWB_SECRET_KEY=$key|; s|^MWB_COOKIE_SECURE=.*|MWB_COOKIE_SECURE=false|; s|^MWB_HOSTNAME=.*|MWB_HOSTNAME=http://localhost:8080|; s|^MWB_TLS_MODE=.*|MWB_TLS_MODE=none|; s|^LITELLM_MASTER_KEY=.*|LITELLM_MASTER_KEY=sk-ci|; s|^LITELLM_DB_PASSWORD=.*|LITELLM_DB_PASSWORD=ci-litellm|" .env
+          sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=ci-postgres|; s|^MWB_SECRET_KEY=.*|MWB_SECRET_KEY=$key|; s|^MWB_COOKIE_SECURE=.*|MWB_COOKIE_SECURE=false|; s|^MWB_HOSTNAME=.*|MWB_HOSTNAME=http://localhost:8080|; s|^MWB_TLS_MODE=.*|MWB_TLS_MODE=none|; s|^LITELLM_MASTER_KEY=.*|LITELLM_MASTER_KEY=sk-ci|; s|^LITELLM_DB_PASSWORD=.*|LITELLM_DB_PASSWORD=ci-litellm|; s|^MWB_SANDBOX_RUNTIME=.*|MWB_SANDBOX_RUNTIME=runc|; s|^MWB_RUNNER_TOKEN=.*|MWB_RUNNER_TOKEN=ci-runner-token-0123456789abcdef0123456789|" .env
+      # Flow 5.9 runs a real job: the sandbox image, the runner and the egress proxy (runc on CI's Docker).
+      - name: Build the sandbox image
+        run: docker build -t mwb-sandbox:latest sandbox > stack.log 2>&1 || { tail -n 60 stack.log; exit 1; }
       - name: Start stack with the fake LLM
-        run: docker compose -f docker-compose.yml -f compose.ci.yml up -d --build --wait --wait-timeout 300 api worker web caddy > stack.log 2>&1 || { cat stack.log; { docker compose -f docker-compose.yml -f compose.ci.yml ps -a; docker compose -f docker-compose.yml -f compose.ci.yml logs --tail 25 migrate api worker web caddy llm-gateway; } > stack-state.log 2>&1; grep -i -E 'error|denied|invalid|conflict|failed|address' stack.log | tail -n 15 > stack-err.log; mv stack-err.log stack.log; cat stack-state.log >> stack.log; cat stack.log; exit 1; }
+        run: docker compose -f docker-compose.yml -f compose.ci.yml up -d --build --wait --wait-timeout 300 api worker worker-jobs runner egress-proxy web caddy > stack.log 2>&1 || { cat stack.log; { docker compose -f docker-compose.yml -f compose.ci.yml ps -a; docker compose -f docker-compose.yml -f compose.ci.yml logs --tail 25 migrate api worker web caddy llm-gateway; } > stack-state.log 2>&1; grep -i -E 'error|denied|invalid|conflict|failed|address' stack.log | tail -n 15 > stack-err.log; mv stack-err.log stack.log; cat stack-state.log >> stack.log; cat stack.log; exit 1; }
       - name: Create admin
         run: docker compose -f docker-compose.yml -f compose.ci.yml exec -T -e MWB_ADMIN_PASSWORD=$MWB_E2E_ADMIN_PASSWORD api mwb create-admin --username admin --email admin@example.com
       - name: Edge sends security headers and ignores forged X-Forwarded-For
@@ -307,7 +310,9 @@ jobs:
           retention-days: 14
       - if: failure()
         run: |
-          docker compose -f docker-compose.yml -f compose.ci.yml logs --no-log-prefix api worker llm-gateway > all.log 2>&1
+          docker compose -f docker-compose.yml -f compose.ci.yml logs --no-log-prefix api worker worker-jobs runner llm-gateway > all.log 2>&1
+          grep -E '"job\.|job_advance|"runner\.' all.log | tail -n 60 > jobs.log || true
+          .github/scripts/annotate-tail.sh "jobs" jobs.log 60
           grep -E '"status": [345][0-9][0-9]|Traceback|"level": "(warning|error)"|git\.|"path": "/api/knowledge/(search|documents/[0-9]+/visibility)"' all.log | grep -v '/api/auth/me' > services.log || true
           grep -A30 Traceback all.log > tracebacks.log || true
           grep -E 'chat\.|chat/completions' all.log | head -40 > after-chat.log || true

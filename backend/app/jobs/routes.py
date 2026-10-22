@@ -1,5 +1,5 @@
-"""Jobs API (design 04 §8): list, detail, live events. Owner only (others' jobs are 404). Creating, cancelling
-and the review actions arrive with the pipeline (X4–X6). `/internal/jobs/active` is for the runner only."""
+"""Jobs API (design 04 §8): list, detail, live events. Owner only (others' jobs are 404). Creating, cancelling,
+the review actions and the push gate (X4–X6). `/internal/jobs/active` is for the runner only."""
 
 import asyncio
 import json
@@ -15,10 +15,12 @@ from sqlalchemy import select
 
 from app import pagination
 from app.config import get_settings
+from app.connectors.base import ConnectorError
 from app.db import get_sessionmaker
 from app.deps import DB, CurrentAuth
 from app.enums import JobStatus as S
 from app.errors import AppError
+from app.jobs.push import PushPayload
 from app.jobs.state import ACTIVE, WORKING, transition_in
 from app.models import Artifact, JiraIssue, Job, JobEvent, User, WorkItem
 
@@ -245,6 +247,8 @@ async def request_changes(job_id: uuid.UUID, body: ChangesIn, auth: CurrentAuth,
     from app.jobs.task_files import prompt_md, review_feedback_md
 
     job = await _job_or_404(db, job_id, auth.user)
+    if job.status == S.pushed:
+        return await _changes_after_push(db, job, body, auth.user, client_ip(request))
     if job.status != S.awaiting_review:
         raise AppError(status.HTTP_409_CONFLICT, "conflict", "Changes can be requested while the job waits for review.")
     if job.review_round >= MAX_REVIEW_ROUNDS:
@@ -271,6 +275,66 @@ async def request_changes(job_id: uuid.UUID, body: ChangesIn, auth: CurrentAuth,
     )  # fmt: skip
     if moved is None:
         raise AppError(status.HTTP_409_CONFLICT, "plan_changed", "The job changed meanwhile. Reload.")
+    await db.commit()
+    await defer_advance(job.id)
+    return job_out(*await owned_job(db, job_id, auth.user))
+
+
+async def _changes_after_push(db: DB, job: Job, body: "ChangesIn", user: User, ip: str | None) -> JobOut:
+    """A new round after a push (04 §6): the workspace and key are gone, so the job prepares again from the pushed
+    patch plus the feedback, with a new LLM key; the next approved push updates the same branch or change."""
+    from app.jobs import keys
+    from app.jobs.pipeline import defer_advance
+    from app.llm.keys import GatewayAdminError
+
+    if job.review_round >= MAX_REVIEW_ROUNDS:
+        raise AppError(
+            status.HTTP_409_CONFLICT,
+            "conflict",
+            f"This job has had {MAX_REVIEW_ROUNDS} review rounds; start a new job.",
+        )
+    patch_id = (job.result or {}).get("patch_artifact_id")
+    if not patch_id:
+        raise AppError(status.HTTP_409_CONFLICT, "conflict", "This job has no pushed changes to build on.")
+    policy, job_id, round_ = job.policy, job.id, job.review_round
+    await db.commit()
+    try:
+        await keys.create(job_id, user.id, policy)  # network: nothing open (R1)
+    except (GatewayAdminError, ConnectorError):
+        raise AppError(
+            status.HTTP_502_BAD_GATEWAY, "llm_unavailable", "The LLM gateway couldn't create a key for this job."
+        ) from None
+    push = {**(job.push or {}), "resume": {"patch_artifact_id": patch_id, "feedback": body.feedback}}
+    moved = await transition_in(
+        db, job_id, S.pushed, S.preparing, actor_id=user.id, ip=ip, review_round=round_ + 1, attempt=1,
+        result=None, current_run=None, error=None, error_code=None, push=push,
+        detail={"note": f"Changes requested after the push (round {round_ + 1}).",
+                "feedback_chars": len(body.feedback)},
+    )  # fmt: skip
+    if moved is None:
+        raise AppError(status.HTTP_409_CONFLICT, "plan_changed", "The job changed meanwhile. Reload.")
+    await db.commit()
+    await defer_advance(job_id)
+    return job_out(*await owned_job(db, job_id, user))
+
+
+@router.get("/api/jobs/{job_id}/push-preview", response_model=PushPayload)
+async def push_preview(job_id: uuid.UUID, auth: CurrentAuth, db: DB) -> dict:
+    """The exact outbound content (04 §5.6); the texts are editable before approval."""
+    from app.jobs import push
+
+    return await push.preview(db, await _job_or_404(db, job_id, auth.user))
+
+
+@router.post("/api/jobs/{job_id}/approve-push", response_model=JobOut)
+async def approve_push(job_id: uuid.UUID, body: PushPayload, auth: CurrentAuth, db: DB, request: Request) -> JobOut:
+    """Bind the (possibly edited) payload to an approval and queue the push (rule R5)."""
+    from app.deps import client_ip
+    from app.jobs import push
+    from app.jobs.pipeline import defer_advance
+
+    job = await _job_or_404(db, job_id, auth.user)
+    await push.approve(db, job, body, auth.user, client_ip(request))
     await db.commit()
     await defer_advance(job.id)
     return job_out(*await owned_job(db, job_id, auth.user))

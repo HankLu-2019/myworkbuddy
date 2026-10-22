@@ -26,13 +26,22 @@ from app.enums import JobEventType, JobStatus
 from app.inbox.email import app_url, queue_email
 from app.inbox.service import add_item
 from app.jobs import artifacts, keys, runner_client
+from app.jobs import push as push_mod
 from app.jobs.checks import parse_patch, run_checks
 from app.jobs.runner_client import RunnerError
 from app.jobs.state import record_event, transition, transition_in
-from app.jobs.task_files import AgentOutcome, feedback_md, parse_line, prompt_md, task_md, verify_json
+from app.jobs.task_files import (
+    AgentOutcome,
+    feedback_md,
+    parse_line,
+    prompt_md,
+    review_feedback_md,
+    task_md,
+    verify_json,
+)
 from app.knowledge.ingest.repos import auth_header, ca_file_for, project_integration, run_git
 from app.logs import log
-from app.models import JiraIssue, Job, PlanRevision, Project, User, WorkItem
+from app.models import Artifact, JiraIssue, Job, PlanRevision, Project, User, WorkItem
 
 S = JobStatus
 EVENT_INTERVAL_S = 1.0  # at most one event of each kind per second (04 §5.3)
@@ -126,6 +135,23 @@ async def _clone(job: Job, work: Path) -> None:
         raise StepFailed("preparing", "credentials_in_clone", "The clone's git config holds credentials.")
 
 
+async def _reapply(job: Job, repo: Path, resume: dict[str, Any]) -> None:
+    """Changes requested after a push (04 §6): the workspace was deleted, so the new one starts from the pushed
+    patch (left uncommitted, so the next patch against base_sha still holds everything) plus the feedback."""
+    async with get_sessionmaker()() as db:
+        art = await db.get(Artifact, uuid.UUID(resume["patch_artifact_id"]))
+        await db.commit()
+    path = artifacts.path_of(art) if art is not None else None
+    if path is None or not path.is_file():
+        raise StepFailed("preparing", "patch_missing", "The pushed changes are no longer kept; start a new job.")
+    if path.stat().st_size:
+        try:
+            await run_git("apply", "--whitespace=nowarn", str(path), cwd=repo)
+        except RuntimeError as exc:
+            raise StepFailed("preparing", "patch_failed", f"The pushed changes don't apply: {str(exc)[:300]}") from None
+    (repo / ".mwb" / "feedback.md").write_text(review_feedback_md(resume.get("feedback", "")))
+
+
 async def prepare(ctx: dict[str, Any]) -> None:
     job: Job = ctx["job"]
     if job.status == S.created:
@@ -139,7 +165,10 @@ async def prepare(ctx: dict[str, Any]) -> None:
         mwb = repo / ".mwb"
         mwb.mkdir()
         (mwb / "TASK.md").write_text(task_md(ctx["key"], ctx["doc"]))
-        (mwb / "prompt.md").write_text(prompt_md(retry=False, review_feedback=False))
+        resume = (job.push or {}).get("resume")
+        (mwb / "prompt.md").write_text(prompt_md(retry=False, review_feedback=bool(resume)))
+        if resume:
+            await _reapply(job, repo, resume)
         (mwb / "verify.json").write_text(verify_json(ctx["doc"], int(policy["timeout_min"]) * 60))
         info = repo / ".git" / "info"
         info.mkdir(exist_ok=True)
@@ -154,7 +183,10 @@ async def prepare(ctx: dict[str, Any]) -> None:
         await runner_client.put_content(job.id, tar)
     except RunnerError as exc:
         raise StepFailed("preparing", f"runner_{exc.code}", exc.message) from None
-    if await transition(job.id, S.preparing, S.running, attempt=1, current_run=None) is not None:
+    extra: dict[str, Any] = {}
+    if (job.push or {}).get("resume"):
+        extra["push"] = {k: v for k, v in job.push.items() if k != "resume"}
+    if await transition(job.id, S.preparing, S.running, attempt=1, current_run=None, **extra) is not None:
         await record_event(job.id, JobEventType.status, {"note": "Workspace ready; starting the agent (attempt 1)."})
 
 
@@ -443,6 +475,12 @@ async def advance(job_id: uuid.UUID) -> str | None:
                 await run_agent(ctx)
             elif job.status == S.verifying:
                 await verify(ctx)
+            elif job.status in (S.approved_push, S.pushing):
+                try:
+                    await push_mod.push(job, ctx["key"])
+                except push_mod.StepFailed as exc:
+                    raise StepFailed("pushing", exc.code, exc.message) from None
+                return (await _load(job_id) or {"job": job})["job"].status
             else:
                 return job.status
         except StepFailed as exc:

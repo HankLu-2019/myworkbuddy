@@ -1,12 +1,28 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, apiText, parseEvent, type Job, type JobEvent, type JobPage, type JobResult, type JobStatus, type Plan, type WorkItem, type WorkItemDetail } from "../../api";
+import {
+  api,
+  apiText,
+  parseEvent,
+  type Job,
+  type JobEvent,
+  type JobPage,
+  type JobPush,
+  type JobResult,
+  type JobStatus,
+  type Plan,
+  type PushPayload,
+  type WorkItem,
+  type WorkItemDetail,
+} from "../../api";
 import {
   Banner,
   Button,
   Card,
+  Checkbox,
   CodeBlock,
+  Dialog,
   ConfirmDialog,
   EmptyState,
   ErrorNote,
@@ -15,6 +31,7 @@ import {
   SkeletonRows,
   StatusPill,
   TextArea,
+  TextField,
   formatElapsed,
   formatUsd,
   statusLabel,
@@ -22,10 +39,18 @@ import {
 } from "../../components/ui";
 import { PatchView } from "../../components/Patch";
 
-/** Statuses in which the job works on its own (the timeline stays live, Cancel is offered). */
-export const WORKING: readonly string[] = ["created", "preparing", "running", "verifying"];
+/** Statuses in which the job works on its own (the timeline stays live). */
+export const WORKING: readonly string[] = ["created", "preparing", "running", "verifying", "approved_push", "pushing"];
+/** …of which these can be cancelled (a push in flight can't). */
+const CANCELLABLE: readonly string[] = ["created", "preparing", "running", "verifying"];
+const PUSH_ACK = "push despite failing checks";
 const ENDED_BADLY: readonly string[] = ["failed", "timed_out", "budget_exceeded"];
-const STAGE: Record<string, string> = { preparing: "preparing the workspace", running: "running the agent", verifying: "verifying" };
+const STAGE: Record<string, string> = {
+  preparing: "preparing the workspace",
+  running: "running the agent",
+  verifying: "verifying",
+  pushing: "pushing",
+};
 
 /** The latest job of a work item (the Job tab shows that one). */
 export function useLatestJob(workItemId: string, jobId?: string) {
@@ -288,10 +313,157 @@ function RequestChanges({ job }: { job: Job }) {
   );
 }
 
+/** The push preview (07 §4.10): the exact outbound content, texts editable, then one approval (04 §5.6). */
+export function PushDialog({ job, open, onOpenChange }: { job: Job; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const preview = useQuery({
+    queryKey: ["jobs", job.id, "push-preview", job.updated_at],
+    queryFn: () => api<PushPayload>(`/api/jobs/${job.id}/push-preview`),
+    enabled: open,
+  });
+  const [draft, setDraft] = useState<PushPayload | null>(null);
+  useEffect(() => {
+    if (open && preview.data) setDraft(structuredClone(preview.data));
+    if (!open) setDraft(null);
+  }, [open, preview.data]);
+  const failed = !!(job.result as JobResult | null)?.failed_checks;
+  const approve = useMutation({
+    mutationFn: (payload: PushPayload) => api<Job>(`/api/jobs/${job.id}/approve-push`, { method: "POST", json: payload }),
+    onSuccess: () => {
+      onOpenChange(false);
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["work"] });
+      toast({ title: "Push approved; pushing now", tone: "success" });
+    },
+  });
+  const gerrit = draft?.target.host === "gerrit";
+  const acked = !!draft?.acknowledgements?.includes(PUSH_ACK);
+  const set = (fn: (d: PushPayload) => void) =>
+    setDraft((d) => {
+      if (!d) return d;
+      const next = structuredClone(d);
+      fn(next);
+      return next;
+    });
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        onOpenChange(o);
+        if (!o) approve.reset();
+      }}
+      title="Review push"
+      description="This is exactly what will be sent. You can edit the texts."
+      actions={
+        <>
+          <Button variant="secondary" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button variant="primary" pending={approve.isPending} disabled={!draft || (failed && !acked)} onClick={() => draft && approve.mutate(draft)}>
+            {gerrit ? "Upload change to Gerrit" : "Push branch and open merge request"}
+          </Button>
+        </>
+      }
+    >
+      {preview.error ? (
+        <ErrorNote error={preview.error} />
+      ) : !draft ? (
+        <SkeletonRows rows={4} />
+      ) : (
+        <div className="stack">
+          <KeyValue
+            items={[
+              ["Repository", draft.target.repo_url],
+              [gerrit ? "Change for" : "Branch", gerrit ? `${draft.target.base_branch} (topic ${draft.gerrit?.topic ?? ""})` : `${draft.target.branch} → ${draft.target.base_branch}`],
+              ["Author", `${draft.commit.author_name} <${draft.commit.author_email}>`],
+            ]}
+          />
+          <TextArea
+            label="Commit message"
+            className="mono"
+            rows={6}
+            value={draft.commit.message}
+            hint={gerrit ? "Keep the Change-Id line: later rounds become new patch sets of the same change." : undefined}
+            onChange={(e) => set((d) => void (d.commit.message = e.target.value))}
+          />
+          {draft.merge_request && (
+            <>
+              <TextField label="Merge request title" value={draft.merge_request.title} onChange={(e) => set((d) => void (d.merge_request!.title = e.target.value))} />
+              <TextArea
+                label="Merge request description"
+                rows={6}
+                value={draft.merge_request.description}
+                onChange={(e) => set((d) => void (d.merge_request!.description = e.target.value))}
+              />
+            </>
+          )}
+          {draft.jira_comment ? (
+            <>
+              <Checkbox label="Comment on the Jira ticket" checked={draft.jira_comment.enabled} onChange={(v) => set((d) => void (d.jira_comment!.enabled = v))} />
+              {draft.jira_comment.enabled && (
+                <TextArea
+                  label="Jira comment"
+                  rows={4}
+                  value={draft.jira_comment.body}
+                  hint="<link placeholder> becomes the link to the review request."
+                  onChange={(e) => set((d) => void (d.jira_comment!.body = e.target.value))}
+                />
+              )}
+            </>
+          ) : (
+            <p className="muted small">No Jira comment: it was posted on an earlier round, or you have no Jira access.</p>
+          )}
+          {failed && (
+            <Checkbox
+              label="Push despite failing checks"
+              checked={acked}
+              onChange={(v) => set((d) => void (d.acknowledgements = v ? [PUSH_ACK] : []))}
+            />
+          )}
+          <ErrorNote error={approve.error} />
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
+/** After the push (07 §4.10): the review request and Jira comment links, and whether it's merged. */
+function Pushed({ job }: { job: Job }) {
+  const push = (job.push ?? {}) as JobPush;
+  const link = push.mr_url ?? push.change_url;
+  const word = push.change_url ? "Gerrit change" : "Merge request";
+  return (
+    <Card as="section" className="stack" aria-labelledby="job-pushed">
+      <h2 id="job-pushed">Review request</h2>
+      <ul className="plain">
+        {link && (
+          <li>
+            <a href={link} target="_blank" rel="noreferrer">
+              {word}
+            </a>
+          </li>
+        )}
+        {push.jira_comment_url && (
+          <li>
+            <a href={push.jira_comment_url} target="_blank" rel="noreferrer">
+              Jira comment
+            </a>
+          </li>
+        )}
+      </ul>
+      {job.status === "pushed" && <p className="muted">Watching for merge.</p>}
+      {job.status === "merged" && <Banner tone="success">Merged.</Banner>}
+      {job.status === "closed" && <Banner tone="warning">The review request was closed without merging.</Banner>}
+    </Card>
+  );
+}
+
 function Review({ job, result }: { job: Job; result: JobResult }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [discarding, setDiscarding] = useState(false);
+  const [pushing, setPushing] = useState(false);
   const patch = useQuery({ queryKey: ["jobs", job.id, "patch", result.patch_sha256], queryFn: () => apiText(`/api/jobs/${job.id}/patch`) });
   const discard = useMutation({
     mutationFn: () => api<Job>(`/api/jobs/${job.id}/discard`, { method: "POST" }),
@@ -335,18 +507,23 @@ function Review({ job, result }: { job: Job; result: JobResult }) {
         </h2>
         {result.agent_notes.trim() ? <Markdown>{result.agent_notes}</Markdown> : <p className="muted">The agent left no notes.</p>}
       </Card>
-      {reviewing && (
+      {(reviewing || job.status === "pushed") && (
         <Card as="section" className="stack" aria-labelledby="job-actions">
           <h2 id="job-actions">Your review</h2>
+          {reviewing && (
+            <div className="row">
+              <Button variant="primary" onClick={() => setPushing(true)}>
+                Review push
+              </Button>
+              <Button variant="danger" onClick={() => setDiscarding(true)}>
+                Discard
+              </Button>
+            </div>
+          )}
           <RequestChanges job={job} />
-          <div className="row">
-            <Button variant="danger" onClick={() => setDiscarding(true)}>
-              Discard
-            </Button>
-            <span className="muted small">Pushing comes with the push review (next release).</span>
-          </div>
         </Card>
       )}
+      <PushDialog job={job} open={pushing} onOpenChange={setPushing} />
       <ConfirmDialog
         open={discarding}
         onOpenChange={setDiscarding}
@@ -411,7 +588,7 @@ export default function JobTab({ item, jobId }: { item: WorkItemDetail; jobId?: 
           <h2 id="job-status" className="grow">
             Job <StatusPill status={status} />
           </h2>
-          {working && (
+          {CANCELLABLE.includes(job.status) && (
             <Button variant="danger" size="sm" onClick={() => setCancelling(true)}>
               Cancel
             </Button>
@@ -437,6 +614,7 @@ export default function JobTab({ item, jobId }: { item: WorkItemDetail; jobId?: 
         )}
         <ErrorNote error={cancel.error} />
       </Card>
+      {["pushed", "merged", "closed"].includes(status) && <Pushed job={job} />}
       {result && <Review job={job} result={result} />}
       <Card as="section" className="stack" aria-labelledby="job-timeline">
         <h2 id="job-timeline">Timeline {working && <span className="muted small">Live</span>}</h2>

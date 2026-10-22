@@ -5,7 +5,12 @@
   like one, and `GET /rest/api/2/search` returning the same tickets. Bearer tokens starting `jira-` are accepted.
 - Git: `team/payments.git` over smart HTTP at `/fake/git/...`, served by `git http-backend` (the app clones with
   `--depth`, which the dumb protocol can't do). The repository is built on first use: a few Python files, tests
-  and a `.gitlab-ci.yml`, so a plan can change CI configuration and need an acknowledgement.
+  and a `.gitlab-ci.yml`, so a plan can change CI configuration and need an acknowledgement. Pushes are accepted
+  (X6), except with the token `glpat-revoked` (401). An upload to `refs/for/<branch>%topic=…` becomes
+  `refs/changes/<n>`, as on Gerrit.
+- Merge requests (GitLab API v4) and Jira comments are kept in memory (`STATE`); `GET /fake/state` shows them and
+  `POST /fake/reset` empties them and deletes every branch but main. Gerrit's change query
+  (`GET /a/changes/?q=change:<Change-Id>`) looks through the uploaded refs.
 """
 
 import asyncio
@@ -18,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 router = APIRouter()
 
@@ -35,6 +40,7 @@ FILES = {
     ".gitlab-ci.yml": "test:\n  image: python:3.12\n  script:\n    - pytest -q\n",
 }
 _root: Path | None = None
+STATE: dict[str, Any] = {"mrs": [], "comments": {}, "posts": {"mr": 0, "comment": 0}, "merge": {}}
 
 
 def _authorized(request: Request) -> bool:
@@ -79,6 +85,26 @@ async def jira_issue(key: str, request: Request) -> JSONResponse:
     return JSONResponse(issue(key))
 
 
+@router.get("/rest/api/2/issue/{key}/comment")
+async def jira_comments(key: str, request: Request) -> JSONResponse:
+    if not _authorized(request):
+        return JSONResponse({"errorMessages": ["Unauthorized"]}, status_code=401)
+    comments = STATE["comments"].get(key, [])
+    return JSONResponse({"startAt": 0, "maxResults": 100, "total": len(comments), "comments": comments})
+
+
+@router.post("/rest/api/2/issue/{key}/comment")
+async def jira_comment(key: str, request: Request) -> JSONResponse:
+    if not _authorized(request):
+        return JSONResponse({"errorMessages": ["Unauthorized"]}, status_code=401)
+    body = (await request.json()).get("body", "")
+    STATE["posts"]["comment"] += 1
+    comments = STATE["comments"].setdefault(key, [])
+    comment = {"id": str(10000 + STATE["posts"]["comment"]), "body": body}
+    comments.append(comment)
+    return JSONResponse(comment, status_code=201)
+
+
 @router.get("/rest/api/2/search")
 async def jira_search(request: Request) -> JSONResponse:
     if not _authorized(request):
@@ -95,6 +121,107 @@ async def gitlab_token_self(request: Request) -> JSONResponse:
         return JSONResponse({"message": "401 Unauthorized"}, status_code=401)
     scopes = ["read_api", "read_repository"] if token.startswith("glpat-readonly") else ["api", "write_repository"]
     return JSONResponse({"id": 1, "name": "mwb", "scopes": scopes, "active": True})
+
+
+def _gitlab_ok(request: Request) -> bool:
+    token = request.headers.get("PRIVATE-TOKEN", "")
+    return token.startswith("glpat-") and token != "glpat-revoked"
+
+
+def _mr_out(mr: dict[str, Any]) -> dict[str, Any]:
+    state = STATE["merge"].get(mr["iid"], "opened")
+    return {**mr, "state": state}
+
+
+@router.get("/api/v4/projects/{pid:path}/merge_requests/{iid}")
+async def gitlab_mr(pid: str, iid: int, request: Request) -> JSONResponse:
+    if not _gitlab_ok(request):
+        return JSONResponse({"message": "401 Unauthorized"}, status_code=401)
+    for mr in STATE["mrs"]:
+        if mr["iid"] == iid:
+            return JSONResponse(_mr_out(mr))
+    return JSONResponse({"message": "404 Not found"}, status_code=404)
+
+
+@router.put("/api/v4/projects/{pid:path}/merge_requests/{iid}")
+async def gitlab_mr_update(pid: str, iid: int, request: Request) -> JSONResponse:
+    if not _gitlab_ok(request):
+        return JSONResponse({"message": "401 Unauthorized"}, status_code=401)
+    body = await request.json()
+    for mr in STATE["mrs"]:
+        if mr["iid"] == iid:
+            mr.update({k: body[k] for k in ("title", "description") if k in body})
+            return JSONResponse(_mr_out(mr))
+    return JSONResponse({"message": "404 Not found"}, status_code=404)
+
+
+@router.get("/api/v4/projects/{pid:path}/merge_requests")
+async def gitlab_mrs(pid: str, request: Request) -> JSONResponse:
+    if not _gitlab_ok(request):
+        return JSONResponse({"message": "401 Unauthorized"}, status_code=401)
+    branch, state = request.query_params.get("source_branch"), request.query_params.get("state")
+    mrs = [_mr_out(m) for m in STATE["mrs"] if branch in (None, m["source_branch"])]
+    return JSONResponse([m for m in mrs if state in (None, "all", m["state"])])
+
+
+@router.post("/api/v4/projects/{pid:path}/merge_requests")
+async def gitlab_mr_create(pid: str, request: Request) -> JSONResponse:
+    if not _gitlab_ok(request):
+        return JSONResponse({"message": "401 Unauthorized"}, status_code=401)
+    body = await request.json()
+    STATE["posts"]["mr"] += 1
+    iid = len(STATE["mrs"]) + 1
+    base = str(request.base_url).rstrip("/")
+    mr = {"iid": iid, "title": body["title"], "description": body.get("description", ""),
+          "source_branch": body["source_branch"], "target_branch": body["target_branch"],
+          "web_url": f"{base}/team/payments/-/merge_requests/{iid}"}  # fmt: skip
+    STATE["mrs"].append(mr)
+    return JSONResponse(_mr_out(mr), status_code=201)
+
+
+@router.get("/a/changes/")
+async def gerrit_changes(request: Request) -> PlainTextResponse:
+    """Gerrit's change query, by Change-Id, over the refs a push to refs/for/… left behind."""
+    import json
+
+    want = request.query_params.get("q", "").removeprefix("change:")
+    repo = git_root() / "team" / "payments.git"
+    refs = subprocess.run(["git", "for-each-ref", "--sort=refname", "--format=%(objectname)", "refs/changes"], cwd=repo,
+                          capture_output=True, text=True).stdout.split()  # fmt: skip
+    found = []
+    for n, sha in enumerate(refs, start=1):
+        msg = subprocess.run(["git", "log", "-1", "--format=%B", sha], cwd=repo, capture_output=True, text=True).stdout
+        if f"Change-Id: {want}" in msg:
+            found.append({"project": "team/payments", "_number": n, "change_id": want, "status": "NEW",
+                          "current_revision": sha})  # fmt: skip
+    return PlainTextResponse(")]}'\n" + json.dumps(found[:1]))
+
+
+@router.get("/fake/state")
+async def fake_state() -> JSONResponse:
+    repo = git_root() / "team" / "payments.git"
+    refs = subprocess.run(["git", "for-each-ref", "--format=%(refname) %(objectname)"], cwd=repo,
+                          capture_output=True, text=True).stdout.splitlines()  # fmt: skip
+    return JSONResponse({**STATE, "refs": dict(r.split(" ", 1) for r in refs)})
+
+
+@router.post("/fake/reset")
+async def fake_reset() -> JSONResponse:
+    STATE.update(mrs=[], comments={}, posts={"mr": 0, "comment": 0}, merge={})
+    repo = git_root() / "team" / "payments.git"
+    refs = subprocess.run(["git", "for-each-ref", "--format=%(refname)"], cwd=repo, capture_output=True,
+                          text=True).stdout.split()  # fmt: skip
+    for ref in refs:
+        if ref != "refs/heads/main":
+            subprocess.run(["git", "update-ref", "-d", ref], cwd=repo, check=True)
+    return JSONResponse({"ok": True})
+
+
+@router.post("/fake/merge/{iid}")
+async def fake_merge(iid: int, request: Request) -> JSONResponse:
+    """Mark a merge request merged or closed (X7 tracking): `?state=closed`."""
+    STATE["merge"][iid] = request.query_params.get("state", "merged")
+    return JSONResponse({"iid": iid, "state": STATE["merge"][iid]})
 
 
 # ---------- git over smart HTTP ----------
@@ -122,15 +249,37 @@ def git_root() -> Path:
         _git(work, "commit", "-q", "-m", "Initial import")
         (root / "team").mkdir()
         _git(root, "clone", "-q", "--bare", str(work), "team/payments.git")
+        # Like Gerrit, an upload to refs/for/<branch> becomes a change ref, so refs/for/* is never advertised and the
+        # next upload of a new patch set isn't a non-fast-forward push.
+        hook = root / "team" / "payments.git" / "hooks" / "post-receive"
+        hook.write_text(
+            "#!/bin/sh\n"
+            "while read old new ref; do\n"
+            '  case "$ref" in refs/for/*)\n'
+            "    n=$(git for-each-ref refs/changes | wc -l)\n"
+            '    git update-ref "refs/changes/$((n + 1))" "$new" && git update-ref -d "$ref";;\n'
+            "  esac\n"
+            "done\n"
+        )
+        hook.chmod(0o755)
         _root = root
     return _root
 
 
 @router.api_route("/fake/git/{path:path}", methods=["GET", "POST"])
 async def git_http(path: str, request: Request) -> Response:
-    """`git http-backend` as CGI: enough for clone and fetch (upload-pack), never push."""
-    if "git-receive-pack" in path or request.query_params.get("service") == "git-receive-pack":
-        return Response("read-only", status_code=403)
+    """`git http-backend` as CGI: clone, fetch and push."""
+    pushing = "git-receive-pack" in path or request.query_params.get("service") == "git-receive-pack"
+    if pushing:
+        import base64
+
+        raw = request.headers.get("authorization", "").removeprefix("Basic ")
+        try:
+            password = base64.b64decode(raw).decode().partition(":")[2]
+        except ValueError:
+            password = ""
+        if not password or password == "glpat-revoked":
+            return Response("Authentication failed", status_code=401, headers={"WWW-Authenticate": 'Basic realm="git"'})
     env = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "GIT_PROJECT_ROOT": str(git_root()),
@@ -141,6 +290,8 @@ async def git_http(path: str, request: Request) -> Response:
         "CONTENT_TYPE": request.headers.get("content-type", ""),
         "REMOTE_ADDR": "127.0.0.1",
     }
+    if pushing:
+        env["REMOTE_USER"] = "e2e"  # http-backend enables receive-pack for an authenticated user
     if enc := request.headers.get("content-encoding"):
         env["HTTP_CONTENT_ENCODING"] = enc
     if proto := request.headers.get("git-protocol"):
