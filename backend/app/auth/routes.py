@@ -45,6 +45,9 @@ class UserOut(BaseModel):
     timezone: str | None = None
     timezone_confirmed: bool = False
     email_notifications: bool = True
+    jira_intake_enabled: bool = False
+    jira_intake_jql: str | None = None
+    jira_autoplan_label: str | None = None
 
     @classmethod
     def of(cls, u: User) -> "UserOut":
@@ -61,6 +64,9 @@ class UserOut(BaseModel):
             timezone=u.timezone,
             timezone_confirmed=bool(u.timezone_confirmed),
             email_notifications=bool(u.email_notifications),
+            jira_intake_enabled=bool(u.jira_intake_enabled),
+            jira_intake_jql=u.jira_intake_jql,
+            jira_autoplan_label=u.jira_autoplan_label,
         )
 
 
@@ -76,6 +82,9 @@ class ProfileIn(BaseModel):
     email: str | None = Field(default=None, max_length=255, pattern=r"^$|^[^@\s]+@[^@\s]+\.[^@\s]+$")
     timezone: str | None = Field(default=None, max_length=64)
     email_notifications: bool | None = None  # Settings → Notifications (02 §7)
+    jira_intake_enabled: bool | None = None  # design 03 §7
+    jira_intake_jql: str | None = Field(default=None, max_length=1000)
+    jira_autoplan_label: str | None = Field(default=None, max_length=64, pattern=r"^$|^[A-Za-z0-9_.-]+$")
 
 
 class PasswordChangeIn(BaseModel):
@@ -146,6 +155,12 @@ async def update_profile(body: ProfileIn, auth: CurrentAuth, db: DB) -> UserOut:
         user.email = (body.email or "").strip() or None
     if body.email_notifications is not None:
         user.email_notifications = body.email_notifications
+    if body.jira_intake_enabled is not None:
+        user.jira_intake_enabled = body.jira_intake_enabled
+    if "jira_intake_jql" in changed:
+        user.jira_intake_jql = (body.jira_intake_jql or "").strip() or None
+    if "jira_autoplan_label" in changed:
+        user.jira_autoplan_label = (body.jira_autoplan_label or "").strip() or None
     await audit(db, "profile.update", user_id=user.id, detail={"fields": sorted(changed)})
     await db.commit()
     return UserOut.of(user)

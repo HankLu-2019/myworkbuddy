@@ -15,7 +15,7 @@ Goal: each Jira ticket assigned to a user becomes a **work item** on a board. Th
 
 v1 limitation: one repository per work item. If a ticket needs two repos, the planner says so in `ambiguities`, and the user creates a second work item for the other repo.
 
-## 2. Data model (migration 0006)
+## 2. Data model (migrations 0011–)
 
 ```sql
 create table jira_issues (                -- per-user cache, refreshed by intake and on open
@@ -224,6 +224,14 @@ Not an LLM run. Periodic `jira_intake_tick` (every 30 minutes, queue `default`) 
 4. Optional auto-draft (`users.jira_autoplan_label`, e.g. `mwb-plan`): issues with that label and a project get `draft_plan` deferred, at most `MWB_AUTOPLAN_PER_DAY` (default 5) per user per day.
 
 Issues that leave the JQL result are not deleted; their work items show the latest Jira status and can be dismissed.
+
+*Changed while building P1:*
+
+- **Migration numbering:** Phase 2 used 0006–0010, so `jira_issues`, `work_items` and the users' intake columns are migration 0011; `plans`, `plan_revisions` and `approvals` follow with P2. `work_items.current_plan_id` is a plain UUID until `plans` exists.
+- **Intake runs per Jira integration** the user has credentials for (`jira_issues.integration_id`); a failing integration (401, outage) is logged and skipped, the others still run. Issues are fetched with `startAt` paging, 50 at a time, up to 100, with `(<jql>) AND updated >= -30d ORDER BY updated DESC`. `fields` stores description (ADF flattened), labels, components, links and assignee.
+- **Repository guess:** exact, case-insensitive match of a component or label against the names of repositories the user can see (their own and the team's), used only when exactly one matches.
+- **Auto-draft (step 4) arrives with the planner in P3**, since it defers `draft_plan`; `MWB_AUTOPLAN_PER_DAY` and its acceptance test move there.
+- **API details:** `POST /api/work-items` takes an optional `integration_id` (required when the user has several Jira integrations); a duplicate is `409 conflict` with the existing `work_item_id`; an unknown issue is 404. `GET /api/work-items` hides dismissed items unless `state=dismissed` is asked for, and `state` may repeat. `PATCH` changes the repository only while the item is `new` or `dismissed`, and allows only `new ↔ dismissed` state changes. `GET /api/work-items/{id}` returns the cached description, links and assignee. Intake settings are on `PATCH /api/auth/me` (the API table's `PATCH /api/me`).
 
 ## 8. API
 

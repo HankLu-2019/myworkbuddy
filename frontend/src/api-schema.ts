@@ -1174,6 +1174,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/work-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Work Items */
+        get: operations["list_work_items_api_work_items_get"];
+        put?: never;
+        /** Add Work Item */
+        post: operations["add_work_item_api_work_items_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/work-items/{work_item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Work Item */
+        get: operations["get_work_item_api_work_items__work_item_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Work Item */
+        patch: operations["update_work_item_api_work_items__work_item_id__patch"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1868,6 +1904,12 @@ export interface components {
             email?: string | null;
             /** Email Notifications */
             email_notifications?: boolean | null;
+            /** Jira Autoplan Label */
+            jira_autoplan_label?: string | null;
+            /** Jira Intake Enabled */
+            jira_intake_enabled?: boolean | null;
+            /** Jira Intake Jql */
+            jira_intake_jql?: string | null;
             /** Timezone */
             timezone?: string | null;
         };
@@ -1982,6 +2024,13 @@ export interface components {
              * @enum {string}
              */
             visibility: "private" | "public";
+        };
+        /** ProjectRef */
+        ProjectRef: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
         };
         /** ProposalOut */
         ProposalOut: {
@@ -2470,6 +2519,15 @@ export interface components {
             id: number;
             /** Is Active */
             is_active: boolean;
+            /** Jira Autoplan Label */
+            jira_autoplan_label?: string | null;
+            /**
+             * Jira Intake Enabled
+             * @default false
+             */
+            jira_intake_enabled: boolean;
+            /** Jira Intake Jql */
+            jira_intake_jql?: string | null;
             /** Last Login At */
             last_login_at?: string | null;
             /** Llm Budget Usd */
@@ -2527,6 +2585,15 @@ export interface components {
             initial_password: string;
             /** Is Active */
             is_active: boolean;
+            /** Jira Autoplan Label */
+            jira_autoplan_label?: string | null;
+            /**
+             * Jira Intake Enabled
+             * @default false
+             */
+            jira_intake_enabled: boolean;
+            /** Jira Intake Jql */
+            jira_intake_jql?: string | null;
             /** Last Login At */
             last_login_at?: string | null;
             /** Llm Budget Usd */
@@ -2578,6 +2645,131 @@ export interface components {
              * @enum {string}
              */
             visibility: "private" | "public";
+        };
+        /** WorkItemDetail */
+        WorkItemDetail: {
+            /** Assignee */
+            assignee: string | null;
+            /** Components */
+            components: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Current Plan Id */
+            current_plan_id: string | null;
+            /** Description */
+            description: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Issue Type */
+            issue_type: string | null;
+            /** Jira Status */
+            jira_status: string;
+            /** Jira Url */
+            jira_url: string;
+            /** Key */
+            key: string;
+            /** Labels */
+            labels: string[];
+            /** Links */
+            links: {
+                [key: string]: string;
+            }[];
+            /** Priority */
+            priority: string | null;
+            project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "new" | "planning" | "needs_decision" | "approved" | "in_progress" | "in_review" | "done" | "dismissed";
+            /** Summary */
+            summary: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Updated Remote
+             * Format: date-time
+             */
+            updated_remote: string;
+        };
+        /** WorkItemIn */
+        WorkItemIn: {
+            /** Integration Id */
+            integration_id?: number | null;
+            /** Jira Key */
+            jira_key: string;
+            /** Project Id */
+            project_id?: number | null;
+        };
+        /** WorkItemOut */
+        WorkItemOut: {
+            /** Components */
+            components: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Current Plan Id */
+            current_plan_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Issue Type */
+            issue_type: string | null;
+            /** Jira Status */
+            jira_status: string;
+            /** Jira Url */
+            jira_url: string;
+            /** Key */
+            key: string;
+            /** Labels */
+            labels: string[];
+            /** Priority */
+            priority: string | null;
+            project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "new" | "planning" | "needs_decision" | "approved" | "in_progress" | "in_review" | "done" | "dismissed";
+            /** Summary */
+            summary: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Updated Remote
+             * Format: date-time
+             */
+            updated_remote: string;
+        };
+        /** WorkItemPage */
+        WorkItemPage: {
+            /** Items */
+            items: components["schemas"]["WorkItemOut"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /** WorkItemUpdate */
+        WorkItemUpdate: {
+            /** Project Id */
+            project_id?: number | null;
+            /** State */
+            state?: ("dismissed" | "new") | null;
         };
         /** SessionOut */
         app__auth__routes__SessionOut: {
@@ -5102,6 +5294,138 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PageOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_work_items_api_work_items_get: {
+        parameters: {
+            query?: {
+                state?: ("new" | "planning" | "needs_decision" | "approved" | "in_progress" | "in_review" | "done" | "dismissed")[] | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkItemPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_work_item_api_work_items_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkItemIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkItemDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_work_item_api_work_items__work_item_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                work_item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkItemDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_work_item_api_work_items__work_item_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                work_item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkItemUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkItemDetail"];
                 };
             };
             /** @description Validation Error */

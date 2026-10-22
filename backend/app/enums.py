@@ -148,6 +148,17 @@ class ProposalStatus(StrEnum):
     expired = "expired"
 
 
+class WorkItemState(StrEnum):
+    new = "new"
+    planning = "planning"
+    needs_decision = "needs_decision"
+    approved = "approved"
+    in_progress = "in_progress"
+    in_review = "in_review"
+    done = "done"
+    dismissed = "dismissed"
+
+
 def check(column: str, enum: type[StrEnum]) -> str:
     """SQL for a CHECK constraint that keeps `column` within `enum`."""
     values = ", ".join(f"'{e.value}'" for e in enum)

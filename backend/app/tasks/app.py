@@ -5,7 +5,7 @@ from decimal import Decimal
 import procrastinate
 import structlog
 from procrastinate.exceptions import AlreadyEnqueued
-from sqlalchemy import func, update
+from sqlalchemy import func, select, update
 
 from app import maintenance
 from app.config import get_settings
@@ -317,3 +317,27 @@ async def agent_evals(timestamp: int) -> dict[str, int] | None:
     await put_state(STATE_KEY, s | {"at": _now().isoformat()})
     log.info("agent_evals.done", passed=s["passed"], total=s["total"], cost_usd=s["cost_usd"])
     return {"passed": s["passed"], "total": s["total"]}
+
+
+# ---------- Phase 3: Jira intake (design 03 §7) ----------
+
+
+@app.task(name="jira_intake", retry=False)
+async def jira_intake(user_id: int) -> dict[str, int]:
+    from app.plans.work_items import run_intake
+
+    structlog.contextvars.bind_contextvars(task="jira_intake", user_id=user_id)
+    r = await run_intake(user_id)
+    counts = {"issues": r.issues, "created": len(r.created), "failed": len(r.failed)}
+    log.info("jira_intake.done", **counts)
+    return counts
+
+
+@app.periodic(cron="*/30 * * * *")
+@app.task(name="jira_intake_tick", queueing_lock="jira_intake_tick")
+async def jira_intake_tick(timestamp: int) -> int:
+    async with get_sessionmaker()() as db:
+        ids = list(await db.scalars(select(User.id).where(User.is_active, User.jira_intake_enabled)))
+    for uid in ids:
+        await defer_once(jira_intake, f"intake:{uid}", user_id=uid)
+    return len(ids)

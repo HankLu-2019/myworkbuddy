@@ -146,12 +146,13 @@ Design: [02-schedules-connectors.md](design/02-schedules-connectors.md).
 
 Design: [03-plans.md](design/03-plans.md).
 
-- [ ] **P1 Jira cache, work items, intake** (03 §2, §7).
+- [x] **P1 Jira cache, work items, intake** (03 §2, §7).
   - Acceptance: intake upserts issues and creates work items once; component/label → project matching; autoplan respects the daily limit; work items are owner-only (leakage tests).
+  - Done with the changes recorded in 03 §7 ("Changed while building P1"): migration 0011, intake per Jira integration with paging, and auto-draft (with its daily-limit test) moved to P3 where `draft_plan` exists.
 - [ ] **P2 PlanDoc and validation** (03 §3–4) incl. `approvals` table and its update trigger.
   - Acceptance: one test per validation rule; canonical hashing is stable across key order; approvals cannot be updated.
-- [ ] **P3 Planner and repo read tools** (03 §5).
-  - Acceptance: repo tools refuse paths outside the checkout, symlinks, binaries, oversize files; planner toolset is read-only; invalid first draft triggers exactly one fix attempt; an injected Jira description asking for an unknown network host yields a validation error, not an approved host.
+- [ ] **P3 Planner and repo read tools** (03 §5, and intake auto-draft from §7 step 4).
+  - Acceptance: autoplan respects the daily limit; repo tools refuse paths outside the checkout, symlinks, binaries, oversize files; planner toolset is read-only; invalid first draft triggers exactly one fix attempt; an injected Jira description asking for an unknown network host yields a validation error, not an approved host.
 - [ ] **P4 Approval flow and revisions** (03 §6).
   - Acceptance: stale revision or hash → 409; missing acknowledgements → 422; user edits create new revisions that are not approved; reject resets the work item; field-level diff endpoint.
 - [ ] **P5 Board and work item hub** (03 §9, 07 §4.9, §4.10, §5.8): board, hub with progress strip and Ticket/Plan tabs, revision compare, Discuss in chat.
