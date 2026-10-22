@@ -1,6 +1,7 @@
 """The runner's service logic against an in-memory Docker (design 04 §4, §9 tests 4, 5 and 9)."""
 
 import io
+import os
 import tarfile
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -132,9 +133,10 @@ def test_sweep_kills_overdue_runs_and_removes_orphans(setup) -> None:
 
     # The API can't be asked: only the timeout is enforced (60 s + 60 s grace).
     report = runner.sweep(None, now=started + timedelta(seconds=119))
-    assert report == {"timed_out": 0, "containers": 0, "volumes": 0, "acls": 1}
+    assert report == {"timed_out": 0, "too_large": 0, "containers": 0, "volumes": 0, "acls": 1}
     report = runner.sweep(None, now=started + timedelta(seconds=121))
     assert report["timed_out"] == 1 and runner.run_status(slow)["state"] == "killed"
+    assert runner.run_status(slow)["reason"] == "timeout"
     assert not (jobs_dir / f"run-{slow}.conf").exists()
     assert len(ops.containers_) == 2 and len(ops.volumes_) == 2
 
@@ -145,6 +147,25 @@ def test_sweep_kills_overdue_runs_and_removes_orphans(setup) -> None:
     assert list(ops.volumes_) == [volume_name(JOB)]
     with pytest.raises(NotFound):
         runner.run_status(orphan)
+
+
+def test_a_run_whose_workspace_grows_too_large_is_killed(setup, tmp_path) -> None:
+    """04 §7: the sweep measures the job's volume through the Docker root and kills a run past MWB_JOB_DISK_GB."""
+    ops, runner, _ = setup
+    runner.create_workspace(JOB)
+    run = runner.start_run(RunRequest(job_id=JOB, preset="agent", timeout_s=3600))
+    data = tmp_path / "docker-root" / "volumes" / volume_name(JOB) / "_data" / "build"
+    data.mkdir(parents=True)
+    runner.s.docker_root = str(tmp_path / "docker-root")
+    runner.s.job_disk_gb = 64 / 1024**2  # 64 KiB
+    started = datetime(2026, 10, 22, 10, 0, tzinfo=UTC)
+    (data / "small.bin").write_bytes(b"x" * 1024)
+    assert runner.sweep(None, now=started + timedelta(seconds=10))["too_large"] == 0
+    (data / "big.bin").write_bytes(os.urandom(256 * 1024))
+    report = runner.sweep(None, now=started + timedelta(seconds=20))
+    assert report["too_large"] == 1
+    status = runner.run_status(run)
+    assert status["state"] == "killed" and status["reason"] == "disk_limit"
 
 
 def test_health(setup) -> None:

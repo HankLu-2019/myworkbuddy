@@ -297,6 +297,10 @@ async def run_agent(ctx: dict[str, Any]) -> None:
             await _finish(job, S.running, S.budget_exceeded, "running", "budget_exceeded",
                           "The job reached its AI budget.")  # fmt: skip
             return
+        if state == "killed" and (status or {}).get("reason") == "disk_limit":
+            await _finish(job, S.running, S.failed, "running", "workspace_too_large",
+                          "The workspace grew past the sandbox's disk limit.")  # fmt: skip
+            return
         if state == "killed" or status is None:
             await _finish(job, S.running, S.timed_out, "running", "timed_out",
                           f"The agent didn't finish within {policy['timeout_min']} minutes.")  # fmt: skip

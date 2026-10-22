@@ -354,6 +354,24 @@ async def draft_plan_task(plan_id: str, feedback: str | None = None) -> None:
     await draft_plan(uuid.UUID(plan_id), feedback)
 
 
+@app.periodic(cron="23 * * * *")
+@app.task(name="jobs_track", queueing_lock="jobs_track", lock="jobs_track")
+async def jobs_track(timestamp: int) -> dict[str, int]:
+    """Hourly: merged or closed review requests of pushed jobs (04 §6 Tracking)."""
+    from app.jobs.track import track_pushed
+
+    return await track_pushed()
+
+
+@app.periodic(cron="47 * * * *")
+@app.task(name="jobs_cleanup", queueing_lock="jobs_cleanup", lock="jobs_cleanup")
+async def jobs_cleanup(timestamp: int) -> dict[str, int]:
+    """Hourly: jobs left in review, old artifacts, keys whose removal failed (04 §7)."""
+    from app.jobs.track import cleanup
+
+    return await cleanup()
+
+
 @app.task(name="job_advance", queue="jobs", retry=False)
 async def job_advance_task(job_id: str) -> str | None:
     """A coding job's next steps (design 04 §5): prepare, run the agent, verify; locked per job."""
