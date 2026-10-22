@@ -15,6 +15,7 @@ const PREVIEW: PushPayload = {
   jira_comment: { enabled: true, body: "Merge request opened: <link placeholder>" },
   patch_sha256: "f".repeat(64),
   acknowledgements: [],
+  review_replies: [],
 };
 
 describe("Push review", () => {

@@ -849,6 +849,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{job_id}/review-comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Review Comments
+         * @description Open comments on the job's merge request or change (08 §F2). Their text is untrusted: render it as text.
+         */
+        get: operations["review_comments_api_jobs__job_id__review_comments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/knowledge/documents": {
         parameters: {
             query?: never;
@@ -1785,7 +1805,15 @@ export interface components {
         };
         /** ChangesIn */
         ChangesIn: {
-            /** Feedback */
+            /**
+             * Comment Ids
+             * @default []
+             */
+            comment_ids: string[];
+            /**
+             * Feedback
+             * @default
+             */
             feedback: string;
         };
         /** Checklist */
@@ -2827,6 +2855,11 @@ export interface components {
             merge_request?: components["schemas"]["MergeRequestIn"] | null;
             /** Patch Sha256 */
             patch_sha256: string;
+            /**
+             * Review Replies
+             * @default []
+             */
+            review_replies: components["schemas"]["ReviewReplyIn"][];
             target: components["schemas"]["Target"];
         };
         /** RecentChat */
@@ -2888,6 +2921,13 @@ export interface components {
         RevertOut: {
             /** Reverted */
             reverted: string[];
+        };
+        /** ReviewReplyIn */
+        ReviewReplyIn: {
+            /** Body */
+            body: string;
+            /** Comment Id */
+            comment_id: string;
         };
         /** Revise */
         Revise: {
@@ -5366,6 +5406,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_comments_api_jobs__job_id__review_comments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: {
+                            [key: string]: unknown;
+                        }[];
+                    };
                 };
             };
             /** @description Validation Error */

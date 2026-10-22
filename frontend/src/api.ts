@@ -200,6 +200,17 @@ export type JobStatus = Job["status"];
 
 export type PushPayload = Schemas["PushPayload"];
 
+/** An open comment on the job's merge request or change (08 §F2). Its text is untrusted: render as text. */
+export interface ReviewComment {
+  id: string;
+  reply_to: string;
+  author: string;
+  path: string | null;
+  line: number | null;
+  body: string;
+  url: string | null;
+}
+
 /** `JobOut.push` (04 §6): the approved payload and what each push step left behind. */
 export interface JobPush {
   state?: "approved" | "branch_pushed" | "review_requested" | "done";
@@ -215,6 +226,9 @@ export interface JobPush {
     failed: { name: string | null; id: number | null; stage: string | null; url: string | null; message?: string }[];
     checked_at: string;
   };
+  /** Review comments this round addresses; replies may answer them (08 §F2). */
+  addressed?: { id: string; reply_to: string; path: string | null; line: number | null; author: string }[];
+  addressed_round?: number;
   /** Set when a push failed and the job went back to review (08 §F5). */
   error?: { code: string; message: string; at: string };
 }

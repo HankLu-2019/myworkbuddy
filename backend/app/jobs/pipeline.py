@@ -150,8 +150,9 @@ async def _reapply(job: Job, repo: Path, resume: dict[str, Any]) -> None:
         except RuntimeError as exc:
             raise StepFailed("preparing", "patch_failed", f"The pushed changes don't apply: {str(exc)[:300]}") from None
     feedback = resume.get("feedback", "")
-    # "ci": the server built feedback.md itself (08 §F1); otherwise the user's words under a reviewer header.
-    (repo / ".mwb" / "feedback.md").write_text(feedback if resume.get("kind") == "ci" else review_feedback_md(feedback))
+    # "built": the server wrote feedback.md itself (CI logs, review comments; 08 §F1–F2); "review": the user's words.
+    prebuilt = resume.get("kind", "review") != "review"
+    (repo / ".mwb" / "feedback.md").write_text(feedback if prebuilt else review_feedback_md(feedback))
 
 
 async def prepare(ctx: dict[str, Any]) -> None:
