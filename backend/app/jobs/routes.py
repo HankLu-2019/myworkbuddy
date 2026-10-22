@@ -283,7 +283,8 @@ async def request_changes(job_id: uuid.UUID, body: ChangesIn, auth: CurrentAuth,
     moved = await transition_in(
         db, job.id, S.awaiting_review, S.running, actor_id=auth.user.id, ip=client_ip(request),
         review_round=job.review_round + 1, attempt=1, result=None, current_run=None,
-        detail={"note": f"Changes requested (round {job.review_round + 1}).", "feedback_chars": len(body.feedback)},
+        detail={"note": f"Changes requested (round {job.review_round + 1}).", "feedback_chars": len(body.feedback),
+                "user_note": body.feedback[:1000]},
     )  # fmt: skip
     if moved is None:
         raise AppError(status.HTTP_409_CONFLICT, "plan_changed", "The job changed meanwhile. Reload.")
@@ -322,7 +323,9 @@ async def _open_comments(db: DB, job: Job, user: User) -> list[dict]:
 async def _changes_after_push(db: DB, job: Job, body: "ChangesIn", user: User, ip: str | None) -> JobOut:
     note = f"Changes requested after the push (round {job.review_round + 1})."
     if not body.comment_ids:
-        return await _round_after_push(db, job, body.feedback, user, ip, kind="review", note=note)
+        return await _round_after_push(
+            db, job, body.feedback, user, ip, kind="review", note=note, user_note=body.feedback
+        )
     from app.jobs import review
 
     open_ = {c["id"]: c for c in await _open_comments(db, job, user)}  # re-fetched: never the client's text
@@ -335,7 +338,7 @@ async def _changes_after_push(db: DB, job: Job, body: "ChangesIn", user: User, i
     addressed = [{k: c[k] for k in ("id", "reply_to", "path", "line", "author")} for c in chosen]
     return await _round_after_push(
         db, job, feedback, user, ip, kind="built", note=f"Addressing {len(chosen)} review comment(s).",
-        extra={"addressed": addressed, "addressed_round": job.review_round + 1},
+        extra={"addressed": addressed, "addressed_round": job.review_round + 1}, user_note=body.feedback,
     )  # fmt: skip
 
 
@@ -349,7 +352,16 @@ async def review_comments(job_id: uuid.UUID, auth: CurrentAuth, db: DB) -> dict[
 
 
 async def _round_after_push(
-    db: DB, job: Job, feedback: str, user: User, ip: str | None, *, kind: str, note: str, extra: dict | None = None
+    db: DB,
+    job: Job,
+    feedback: str,
+    user: User,
+    ip: str | None,
+    *,
+    kind: str,
+    note: str,
+    extra: dict | None = None,
+    user_note: str | None = None,
 ) -> JobOut:
     """A new round after a push (04 §6): the workspace and key are gone, so the job prepares again from the pushed
     patch plus the feedback, with a new LLM key; the next approved push updates the same branch or change.
@@ -381,7 +393,8 @@ async def _round_after_push(
     moved = await transition_in(
         db, job_id, S.pushed, S.preparing, actor_id=user.id, ip=ip, review_round=round_ + 1, attempt=1,
         result=None, current_run=None, error=None, error_code=None, push=push,
-        detail={"note": note, "feedback_chars": len(feedback)},
+        detail={"note": note, "feedback_chars": len(feedback),
+                **({"user_note": user_note.strip()[:1000]} if user_note and user_note.strip() else {})},
     )  # fmt: skip
     if moved is None:
         raise AppError(status.HTTP_409_CONFLICT, "plan_changed", "The job changed meanwhile. Reload.")
@@ -439,7 +452,8 @@ async def fix_ci(job_id: uuid.UUID, body: FixCiIn, auth: CurrentAuth, db: DB, re
     feedback = ci.failure_feedback(pipeline, logs, body.note)
     job = await _job_or_404(db, job_id, auth.user)
     return await _round_after_push(db, job, feedback, auth.user, client_ip(request), kind="built",
-                                   note=f"Fixing the failed pipeline (round {job.review_round + 1}).")  # fmt: skip
+                                   note=f"Fixing the failed pipeline (round {job.review_round + 1}).",
+                                   user_note=body.note)  # fmt: skip
 
 
 @router.get("/api/jobs/{job_id}/push-preview", response_model=PushPayload)

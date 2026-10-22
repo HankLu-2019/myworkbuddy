@@ -26,6 +26,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   episode: "Session",
   code: "Code",
   repo_doc: "Repo doc",
+  change: "Change", // a merged job (08 §F7)
   upload: "Document",
 };
 

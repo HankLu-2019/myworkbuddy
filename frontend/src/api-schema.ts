@@ -2052,7 +2052,7 @@ export interface components {
              * Source Type
              * @enum {string}
              */
-            source_type: "upload" | "wiki" | "episode" | "code" | "repo_doc";
+            source_type: "upload" | "wiki" | "episode" | "code" | "repo_doc" | "change";
             /** Title */
             title: string;
             /**
@@ -2143,7 +2143,7 @@ export interface components {
              * Source Type
              * @enum {string}
              */
-            source_type: "upload" | "wiki" | "episode" | "code" | "repo_doc";
+            source_type: "upload" | "wiki" | "episode" | "code" | "repo_doc" | "change";
             /** Title */
             title: string;
             /**

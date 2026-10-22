@@ -255,6 +255,12 @@ It does not contain the diff; the repository's code index already has the merged
 - Another user's private change never appears in their search, chat or planner context.
 - The planner context includes similar changes from the same repository only.
 
+*Changed while building F7:*
+- Feedback typed in later rounds wasn't stored anywhere except the overlay sent to the sandbox. The status event of each round now keeps the user's own words (`user_note`, ≤ 1000 chars): request changes, the note on Fix CI failure, and the note on Address review comments. The change document lists them under "What the reviewer asked for".
+- `index_change` runs on the `llm` queue (it embeds), deferred once per job by `jobs_track` when the job is merged.
+- The planner's "Similar past changes" are wrapped as untrusted (they carry Jira and planner text) and carry `document_id`, so the plan can cite them.
+- Search and chat can filter `scope: "changes"`, and the UI labels the source "Change". Migration 0019 widens the documents source CHECK.
+
 ## F8. Slack and Teams notifications
 
 **Why:** the inbox and email exist (02 §5); teams live in chat (ADR-9 deferred this to Phase 5).

@@ -63,7 +63,7 @@ class VisibilityIn(BaseModel):
 class HitOut(BaseModel):
     document_id: int
     title: str
-    source_type: Literal["upload", "wiki", "episode", "code", "repo_doc"]
+    source_type: Literal["upload", "wiki", "episode", "code", "repo_doc", "change"]
     source_ref: str
     visibility: Literal["private", "public"]
     owner_id: int
@@ -108,7 +108,7 @@ async def search(
 class DocumentOut(BaseModel):
     id: int
     title: str
-    source_type: Literal["upload", "wiki", "episode", "code", "repo_doc"]
+    source_type: Literal["upload", "wiki", "episode", "code", "repo_doc", "change"]
     source_ref: str
     visibility: Literal["private", "public"]
     owner_id: int
