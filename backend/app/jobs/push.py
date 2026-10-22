@@ -48,6 +48,7 @@ from app.plans.schema import canonical_json
 S = JobStatus
 PUSH_ACK = "push despite failing checks"
 LINK_PLACEHOLDER = "<link placeholder>"
+COMMIT_PLACEHOLDER = "<commit placeholder>"
 GIT_TIMEOUT_S = 600
 CHANGE_URL = re.compile(r"(https?://\S+?/(?:c/\S+?/\+/|#/c/)\d+)")
 
@@ -88,6 +89,11 @@ class JiraCommentIn(BaseModel):
     body: str = Field(max_length=20_000)
 
 
+class ReviewReplyIn(BaseModel):
+    comment_id: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1, max_length=2000)
+
+
 class PushPayload(BaseModel):
     target: Target
     commit: CommitIn
@@ -96,6 +102,7 @@ class PushPayload(BaseModel):
     jira_comment: JiraCommentIn | None = None
     patch_sha256: str
     acknowledgements: list[str] = []
+    review_replies: list[ReviewReplyIn] = Field([], max_length=50)  # 08 §F2
 
 
 def payload_hash(payload: dict[str, Any]) -> str:
@@ -178,7 +185,15 @@ def build_preview(job: Job, c: dict[str, Any]) -> dict[str, Any]:
         "jira_comment": None if already_commented or not c["jira_ok"] else {"enabled": True, "body": comment},
         "patch_sha256": result.get("patch_sha256", ""),
         "acknowledgements": [],  # the user ticks "push despite failing checks" themselves (07 §5.9 step 6)
+        "review_replies": [{"comment_id": a["id"], "body": f"Addressed in {COMMIT_PLACEHOLDER}."}
+                           for a in addressed_comments(job)],  # 08 §F2
     }  # fmt: skip
+
+
+def addressed_comments(job: Job) -> list[dict[str, Any]]:
+    """The review comments this round was asked to address (08 §F2): the ones a reply may answer."""
+    push = job.push or {}
+    return list(push.get("addressed") or []) if push.get("addressed_round") == job.review_round else []
 
 
 async def preview(db: AsyncSession, job: Job) -> dict[str, Any]:
@@ -214,6 +229,13 @@ async def approve(db: AsyncSession, job: Job, body: PushPayload, user: User, ip:
         raise AppError(
             status.HTTP_422_UNPROCESSABLE_CONTENT, "validation_error",
             f"Keep the line 'Change-Id: {cid}' in the commit message.", field="commit.message",
+        )  # fmt: skip
+    allowed = {a["id"] for a in addressed_comments(job)}
+    ids = [r["comment_id"] for r in payload["review_replies"]]
+    if len(set(ids)) != len(ids) or not set(ids) <= allowed:
+        raise AppError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "validation_error",
+            "Replies can only answer the review comments this round addressed, once each.", field="review_replies",
         )  # fmt: skip
     if (job.result or {}).get("failed_checks") and PUSH_ACK not in payload["acknowledgements"]:
         raise AppError(
@@ -491,6 +513,37 @@ async def _jira_comment(job: Job, payload: dict[str, Any], env: dict[str, Any], 
     }
 
 
+async def _replies(job: Job, payload: dict[str, Any], env: dict[str, Any]) -> None:
+    """Step 5b (08 §F2): the approved replies to review comments, each recorded once posted."""
+    from app.jobs import review
+
+    replies = payload.get("review_replies") or []
+    if not replies:
+        return
+    by_id = {a["id"]: a for a in addressed_comments(job)}
+    done = set((job.push or {}).get("replies_done") or [])
+    short = ((job.push or {}).get("pushed_sha") or "")[:12]
+    conn = Connection(job.owner_id, env["integration"], env["creds"])
+    try:
+        for r in replies:
+            comment = by_id.get(r["comment_id"])
+            if comment is None or r["comment_id"] in done:
+                continue
+            body = r["body"].replace(COMMIT_PLACEHOLDER, short)
+            try:
+                reply_id = await review.post_reply(job, conn, env["project"], comment, body)
+            except ConnectorError as exc:
+                code = "credential_invalid" if exc.code == "auth_failed" else "review_reply_failed"
+                raise StepFailed(code, exc.message) from None
+            done.add(r["comment_id"])
+            job.push = {**job.push, "replies_done": sorted(done)}
+            await _save(job.id, job.push)
+            await _audit(job, "job.review_reply", {"approval_id": job.push.get("approval_id"),
+                                                   "comment_id": r["comment_id"], "reply_id": reply_id})  # fmt: skip
+    finally:
+        await conn.close()
+
+
 async def push(job: Job, key: str) -> None:
     """The steps of 04 §6, each recorded in `jobs.push` so a redelivered task resumes after the last one done."""
     if job.status == S.approved_push:
@@ -528,6 +581,7 @@ async def push(job: Job, key: str) -> None:
             await record_event(
                 job.id, JobEventType.push, {"note": "Commented on Jira.", "url": posted["jira_comment_url"]}
             )
+        await _replies(job, payload, env)
         job.push = {**job.push, "state": "done"}
         await _save(job.id, job.push)
     async with get_sessionmaker()() as db:

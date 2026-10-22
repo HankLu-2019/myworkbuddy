@@ -13,6 +13,7 @@ import {
   type JobStatus,
   type Plan,
   type PushPayload,
+  type ReviewComment,
   type WorkItem,
   type WorkItemDetail,
 } from "../../api";
@@ -275,6 +276,96 @@ function VerifyLog({ v }: { v: JobResult["verify"][number] }) {
   );
 }
 
+function AddressCommentsButton({ job }: { job: Job }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <div className="row">
+        <Button onClick={() => setOpen(true)}>Address review comments</Button>
+      </div>
+      <AddressComments job={job} open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
+
+/** Pick open review comments for the agent to address (08 §F2). Comment text is shown as plain text. */
+function AddressComments({ job, open, onOpenChange }: { job: Job; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const comments = useQuery({
+    queryKey: ["jobs", job.id, "review-comments"],
+    queryFn: () => api<{ items: ReviewComment[] }>(`/api/jobs/${job.id}/review-comments`),
+    enabled: open,
+  });
+  const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  const [note, setNote] = useState("");
+  const items = comments.data?.items ?? [];
+  const chosen = items.filter((c) => !skipped.has(c.id)).map((c) => c.id);
+  const send = useMutation({
+    mutationFn: () => api<Job>(`/api/jobs/${job.id}/request-changes`, { method: "POST", json: { feedback: note, comment_ids: chosen } }),
+    onSuccess: () => {
+      onOpenChange(false);
+      setNote("");
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["work"] });
+      toast({ title: `The agent is addressing ${chosen.length} comment${chosen.length === 1 ? "" : "s"}`, tone: "success" });
+    },
+  });
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Address review comments"
+      description="The agent gets the chosen comments and your note. You review its changes before anything is pushed."
+      actions={
+        <>
+          <Button variant="secondary" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button variant="primary" pending={send.isPending} disabled={!chosen.length} onClick={() => send.mutate()}>
+            Address {chosen.length} comment{chosen.length === 1 ? "" : "s"}
+          </Button>
+        </>
+      }
+    >
+      {comments.error ? (
+        <ErrorNote error={comments.error} />
+      ) : comments.isLoading ? (
+        <SkeletonRows rows={3} />
+      ) : !items.length ? (
+        <p className="muted">No open comments.</p>
+      ) : (
+        <div className="stack">
+          <ul className="plain" aria-label="Open comments">
+            {items.map((c) => {
+              const where = `${c.path ?? "General"}${c.line ? `:${c.line}` : ""}`;
+              return (
+                <li key={c.id} className="stack-tight">
+                  <Checkbox
+                    label={`${where} · ${c.author}`}
+                    checked={!skipped.has(c.id)}
+                    onChange={(v) =>
+                      setSkipped((prev) => {
+                        const next = new Set(prev);
+                        if (v) next.delete(c.id);
+                        else next.add(c.id);
+                        return next;
+                      })
+                    }
+                  />
+                  <p className="pre-wrap small muted">{c.body}</p>
+                </li>
+              );
+            })}
+          </ul>
+          <TextArea label="Your note (optional)" rows={2} maxLength={4000} value={note} onChange={(e) => setNote(e.target.value)} />
+          <ErrorNote error={send.error} />
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
 function RequestChanges({ job }: { job: Job }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -324,6 +415,7 @@ export function PushDialog({ job, open, onOpenChange }: { job: Job; open: boolea
     enabled: open,
   });
   const [draft, setDraft] = useState<PushPayload | null>(null);
+  const [skipped, setSkipped] = useState<Set<string>>(new Set());
   useEffect(() => {
     if (open && preview.data) setDraft(structuredClone(preview.data));
     if (!open) setDraft(null);
@@ -361,7 +453,7 @@ export function PushDialog({ job, open, onOpenChange }: { job: Job; open: boolea
           <Button variant="secondary" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button variant="primary" pending={approve.isPending} disabled={!draft || (failed && !acked)} onClick={() => draft && approve.mutate(draft)}>
+          <Button variant="primary" pending={approve.isPending} disabled={!draft || (failed && !acked)} onClick={() => draft && approve.mutate({ ...draft, review_replies: (draft.review_replies ?? []).filter((r) => !skipped.has(r.comment_id)) })}>
             {gerrit ? "Upload change to Gerrit" : "Push branch and open merge request"}
           </Button>
         </>
@@ -398,6 +490,42 @@ export function PushDialog({ job, open, onOpenChange }: { job: Job; open: boolea
                 onChange={(e) => set((d) => void (d.merge_request!.description = e.target.value))}
               />
             </>
+          )}
+          {(draft.review_replies ?? []).length > 0 && (
+            <fieldset className="stack-tight">
+              <legend>Replies to review comments</legend>
+              <p className="muted small">Posted after the push, then each thread is resolved. &lt;commit placeholder&gt; becomes the pushed commit.</p>
+              {(draft.review_replies ?? []).map((r, i) => {
+                const c = ((job.push ?? {}) as JobPush).addressed?.find((a) => a.id === r.comment_id);
+                const where = c ? `${c.path ?? "the change"}${c.line ? `:${c.line}` : ""} (${c.author})` : r.comment_id;
+                const on = !skipped.has(r.comment_id);
+                return (
+                  <div key={r.comment_id} className="stack-tight">
+                    <Checkbox
+                      label={`Reply on ${where}`}
+                      checked={on}
+                      onChange={(v) =>
+                        setSkipped((prev) => {
+                          const next = new Set(prev);
+                          if (v) next.delete(r.comment_id);
+                          else next.add(r.comment_id);
+                          return next;
+                        })
+                      }
+                    />
+                    {on && (
+                      <TextArea
+                        label={`Reply text for ${where}`}
+                        hideLabel
+                        rows={2}
+                        value={r.body}
+                        onChange={(e) => set((d) => void (d.review_replies![i].body = e.target.value))}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </fieldset>
           )}
           {draft.jira_comment ? (
             <>
@@ -518,6 +646,7 @@ function Pushed({ job }: { job: Job }) {
         )}
       </ul>
       <Pipeline job={job} />
+      {job.status === "pushed" && <AddressCommentsButton job={job} />}
       {job.status === "pushed" && <p className="muted">Watching for merge.</p>}
       {job.status === "merged" && <Banner tone="success">Merged.</Banner>}
       {job.status === "closed" && <Banner tone="warning">The review request was closed without merging.</Banner>}

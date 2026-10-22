@@ -45,6 +45,8 @@ STATE: dict[str, Any] = {
     "fail": {},  # endpoint name → how many more calls answer 503 (`POST /fake/fail/{name}?times=n`)
     "pipelines": [],  # merge request pipelines (`POST /fake/pipeline`)
     "gerrit_ci": {},  # change number → {"verified": -1|1, "message": str}
+    "discussions": {},  # MR iid → GitLab discussions (`POST /fake/discussion`)
+    "gerrit_comments": {},  # change number → {path: [CommentInfo]} (`POST /fake/gerrit-comment/{n}`)
 }  # fmt: skip
 
 
@@ -197,6 +199,100 @@ async def fake_pipeline(request: Request) -> JSONResponse:
     return JSONResponse({"id": pid, "sha": sha})
 
 
+@router.get("/api/v4/projects/{pid:path}/merge_requests/{iid}/discussions")
+async def gitlab_discussions(pid: str, iid: int, request: Request) -> JSONResponse:
+    if not _gitlab_ok(request):
+        return JSONResponse({"message": "401 Unauthorized"}, status_code=401)
+    return JSONResponse(STATE["discussions"].get(iid, []))
+
+
+def _discussion(iid: int, did: str) -> dict[str, Any] | None:
+    return next((d for d in STATE["discussions"].get(iid, []) if d["id"] == did), None)
+
+
+@router.get("/api/v4/projects/{pid:path}/merge_requests/{iid}/discussions/{did}")
+async def gitlab_discussion(pid: str, iid: int, did: str, request: Request) -> JSONResponse:
+    if not _gitlab_ok(request):
+        return JSONResponse({"message": "401 Unauthorized"}, status_code=401)
+    d = _discussion(iid, did)
+    return JSONResponse(d) if d else JSONResponse({"message": "404 Not found"}, status_code=404)
+
+
+@router.post("/api/v4/projects/{pid:path}/merge_requests/{iid}/discussions/{did}/notes")
+async def gitlab_discussion_note(pid: str, iid: int, did: str, request: Request) -> JSONResponse:
+    if not _gitlab_ok(request):
+        return JSONResponse({"message": "401 Unauthorized"}, status_code=401)
+    d = _discussion(iid, did)
+    if d is None:
+        return JSONResponse({"message": "404 Not found"}, status_code=404)
+    STATE["posts"]["reply"] = STATE["posts"].get("reply", 0) + 1
+    note = {"id": 9000 + STATE["posts"]["reply"], "body": (await request.json())["body"], "system": False,
+            "resolvable": True, "resolved": False, "author": {"username": "alice"}}  # fmt: skip
+    d["notes"].append(note)
+    return JSONResponse(note, status_code=201)
+
+
+@router.put("/api/v4/projects/{pid:path}/merge_requests/{iid}/discussions/{did}")
+async def gitlab_discussion_resolve(pid: str, iid: int, did: str, request: Request) -> JSONResponse:
+    if not _gitlab_ok(request):
+        return JSONResponse({"message": "401 Unauthorized"}, status_code=401)
+    d = _discussion(iid, did)
+    if d is None:
+        return JSONResponse({"message": "404 Not found"}, status_code=404)
+    resolved = request.query_params.get("resolved") == "true"
+    for n in d["notes"]:
+        n["resolved"] = resolved
+    return JSONResponse(d)
+
+
+@router.post("/fake/discussion")
+async def fake_discussion(request: Request) -> JSONResponse:
+    """A review thread on a merge request: `{mr_iid, body, author?, path?, line?, resolvable?, system?}`."""
+    b = await request.json()
+    threads = STATE["discussions"].setdefault(b["mr_iid"], [])
+    did = f"d{len(threads) + 1:040d}"[-40:]
+    position = {"new_path": b["path"], "new_line": b.get("line")} if b.get("path") else None
+    threads.append({"id": did, "notes": [{
+        "id": 7000 + len(threads), "body": b["body"], "system": b.get("system", False),
+        "resolvable": b.get("resolvable", True), "resolved": b.get("resolved", False),
+        "author": {"username": b.get("author", "bob")}, "position": position,
+    }]})  # fmt: skip
+    return JSONResponse({"id": did})
+
+
+@router.get("/a/changes/{number}/comments")
+async def gerrit_comments(number: int) -> PlainTextResponse:
+    import json
+
+    return PlainTextResponse(")]}'\n" + json.dumps(STATE["gerrit_comments"].get(number, {})))
+
+
+@router.post("/a/changes/{number}/revisions/current/review")
+async def gerrit_review(number: int, request: Request) -> PlainTextResponse:
+    body = await request.json()
+    STATE["posts"]["reply"] = STATE["posts"].get("reply", 0) + 1
+    by_path = STATE["gerrit_comments"].setdefault(number, {})
+    for path, items in (body.get("comments") or {}).items():
+        for c in items:
+            n = sum(len(v) for v in by_path.values()) + 1
+            by_path.setdefault(path, []).append({**c, "id": f"c{n}", "author": {"username": "alice"},
+                                                 "updated": f"2026-10-22 12:{n:02d}:00.000000000"})  # fmt: skip
+    return PlainTextResponse(")]}'\n{}")
+
+
+@router.post("/fake/gerrit-comment/{number}")
+async def fake_gerrit_comment(number: int, request: Request) -> JSONResponse:
+    """A reviewer's comment on a Gerrit change: `{path, line?, message, unresolved?}`."""
+    b = await request.json()
+    by_path = STATE["gerrit_comments"].setdefault(number, {})
+    n = sum(len(v) for v in by_path.values()) + 1
+    comment = {"id": f"c{n}", "line": b.get("line"), "message": b["message"], "unresolved": b.get("unresolved", True),
+               "author": {"username": b.get("author", "bob")},
+               "updated": f"2026-10-22 11:{n:02d}:00.000000000"}  # fmt: skip
+    by_path.setdefault(b["path"], []).append(comment)
+    return JSONResponse({"id": comment["id"]})
+
+
 @router.post("/fake/gerrit-ci/{number}")
 async def fake_gerrit_ci(number: int, request: Request) -> JSONResponse:
     """A CI vote on a Gerrit change: `{verified: -1|1, message}`."""
@@ -302,7 +398,7 @@ async def fake_state() -> JSONResponse:
 @router.post("/fake/reset")
 async def fake_reset() -> JSONResponse:
     STATE.update(mrs=[], comments={}, posts={"mr": 0, "comment": 0}, merge={}, gerrit={}, fail={}, pipelines=[],
-                 gerrit_ci={})  # fmt: skip
+                 gerrit_ci={}, discussions={}, gerrit_comments={})  # fmt: skip
     repo = git_root() / "team" / "payments.git"
     refs = subprocess.run(["git", "for-each-ref", "--format=%(refname)"], cwd=repo, capture_output=True,
                           text=True).stdout.split()  # fmt: skip

@@ -200,8 +200,9 @@ Design: [08-follow-through.md](design/08-follow-through.md). Tasks are in priori
 - [x] **F1 Pipeline watch and "Fix CI failure"** (08 §F1).
   - Acceptance: a failed pipeline for the pushed sha adds exactly one inbox item (older shas ignored); Fix CI failure starts a round whose `feedback.md` holds the wrapped log tails, fetched by the server; a planted prompt injection stays inside the envelope; passed and Gerrit `Verified -1` states shown; refused without a failed pipeline and after 5 rounds.
   - Done with the changes recorded in 08 §F1: logs as `untrusted.wrap()` JSON blocks in `feedback.md`, a Home card for failed pipelines, tracking every 10 minutes.
-- [ ] **F2 Address review comments** (08 §F2).
+- [x] **F2 Address review comments** (08 §F2).
   - Acceptance: only the selected, still-unresolved comments (GitLab discussions, Gerrit comments) reach `feedback.md`, re-fetched by the server and wrapped; replies are posted only when approved in the push preview, once each, including after a crash between posting and recording; resolved comments and system notes are never offered.
+  - Done with the changes recorded in 08 §F2: Gerrit threads judged by their latest comment, replies tied to the round's addressed comments, `<commit placeholder>` in reply text.
 - [ ] **F3 The agent can ask** (08 §F3).
   - Acceptance: a question file moves the job to `needs_input` (migration, R9) with an inbox item and email; the answer resumes without spending an attempt and the next run sees `answer.md` and no `question.md`; the per-job cap holds; Cancel and the review-days cleanup work from `needs_input`; the question renders as safe Markdown labelled "Written by the agent".
 - [ ] **F4 Repository conventions** (08 §F4).

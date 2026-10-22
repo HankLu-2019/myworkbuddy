@@ -78,6 +78,13 @@ Each comment is `{id, author, path, line, body (≤ 2000 chars), url}`.
 - Replies are posted only when approved, once each, including after a crash between posting and recording.
 - Resolved comments and system notes are never offered.
 
+*Changed while building F2:*
+- A Gerrit thread is open when its **latest** comment is unresolved. A reply goes `in_reply_to` that latest comment, and the thread is listed by its first comment.
+- The chosen comments are stored in `jobs.push.addressed` with the round they belong to. The next round's push preview offers a reply for each, and approval refuses replies to other comments (422).
+- The reply text may use `<commit placeholder>`, which becomes the pushed commit's short sha.
+- Replies are posted after the Jira comment, each recorded in `jobs.push.replies_done`. A redelivery skips recorded replies and finds unrecorded ones by their exact text.
+- `request-changes` accepts `comment_ids` only while the job is pushed. `feedback` may be empty when comments are chosen.
+
 ## F3. The agent can ask
 
 **Why:** a plan can't settle every detail. Today the agent guesses, and a wrong guess costs a whole review round.

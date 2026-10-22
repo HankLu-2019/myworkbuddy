@@ -10,7 +10,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Header, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 
 from app import pagination
@@ -201,7 +201,14 @@ async def job_events(
 
 
 class ChangesIn(BaseModel):
-    feedback: str = Field(min_length=1, max_length=4000)
+    feedback: str = Field("", max_length=4000)
+    comment_ids: list[str] = Field([], max_length=50)  # review comments to address (08 §F2), after a push only
+
+    @model_validator(mode="after")
+    def _something(self) -> "ChangesIn":
+        if not self.feedback.strip() and not self.comment_ids:
+            raise ValueError("Say what should change, or choose review comments to address.")
+        return self
 
 
 MAX_REVIEW_ROUNDS = 5
@@ -251,6 +258,8 @@ async def request_changes(job_id: uuid.UUID, body: ChangesIn, auth: CurrentAuth,
         return await _changes_after_push(db, job, body, auth.user, client_ip(request))
     if job.status != S.awaiting_review:
         raise AppError(status.HTTP_409_CONFLICT, "conflict", "Changes can be requested while the job waits for review.")
+    if body.comment_ids:
+        raise AppError(status.HTTP_409_CONFLICT, "conflict", "Review comments can be addressed once the job is pushed.")
     if job.review_round >= MAX_REVIEW_ROUNDS:
         raise AppError(
             status.HTTP_409_CONFLICT,
@@ -280,17 +289,69 @@ async def request_changes(job_id: uuid.UUID, body: ChangesIn, auth: CurrentAuth,
     return job_out(*await owned_job(db, job_id, auth.user))
 
 
+async def _review_connection(db: DB, job: Job, user: User):
+    from app.integrations.service import get_credentials
+    from app.knowledge.ingest.repos import project_integration
+    from app.models import Project
+
+    project = await db.get(Project, job.project_id) if job.project_id else None
+    integration = await project_integration(db, project) if project else None
+    if project is None or integration is None:
+        raise AppError(status.HTTP_409_CONFLICT, "conflict", "The ticket's repository is no longer available.")
+    return project, Connection(user.id, integration, await get_credentials(db, user.id, integration))
+
+
+async def _open_comments(db: DB, job: Job, user: User) -> list[dict]:
+    """The review request's open comments, fetched with nothing open (R1)."""
+    from app.jobs import review
+
+    project, conn = await _review_connection(db, job, user)
+    await db.commit()
+    try:
+        return await review.open_comments(job, conn, project)
+    except ConnectorError as exc:
+        message = f"Couldn't read the review comments: {exc.message}"
+        raise AppError(status.HTTP_502_BAD_GATEWAY, "internal", message) from None
+    finally:
+        await conn.close()
+
+
 async def _changes_after_push(db: DB, job: Job, body: "ChangesIn", user: User, ip: str | None) -> JobOut:
     note = f"Changes requested after the push (round {job.review_round + 1})."
-    return await _round_after_push(db, job, body.feedback, user, ip, kind="review", note=note)
+    if not body.comment_ids:
+        return await _round_after_push(db, job, body.feedback, user, ip, kind="review", note=note)
+    from app.jobs import review
+
+    open_ = {c["id"]: c for c in await _open_comments(db, job, user)}  # re-fetched: never the client's text
+    missing = [i for i in body.comment_ids if i not in open_]
+    if missing:
+        raise AppError(status.HTTP_409_CONFLICT, "conflict", "Some comments were resolved meanwhile. Reload them.")
+    chosen = [open_[i] for i in dict.fromkeys(body.comment_ids)]
+    job = await _job_or_404(db, job.id, user)
+    feedback = review.comments_feedback(chosen, body.feedback)
+    addressed = [{k: c[k] for k in ("id", "reply_to", "path", "line", "author")} for c in chosen]
+    return await _round_after_push(
+        db, job, feedback, user, ip, kind="built", note=f"Addressing {len(chosen)} review comment(s).",
+        extra={"addressed": addressed, "addressed_round": job.review_round + 1},
+    )  # fmt: skip
+
+
+@router.get("/api/jobs/{job_id}/review-comments")
+async def review_comments(job_id: uuid.UUID, auth: CurrentAuth, db: DB) -> dict[str, list[dict]]:
+    """Open comments on the job's merge request or change (08 §F2). Their text is untrusted: render it as text."""
+    job = await _job_or_404(db, job_id, auth.user)
+    if job.status != S.pushed:
+        raise AppError(status.HTTP_409_CONFLICT, "conflict", "Review comments are read once the job is pushed.")
+    return {"items": await _open_comments(db, job, auth.user)}
 
 
 async def _round_after_push(
-    db: DB, job: Job, feedback: str, user: User, ip: str | None, *, kind: str, note: str
+    db: DB, job: Job, feedback: str, user: User, ip: str | None, *, kind: str, note: str, extra: dict | None = None
 ) -> JobOut:
     """A new round after a push (04 §6): the workspace and key are gone, so the job prepares again from the pushed
     patch plus the feedback, with a new LLM key; the next approved push updates the same branch or change.
-    `kind` is "review" (the user's words, under a reviewer header) or "ci" (feedback.md as the server built it)."""
+    `kind` is "review" (the user's words, under a reviewer header) or "built" (feedback.md as the server built it:
+    CI logs, review comments)."""
     from app.jobs import keys
     from app.jobs.pipeline import defer_advance
     from app.llm.keys import GatewayAdminError
@@ -312,7 +373,8 @@ async def _round_after_push(
         raise AppError(
             status.HTTP_502_BAD_GATEWAY, "llm_unavailable", "The LLM gateway couldn't create a key for this job."
         ) from None
-    push = {**(job.push or {}), "resume": {"patch_artifact_id": patch_id, "feedback": feedback, "kind": kind}}
+    resume = {"patch_artifact_id": patch_id, "feedback": feedback, "kind": kind}
+    push = {**(job.push or {}), **(extra or {}), "resume": resume}
     moved = await transition_in(
         db, job_id, S.pushed, S.preparing, actor_id=user.id, ip=ip, review_round=round_ + 1, attempt=1,
         result=None, current_run=None, error=None, error_code=None, push=push,
@@ -373,7 +435,7 @@ async def fix_ci(job_id: uuid.UUID, body: FixCiIn, auth: CurrentAuth, db: DB, re
             await c.close()
     feedback = ci.failure_feedback(pipeline, logs, body.note)
     job = await _job_or_404(db, job_id, auth.user)
-    return await _round_after_push(db, job, feedback, auth.user, client_ip(request), kind="ci",
+    return await _round_after_push(db, job, feedback, auth.user, client_ip(request), kind="built",
                                    note=f"Fixing the failed pipeline (round {job.review_round + 1}).")  # fmt: skip
 
 
