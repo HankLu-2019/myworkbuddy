@@ -671,6 +671,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{job_id}/approve-push": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Push
+         * @description Bind the (possibly edited) payload to an approval and queue the push (rule R5).
+         */
+        post: operations["approve_push_api_jobs__job_id__approve_push_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{job_id}/cancel": {
         parameters: {
             query?: never;
@@ -741,6 +761,26 @@ export interface paths {
         };
         /** Job Patch */
         get: operations["job_patch_api_jobs__job_id__patch_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/push-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Push Preview
+         * @description The exact outbound content (04 §5.6); the texts are editable before approval.
+         */
+        get: operations["push_preview_api_jobs__job_id__push_preview_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1734,6 +1774,15 @@ export interface components {
              */
             optional: boolean;
         };
+        /** CommitIn */
+        CommitIn: {
+            /** Author Email */
+            author_email: string;
+            /** Author Name */
+            author_name: string;
+            /** Message */
+            message: string;
+        };
         /** CommitOut */
         CommitOut: {
             /** Author */
@@ -1898,6 +1947,11 @@ export interface components {
             href: string;
             /** Message */
             message: string;
+        };
+        /** GerritIn */
+        GerritIn: {
+            /** Topic */
+            topic: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2091,6 +2145,13 @@ export interface components {
             /** Message */
             message: string;
         };
+        /** JiraCommentIn */
+        JiraCommentIn: {
+            /** Body */
+            body: string;
+            /** Enabled */
+            enabled: boolean;
+        };
         /** JobIn */
         JobIn: {
             /**
@@ -2245,6 +2306,13 @@ export interface components {
             /** Csrf Token */
             csrf_token: string;
             user: components["schemas"]["UserOut"];
+        };
+        /** MergeRequestIn */
+        MergeRequestIn: {
+            /** Description */
+            description: string;
+            /** Title */
+            title: string;
         };
         /** MessageIn */
         MessageIn: {
@@ -2700,6 +2768,21 @@ export interface components {
             status: "pending" | "accepted" | "dismissed" | "expired";
             /** Timezone */
             timezone: string;
+        };
+        /** PushPayload */
+        PushPayload: {
+            /**
+             * Acknowledgements
+             * @default []
+             */
+            acknowledgements: string[];
+            commit: components["schemas"]["CommitIn"];
+            gerrit?: components["schemas"]["GerritIn"] | null;
+            jira_comment?: components["schemas"]["JiraCommentIn"] | null;
+            merge_request?: components["schemas"]["MergeRequestIn"] | null;
+            /** Patch Sha256 */
+            patch_sha256: string;
+            target: components["schemas"]["Target"];
         };
         /** RecentChat */
         RecentChat: {
@@ -3164,6 +3247,20 @@ export interface components {
             title?: string | null;
             /** Visibility */
             visibility?: ("private" | "public") | null;
+        };
+        /** Target */
+        Target: {
+            /** Base Branch */
+            base_branch: string;
+            /** Branch */
+            branch: string;
+            /**
+             * Host
+             * @enum {string}
+             */
+            host: "gitlab" | "gerrit";
+            /** Repo Url */
+            repo_url: string;
         };
         /** TestItem */
         TestItem: {
@@ -4942,6 +5039,41 @@ export interface operations {
             };
         };
     };
+    approve_push_api_jobs__job_id__approve_push_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     cancel_job_api_jobs__job_id__cancel_post: {
         parameters: {
             query?: never;
@@ -5057,6 +5189,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    push_preview_api_jobs__job_id__push_preview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushPayload"];
                 };
             };
             /** @description Validation Error */

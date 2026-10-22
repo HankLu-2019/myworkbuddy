@@ -90,9 +90,10 @@ def plan_doc(**over) -> dict:
 
 
 async def approved_ticket(make_user, forge_url: str, *, token: str = "glpat-e2e-token", doc: dict | None = None,
-                          email: bool = True) -> dict:  # fmt: skip
-    """alice, a ready repository on the forge, and an approved plan revision for PAY-12."""
-    alice, jira_id = await setup_integration(make_user, "jira", "https://jira.example.com", {"token": "jira-t"})
+                          email: bool = True, jira_url: str = "https://jira.example.com",
+                          host: str = "gitlab") -> dict:  # fmt: skip
+    """alice, a ready repository on the forge (GitLab or Gerrit), and an approved plan revision for PAY-12."""
+    alice, jira_id = await setup_integration(make_user, "jira", jira_url, {"token": "jira-t"})
     sha = subprocess.run(
         ["git", "ls-remote", f"{forge_url}/fake/git/team/payments.git", "refs/heads/main"],
         capture_output=True, text=True, check=True,
@@ -100,12 +101,16 @@ async def approved_ticket(make_user, forge_url: str, *, token: str = "glpat-e2e-
     content = doc or plan_doc()
     async with get_sessionmaker()() as db:
         await db.execute(update(User).where(User.id == alice.id).values(email_notifications=email))
-        gitlab = Integration(kind="gitlab", name="Forge", base_url=forge_url)
+        gitlab = Integration(kind=host, name="Forge", base_url=forge_url)
         db.add(gitlab)
         await db.flush()
-        await set_credential(db, alice.id, gitlab, "token", token)
+        if host == "gerrit":
+            await set_credential(db, alice.id, gitlab, "username", "alice")
+            await set_credential(db, alice.id, gitlab, "password", token)
+        else:
+            await set_credential(db, alice.id, gitlab, "token", token)
         await db.execute(update(UserCredential).where(UserCredential.integration_id == gitlab.id).values(status="ok"))
-        project = Project(owner_id=alice.id, visibility="private", name="payments", host="gitlab", status="ready",
+        project = Project(owner_id=alice.id, visibility="private", name="payments", host=host, status="ready",
                           repo_url=f"{forge_url}/fake/git/team/payments.git", integration_id=gitlab.id)  # fmt: skip
         db.add(project)
         issue = JiraIssue(owner_id=alice.id, integration_id=jira_id, key=KEY, summary="Retry webhook delivery",

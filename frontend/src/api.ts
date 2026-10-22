@@ -198,6 +198,17 @@ export type Job = Schemas["JobOut"];
 export type JobPage = Schemas["JobPage"];
 export type JobStatus = Job["status"];
 
+export type PushPayload = Schemas["PushPayload"];
+
+/** `JobOut.push` (04 §6): the approved payload and what each push step left behind. */
+export interface JobPush {
+  state?: "approved" | "branch_pushed" | "review_requested" | "done";
+  pushed_sha?: string;
+  mr_url?: string;
+  change_url?: string;
+  jira_comment_url?: string;
+}
+
 /** `JobOut.result` (04 §5.4 JobResult), stored as JSON. */
 export interface JobResult {
   schema_version: 1;

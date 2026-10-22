@@ -183,8 +183,9 @@ Design: [04-execution.md](design/04-execution.md).
 - [x] **X5 Checks and Job tab** (04 §5.4–5.5, 07 §4.10–4.11).
   - Acceptance: each check in the table has a test; gitleaks blocks a planted key; Job tab renders timeline (live), diff (split and unified), checks, logs and agent notes label (vitest); request changes and discard; Jobs list page.
   - Done with the changes recorded in 04 §5.5 and 07 §4.11 ("Changed while building X5"): gitleaks via `stdin` failing closed, Cancel, request changes capped at 5 rounds, the shared PatchView, Start job confirmation and the Jobs nav item.
-- [ ] **X6 Push gate and orchestrator** (04 §5.6, §6, 07 §5.9).
+- [x] **X6 Push gate and orchestrator** (04 §5.6, §6, 07 §5.9).
   - Acceptance: Playwright flow 07 §5.9 against a local git server and stub GitLab API; security tests 7–8; GitLab MR created once and updated on the next round; Gerrit Change-Id stable across rounds; Jira comment posted once with the real link; 401 marks the credential invalid.
+  - Done with the changes recorded in 04 §6 and 07 §4.11 ("Changed while building X6"): the push runs as steps of the job's task, deterministic commits make a repeated push a no-op, MR and Jira comment are found before they are created, and changes after a push re-prepare from the pushed patch.
 - [ ] **X7 Tracking, cleanup, orphans** (04 §6–7).
   - Acceptance: merged/closed MRs update job and work item; volumes and keys removed per the cleanup table; runner refuses runs below the disk threshold.
 
