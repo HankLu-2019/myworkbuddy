@@ -158,8 +158,9 @@ Design: [03-plans.md](design/03-plans.md).
 - [x] **P4 Approval flow and revisions** (03 §6).
   - Acceptance: stale revision or hash → 409; missing acknowledgements → 422; user edits create new revisions that are not approved; reject resets the work item; field-level diff endpoint.
   - Done with the changes recorded in 03 §6 ("Changed while building P4"): decisions name their revision, a `plan_changed` error code, exact acknowledgements, paginated history and a keyed field diff.
-- [ ] **P5 Board and work item hub** (03 §9, 07 §4.9, §4.10, §5.8): board, hub with progress strip and Ticket/Plan tabs, revision compare, Discuss in chat.
+- [x] **P5 Board and work item hub** (03 §9, 07 §4.9, §4.10, §5.8): board, hub with progress strip and Ticket/Plan tabs, revision compare, Discuss in chat.
   - Acceptance: vitest for board columns, validation panel and acknowledgements, approve button disabled states with reasons; Playwright flow 07 §5.8 (draft → revise → approve, including leaving the page while drafting and returning via the inbox item); axe clean.
+  - Done with the changes recorded in 03 §9 ("Changed while building P5"): board rows with plan state and cost, Refresh from Jira, the Board badge and Needs-you card, a `plan_revision` chat context, typed revisions, and Jira/Git/planner stand-ins on the fake gateway for flow 5.8.
 
 **Phase 3 end-to-end checklist** (*manual*): a real ticket produces a plan whose file list matches the repo; revise once with feedback; approve.
 

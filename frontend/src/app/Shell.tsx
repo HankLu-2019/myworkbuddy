@@ -5,6 +5,7 @@ import {
   Activity,
   ArrowLeft,
   CalendarClock,
+  KanbanSquare,
   Inbox,
   Database,
   Home,
@@ -70,6 +71,7 @@ function useBadges(isAdmin: boolean, userId: number | undefined) {
   });
   return {
     unread: inbox.data?.unread ?? 0,
+    board: home.data?.board_needs ?? 0,
     schedulePaused: !!home.data?.needs_you.some((n) => n.kind === "schedule_paused"),
     librarianNew: librarianUnseen(userId, home.data?.librarian?.at),
     sourcesFailed: !!projects.data?.some((p) => p.mine && p.status === "failed"),
@@ -101,7 +103,7 @@ export default function Shell() {
       if (where === "wiki") navigate("/wiki");
       else if (where === "home") navigate("/");
       else if (where === "inbox") navigate("/inbox");
-      // Board arrives with Phase 3.
+      else if (where === "board") navigate("/work");
     },
     help: () => setHelp(true),
   });
@@ -121,6 +123,12 @@ export default function Shell() {
           badge: badges.unread ? <CountBadge count={badges.unread} label="unread" /> : undefined,
         },
         { to: "/chat", label: "Chat", icon: <MessageSquare size={18} aria-hidden /> },
+        {
+          to: "/work",
+          label: "Board",
+          icon: <KanbanSquare size={18} aria-hidden />,
+          badge: badges.board ? <CountBadge count={badges.board} label="need a decision" /> : undefined,
+        },
       ],
     },
     {

@@ -282,6 +282,17 @@ Layouts, navigation and flows are specified in [07-ux.md](07-ux.md) (§4.9, §4.
 - **Plan page** (`/plans/:id`): header (ticket, repo, base branch@sha, revision selector, status); sections rendered from `PlanDoc` with our components (Markdown fields use the safe renderer); validation panel with errors and acknowledgement checkboxes; "Revise with feedback" box; "Edit" mode; "Approve revision N" button showing the content hash prefix; revision diff view.
 - **Discuss**: "Open in chat" creates a chat session with the plan's project in focus and the current revision attached as context (read-only).
 
+*Changed while building P5:*
+
+- **Board data.** `GET /api/work-items` rows carry `plan_status`, `plan_error` (the current plan's) and `cost_usd` (planning spend so far, summed over all plan revisions; Phase 4 adds jobs). Without a `state` filter the board gets everything but dismissed, and Done only for the last 14 days.
+- **Refresh from Jira** is `POST /api/work-items/refresh` (202, `{queued}`): it defers the user's intake now. 409 with `field: jira_intake_enabled` when intake is off, `field: jira` without a Jira token. Jira intake settings live in Settings → Notifications (07 §4.12).
+- **Home and badge.** `GET /api/home` gains `board_needs` (tickets in `needs_decision`, the Board badge) and a "plan_ready" Needs-you card per ticket (at most five) linking to its Plan tab.
+- **Discuss in chat** attaches `{"type": "plan_revision", "id": <revision id>}`; the session's repository is the ticket's unless the client chose one. Stored refs gain server-filled `label` and `href` for the chips (runs too). The revision reaches the model as JSON with its validation, wrapped as untrusted (R6), since the planner wrote it from the ticket. The route form is `/chat?context=plan_revision:<id>`.
+- **Typed revisions.** `RevisionOut.content` is a `PlanDoc`, `validation` a `ValidationResult`, `PlanOut.approvals` a list of `DecisionOut`, and `RevisionOut` has the revision `id`.
+- **"Changed from revision N-1"** uses the diff endpoint; sections whose fields changed get a "Changed" marker and are listed in reading order. Acknowledgements are per revision and reset when it changes.
+- **The editor** edits title, summary, estimate, questions, approach, file changes, tests, verification commands, risks, rollback, extra sandbox hosts and the commit message; alternatives, knowledge references and sandbox sizes are kept as the planner wrote them.
+- **End-to-end (07 §5.8)** runs against stand-ins on the fake gateway (`backend/tests/fakellm/forge.py`): Jira REST v2, a Git repository over smart HTTP (`git http-backend`, since ingest clones with `--depth`), and a planner reply that takes the user's feedback into account. CI sets `MWB_ALLOW_HTTP_REPOS` for it.
+
 ## 10. State machines
 
 Work item:

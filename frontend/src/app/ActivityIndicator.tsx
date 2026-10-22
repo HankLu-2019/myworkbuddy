@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { api, type Activity, type ProjectDetail, type RunDetail } from "../api";
+import { api, type Activity, type ProjectDetail, type Plan, type RunDetail } from "../api";
 import { Popover, formatElapsed, useToast } from "../components/ui";
 
 export const POLL_ACTIVE_MS = 5_000;
@@ -46,6 +46,19 @@ export function ActivityIndicator() {
             const open = { label: "Open", onClick: () => navigate(`/runs/${r.id}`) };
             if (r.status === "succeeded") toast({ title: `${r.schedule_name}: ${r.headline ?? "done"}`, tone: "success", action: open });
             else if (r.status !== "skipped") toast({ title: `${r.schedule_name} didn't finish`, tone: "error", action: open });
+          })
+          .catch(() => undefined);
+        continue;
+      }
+      if (item.kind === "plan") {
+        qc.invalidateQueries({ queryKey: ["work"] });
+        qc.invalidateQueries({ queryKey: ["plans", item.id] });
+        api<Plan>(`/api/plans/${item.id}`)
+          .then((p) => {
+            const open = { label: "Open", onClick: () => navigate(`/work/${p.work_item_id}/plan`) };
+            const name = item.title.replace(/^Plan for /, "");
+            if (p.status === "needs_decision") toast({ title: `Plan ready for ${name}`, tone: "success", action: open });
+            else if (p.status === "failed") toast({ title: `Planning ${name} failed`, tone: "error", action: open });
           })
           .catch(() => undefined);
         continue;

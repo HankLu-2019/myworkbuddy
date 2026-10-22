@@ -20,6 +20,7 @@ import {
   ErrorNote,
   IconButton,
   KeyValue,
+  ProgressStrip,
   Markdown,
   Menu,
   PageHeader,
@@ -255,6 +256,7 @@ export default function GalleryPage() {
             ["Chunks", "1,240"],
           ]}
         />
+        <ProgressStrip steps={["Ticket", "Plan", "Approved", "Job", "Review", "Merged"]} current={2} label="Example progress" />
         <CodeBlock label="Example code">{"docker compose exec api pytest"}</CodeBlock>
         <DiffView text={SAMPLE_DIFF} />
         <Markdown>{SAMPLE_MD}</Markdown>

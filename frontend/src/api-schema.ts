@@ -1318,6 +1318,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/work-items/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh From Jira
+         * @description Run the user's Jira intake now (03 §7) instead of waiting for the half-hourly tick.
+         */
+        post: operations["refresh_from_jira_api_work_items_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/work-items/{work_item_id}": {
         parameters: {
             query?: never;
@@ -1553,13 +1573,17 @@ export interface components {
         };
         /** ContextRef */
         ContextRef: {
+            /** Href */
+            href?: string | null;
             /** Id */
             id: string;
+            /** Label */
+            label?: string | null;
             /**
              * Type
-             * @constant
+             * @enum {string}
              */
-            type: "run";
+            type: "run" | "plan_revision";
         };
         /** CredentialIn */
         CredentialIn: {
@@ -1595,6 +1619,30 @@ export interface components {
             content_hash: string;
             /** Revision */
             revision: number;
+        };
+        /** DecisionOut */
+        DecisionOut: {
+            /** Acknowledged */
+            acknowledged: string[];
+            /** Comment */
+            comment: string | null;
+            /**
+             * Decided At
+             * Format: date-time
+             */
+            decided_at: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approved" | "rejected" | "changes_requested";
+            /** Revision */
+            revision: number;
+            /**
+             * Revision Id
+             * Format: uuid
+             */
+            revision_id: string;
         };
         /** DiffOut */
         DiffOut: {
@@ -1715,6 +1763,11 @@ export interface components {
         };
         /** HomeOut */
         HomeOut: {
+            /**
+             * Board Needs
+             * @default 0
+             */
+            board_needs: number;
             /** Checklists */
             checklists: components["schemas"]["Checklist"][];
             librarian: components["schemas"]["LibrarianSummary"] | null;
@@ -1846,6 +1899,18 @@ export interface components {
             settings?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** Issue */
+        Issue: {
+            /** Field */
+            field: string;
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "error" | "warning";
+            /** Message */
+            message: string;
         };
         /** LibrarianChangeOut */
         LibrarianChangeOut: {
@@ -1990,7 +2055,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "ingest_failed" | "budget_warning" | "budget_exceeded" | "credential_invalid" | "credential_unreadable" | "alert" | "schedule_paused";
+            kind: "ingest_failed" | "budget_warning" | "budget_exceeded" | "credential_invalid" | "credential_unreadable" | "alert" | "schedule_paused" | "plan_ready";
             /** Message */
             message: string;
         };
@@ -2137,9 +2202,7 @@ export interface components {
         /** PlanOut */
         PlanOut: {
             /** Approvals */
-            approvals: {
-                [key: string]: unknown;
-            }[];
+            approvals: components["schemas"]["DecisionOut"][];
             /** Auto */
             auto: boolean;
             /** Base Branch */
@@ -2456,10 +2519,7 @@ export interface components {
             author: "planner" | "user";
             /** Change Note */
             change_note: string | null;
-            /** Content */
-            content: {
-                [key: string]: unknown;
-            };
+            content: components["schemas"]["PlanDoc"];
             /** Content Hash */
             content_hash: string;
             /** Cost Usd */
@@ -2469,14 +2529,16 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
             /** Revision */
             revision: number;
             /** Session Id */
             session_id: string | null;
-            /** Validation */
-            validation: {
-                [key: string]: unknown;
-            };
+            validation: components["schemas"]["ValidationResult"];
         };
         /** RevisionPage */
         RevisionPage: {
@@ -3061,6 +3123,15 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** ValidationResult */
+        ValidationResult: {
+            /** Issues */
+            issues: components["schemas"]["Issue"][];
+            /** Needs Ack */
+            needs_ack: string[];
+            /** Ok */
+            ok: boolean;
+        };
         /** VersionOut */
         VersionOut: {
             /** Content */
@@ -3082,6 +3153,8 @@ export interface components {
             assignee: string | null;
             /** Components */
             components: string[];
+            /** Cost Usd */
+            cost_usd: number;
             /**
              * Created At
              * Format: date-time
@@ -3110,6 +3183,10 @@ export interface components {
             links: {
                 [key: string]: string;
             }[];
+            /** Plan Error */
+            plan_error: string | null;
+            /** Plan Status */
+            plan_status: ("drafting" | "needs_decision" | "approved" | "rejected" | "superseded" | "failed") | null;
             /** Priority */
             priority: string | null;
             project: components["schemas"]["ProjectRef"] | null;
@@ -3144,6 +3221,8 @@ export interface components {
         WorkItemOut: {
             /** Components */
             components: string[];
+            /** Cost Usd */
+            cost_usd: number;
             /**
              * Created At
              * Format: date-time
@@ -3166,6 +3245,10 @@ export interface components {
             key: string;
             /** Labels */
             labels: string[];
+            /** Plan Error */
+            plan_error: string | null;
+            /** Plan Status */
+            plan_status: ("drafting" | "needs_decision" | "approved" | "rejected" | "superseded" | "failed") | null;
             /** Priority */
             priority: string | null;
             project: components["schemas"]["ProjectRef"] | null;
@@ -6070,6 +6153,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_from_jira_api_work_items_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
                 };
             };
         };

@@ -10,7 +10,7 @@ export { LinkTabs, Tabs } from "./Tabs";
 export { StatusPill, statusLabel, visualState } from "./Status";
 export { VisibilityBadge, VisibilityControl } from "./Visibility";
 export { Banner, CountBadge, Dot, EmptyState, ErrorNote, Skeleton, SkeletonRows } from "./Feedback";
-export { Card, CodeBlock, DataTable, DiffView, KeyValue, type Column } from "./Data";
+export { Card, CodeBlock, DataTable, DiffView, KeyValue, ProgressStrip, type Column } from "./Data";
 
 export function PageHeader({ title, children }: { title: string; children?: ReactNode }) {
   return (

@@ -22,6 +22,8 @@ const SchedulesPage = lazy(() => import("./features/schedules/SchedulesPage"));
 const ScheduleEditPage = lazy(() => import("./features/schedules/ScheduleEditPage"));
 const ScheduleDetailPage = lazy(() => import("./features/schedules/ScheduleDetailPage"));
 const RunPage = lazy(() => import("./features/schedules/RunPage"));
+const BoardPage = lazy(() => import("./features/work/BoardPage"));
+const WorkItemPage = lazy(() => import("./features/work/WorkItemPage"));
 
 function Page({ children }: { children: ReactNode }) {
   return (
@@ -51,6 +53,10 @@ export default function App() {
         <Route path="/schedules/:scheduleId" element={<Page><ScheduleDetailPage /></Page>} />
         <Route path="/schedules/:scheduleId/edit" element={<Page><ScheduleEditPage /></Page>} />
         <Route path="/runs/:runId" element={<Page><RunPage /></Page>} />
+        <Route path="/work" element={<Page><BoardPage /></Page>} />
+        <Route path="/work/:workId" element={<Page><WorkItemPage /></Page>} />
+        <Route path="/work/:workId/plan" element={<Page><WorkItemPage tab="plan" /></Page>} />
+        <Route path="/plans/:planId" element={<Page><WorkItemPage tab="plan" /></Page>} />
         <Route path="/chat" element={<Page><ChatPage /></Page>} />
         <Route path="/chat/:sessionId" element={<Page><ChatPage /></Page>} />
         <Route path="/search" element={<Page><SearchPage /></Page>} />

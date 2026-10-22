@@ -17,6 +17,8 @@ const PAGES = [
   ["inbox", "/inbox"],
   ["schedules", "/schedules"],
   ["new schedule", "/schedules/new"],
+  ["board", "/work"],
+  ["board: dismissed", "/work?show=dismissed"],
   ["settings: profile", "/settings/profile"],
   ["settings: notifications", "/settings/notifications"],
   ["settings: integrations", "/settings/integrations"],

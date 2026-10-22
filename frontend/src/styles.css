@@ -466,3 +466,41 @@ td.num, th.num { font-variant-numeric: tabular-nums; text-align: right; }
 .needs-alert, .needs-schedule_paused { border-left-color: var(--st-problem); }
 .needs-schedule_paused { border-left-color: var(--st-needs); }
 .banner a, .run-headline a, p a { text-decoration: underline; text-underline-offset: 2px; }
+
+/* ---- Phase 3: board, work item hub, plan (07 §4.9, §4.10) ---- */
+.page-wide { max-width: none; }
+.warn-text { color: var(--st-needs); display: inline-flex; align-items: center; gap: 4px; }
+.problem-text { color: var(--st-problem); }
+.nowrap { flex-wrap: nowrap; white-space: nowrap; }
+.board { display: grid; grid-template-columns: repeat(7, minmax(220px, 1fr)); gap: var(--s-3); overflow-x: auto; padding-bottom: var(--s-2); align-items: start; }
+.board-column { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s-2); display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
+.board-column-title { font-size: var(--t-md); margin: 0; display: flex; gap: var(--s-1); align-items: baseline; }
+.board-filter { display: none; }
+.work-card { padding: var(--s-2) var(--s-3); }
+.work-card-title { font-weight: 600; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.progress-strip { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-3); font-size: var(--t-sm); }
+.progress-strip .step { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.progress-strip .step + .step::before { content: "→"; color: var(--line-strong); margin-right: var(--s-2); }
+.progress-strip .step-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--line-strong); flex: none; }
+.progress-strip .step-done { color: var(--st-done); }
+.progress-strip .step-done .step-dot { background: var(--st-done); border-color: var(--st-done); }
+.progress-strip .step-current { color: var(--fg); font-weight: 600; }
+.progress-strip .step-current .step-dot { background: var(--accent); border-color: var(--accent); }
+.plan-section h2 { display: flex; align-items: center; gap: var(--s-2); font-size: var(--t-lg); }
+.plan-section.changed { border-left: 4px solid var(--st-needs); }
+.plan-title { margin: 0; font-size: var(--t-xl); }
+.path-problem { color: var(--st-problem); text-decoration: underline wavy; text-underline-offset: 3px; }
+.validation { border-left: 4px solid var(--st-needs); }
+.validation li { display: flex; gap: 6px; align-items: baseline; }
+.decision-bar { position: sticky; bottom: 0; z-index: var(--z-sticky); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s-3); box-shadow: var(--shadow-2); }
+.revise-box { align-items: flex-end; }
+.editor-row { align-items: flex-end; }
+.editor-row .field { min-width: 140px; }
+.sticky-actions { position: sticky; bottom: 0; background: var(--bg); padding: var(--s-2) 0; z-index: var(--z-sticky); }
+.plan-diff .diff { margin: 0; white-space: pre-wrap; }
+@media (max-width: 767px) {
+  .board-filter { display: block; overflow-x: auto; }
+  .board { grid-template-columns: 1fr; overflow: visible; }
+  .board-column:not([data-active]) { display: none; }
+  .decision-bar { position: static; }
+}

@@ -1,13 +1,15 @@
 """Work items API (design 03 §8). Owner only: other users' work items are 404."""
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import aliased
 
 from app import pagination
 from app.audit.service import audit
@@ -18,11 +20,14 @@ from app.plans import decisions
 from app.plans.diff import FieldDiff, diff
 from app.plans.planner import defer_draft, start_plan
 from app.plans.schema import PlanDoc
-from app.plans.work_items import create_work_item, visible_project
+from app.plans.validation import ValidationResult
+from app.plans.work_items import create_work_item, jira_integrations, visible_project
 
 router = APIRouter(prefix="/api", tags=["work items"])
 
 State = Literal["new", "planning", "needs_decision", "approved", "in_progress", "in_review", "done", "dismissed"]
+PlanStatusOut = Literal["drafting", "needs_decision", "approved", "rejected", "superseded", "failed"]
+DONE_DAYS = 14  # the board's Done column shows the last two weeks (07 §4.9)
 
 
 class ProjectRef(BaseModel):
@@ -43,6 +48,9 @@ class WorkItemOut(BaseModel):
     jira_url: str
     project: ProjectRef | None
     current_plan_id: uuid.UUID | None
+    plan_status: PlanStatusOut | None
+    plan_error: str | None
+    cost_usd: float  # planning so far (Phase 4 adds jobs)
     updated_remote: datetime
     created_at: datetime
     updated_at: datetime
@@ -70,24 +78,37 @@ class WorkItemUpdate(BaseModel):
     state: Literal["dismissed", "new"] | None = None
 
 
-def _fields(w: WorkItem, issue: JiraIssue, integration: Integration, project: Project | None) -> dict:
+def _fields(
+    w: WorkItem, issue: JiraIssue, integration: Integration, project: Project | None,
+    plan_status: str | None = None, plan_error: str | None = None, cost: Decimal | float | None = None,
+) -> dict:  # fmt: skip
     f = issue.fields or {}
     return {
         "id": w.id, "state": w.state, "key": issue.key, "summary": issue.summary, "jira_status": issue.status,
         "issue_type": issue.issue_type, "priority": issue.priority, "labels": f.get("labels") or [],
         "components": f.get("components") or [], "jira_url": f"{integration.base_url}/browse/{issue.key}",
         "project": ProjectRef(id=project.id, name=project.name) if project else None,
-        "current_plan_id": w.current_plan_id, "updated_remote": issue.updated_remote, "created_at": w.created_at,
+        "current_plan_id": w.current_plan_id, "plan_status": plan_status, "plan_error": plan_error,
+        "cost_usd": float(cost or 0), "updated_remote": issue.updated_remote, "created_at": w.created_at,
         "updated_at": w.updated_at,
     }  # fmt: skip
 
 
 def _query(user: User):
+    """Rows of (work item, issue, integration, project, current plan status, its error, planning cost)."""
+    current = aliased(Plan)
+    cost = (
+        select(func.coalesce(func.sum(PlanRevision.cost_usd), 0))
+        .join(Plan, Plan.id == PlanRevision.plan_id)
+        .where(Plan.work_item_id == WorkItem.id)
+        .scalar_subquery()
+    )
     return (
-        select(WorkItem, JiraIssue, Integration, Project)
+        select(WorkItem, JiraIssue, Integration, Project, current.status, current.error, cost)
         .join(JiraIssue, JiraIssue.id == WorkItem.jira_issue_id)
         .join(Integration, Integration.id == JiraIssue.integration_id)
         .outerjoin(Project, Project.id == WorkItem.project_id)
+        .outerjoin(current, current.id == WorkItem.current_plan_id)
         .where(WorkItem.owner_id == user.id)
     )
 
@@ -101,10 +122,10 @@ async def load(db: DB, work_item_id: uuid.UUID, user: User, *, lock: bool = Fals
 
 
 def detail(row: tuple) -> WorkItemDetail:
-    w, issue, integration, project = row
+    issue = row[1]
     f = issue.fields or {}
     return WorkItemDetail(
-        **_fields(w, issue, integration, project), description=f.get("description") or "",
+        **_fields(*row), description=f.get("description") or "",
         links=f.get("links") or [], assignee=f.get("assignee"),
     )  # fmt: skip
 
@@ -118,7 +139,11 @@ async def list_work_items(
     limit: int = Query(100, ge=1, le=100),
 ) -> WorkItemPage:
     q = _query(auth.user)
-    q = q.where(WorkItem.state.in_(state)) if state else q.where(WorkItem.state != "dismissed")
+    if state:
+        q = q.where(WorkItem.state.in_(state))
+    else:  # the board: everything but dismissed, and Done only from the last two weeks
+        recent = datetime.now(UTC) - timedelta(days=DONE_DAYS)
+        q = q.where(WorkItem.state != "dismissed", or_(WorkItem.state != "done", WorkItem.updated_at >= recent))
     rows = [
         tuple(r) for r in (await db.execute(pagination.page(q, WorkItem.updated_at, WorkItem.id, cursor, limit))).all()
     ]
@@ -139,6 +164,22 @@ async def add_work_item(body: WorkItemIn, auth: CurrentAuth, db: DB, request: Re
     )  # fmt: skip
     await db.commit()
     return detail(await load(db, item_id, auth.user))
+
+
+@router.post("/work-items/refresh", status_code=202)
+async def refresh_from_jira(auth: CurrentAuth, db: DB, request: Request) -> dict[str, bool]:
+    """Run the user's Jira intake now (03 §7) instead of waiting for the half-hourly tick."""
+    from app.tasks.app import defer_once, jira_intake
+
+    if not auth.user.jira_intake_enabled:
+        raise AppError(
+            status.HTTP_409_CONFLICT, "conflict", "Turn on Jira intake in Settings first.", field="jira_intake_enabled"
+        )
+    if not await jira_integrations(db, auth.user.id):
+        raise AppError(status.HTTP_409_CONFLICT, "conflict", "Add your Jira token in Settings first.", field="jira")
+    await audit(db, "work_items.refresh", user_id=auth.user.id, ip=client_ip(request))
+    await db.commit()
+    return {"queued": await defer_once(jira_intake, f"intake:{auth.user.id}", user_id=auth.user.id)}
 
 
 @router.get("/work-items/{work_item_id}", response_model=WorkItemDetail)
@@ -195,35 +236,45 @@ class RevisionSummary(BaseModel):
 
 
 class RevisionOut(BaseModel):
+    id: uuid.UUID
     revision: int
-    content: dict
+    content: PlanDoc
     content_hash: str
     author: Literal["planner", "user"]
     change_note: str | None
-    validation: dict
+    validation: ValidationResult
     session_id: uuid.UUID | None
     cost_usd: float | None
     created_at: datetime
 
 
+class DecisionOut(BaseModel):
+    revision: int
+    revision_id: uuid.UUID
+    decision: Literal["approved", "rejected", "changes_requested"]
+    acknowledged: list[str]
+    comment: str | None
+    decided_at: datetime
+
+
 class PlanOut(BaseModel):
     id: uuid.UUID
     work_item_id: uuid.UUID
-    status: Literal["drafting", "needs_decision", "approved", "rejected", "superseded", "failed"]
+    status: PlanStatusOut
     current_revision: int
     base_sha: str | None
     base_branch: str | None
     error: str | None
     auto: bool
     revision: RevisionOut | None
-    approvals: list[dict]
+    approvals: list[DecisionOut]
     created_at: datetime
     updated_at: datetime
 
 
 def revision_out(r: PlanRevision) -> RevisionOut:
     return RevisionOut(
-        revision=r.revision, content=r.content, content_hash=r.content_hash, author=r.author,
+        id=r.id, revision=r.revision, content=r.content, content_hash=r.content_hash, author=r.author,
         change_note=r.change_note, validation=r.validation, session_id=r.session_id,
         cost_usd=float(r.cost_usd) if r.cost_usd is not None else None, created_at=r.created_at,
     )  # fmt: skip
@@ -245,14 +296,14 @@ async def plan_out(db: DB, plan: Plan) -> PlanOut:
             .order_by(Approval.decided_at)
         )
         history = [
-            {
-                "revision": numbers[a.subject_id],
-                "revision_id": str(a.subject_id),
-                "decision": a.decision,
-                "acknowledged": list(a.acknowledged),
-                "comment": a.comment,
-                "decided_at": a.decided_at.isoformat(),
-            }
+            DecisionOut(
+                revision=numbers[a.subject_id],
+                revision_id=a.subject_id,
+                decision=a.decision,
+                acknowledged=list(a.acknowledged),
+                comment=a.comment,
+                decided_at=a.decided_at,
+            )  # fmt: skip
             for a in rows
         ]
     return PlanOut(

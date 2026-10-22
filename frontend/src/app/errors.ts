@@ -15,6 +15,7 @@ const SERVER_WORDED = new Set([
   "bad_request",
   "wiki_conflict",
   "session_busy",
+  "plan_changed",
   "unsupported_file",
   "file_too_large",
   "disk_full",

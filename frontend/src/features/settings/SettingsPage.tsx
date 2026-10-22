@@ -290,10 +290,74 @@ function NotificationsTab() {
   );
 }
 
+/** Jira intake (03 §7, 07 §4.12): new tickets matching a JQL query appear on the board every 30 minutes. */
+function JiraIntake() {
+  const { user, updateUser } = useAuth();
+  const toast = useToast();
+  const [enabled, setEnabled] = useState(!!user?.jira_intake_enabled);
+  const [jql, setJql] = useState(user?.jira_intake_jql ?? "");
+  const [label, setLabel] = useState(user?.jira_autoplan_label ?? "");
+  const save = useMutation({
+    mutationFn: () =>
+      api<User>("/api/auth/me", {
+        method: "PATCH",
+        json: { jira_intake_enabled: enabled, jira_intake_jql: jql.trim() || null, jira_autoplan_label: label.trim() || null },
+      }),
+    onSuccess: (u) => {
+      updateUser(u);
+      toast({ title: "Jira intake saved", tone: "success" });
+    },
+  });
+  return (
+    <Card
+      as="form"
+      className="stack narrow"
+      aria-label="Jira intake"
+      onSubmit={(e: FormEvent) => {
+        e.preventDefault();
+        save.mutate();
+      }}
+    >
+      <h2>Jira intake</h2>
+      <Toggle label="Add my new Jira tickets to the board" checked={enabled} onChange={setEnabled} />
+      <TextField
+        label="Which tickets (JQL)"
+        value={jql}
+        maxLength={1000}
+        placeholder="assignee = currentUser() AND statusCategory != Done"
+        hint="Leave empty for tickets assigned to you that aren't done. Checked every 30 minutes, or with Refresh from Jira on the board."
+        onChange={(e) => setJql(e.target.value)}
+      />
+      <TextField
+        label="Draft a plan automatically for tickets labelled"
+        value={label}
+        maxLength={64}
+        placeholder="mwb-plan"
+        hint="Only tickets with a repository; at most a few a day. Leave empty to always draft by hand."
+        onChange={(e) => setLabel(e.target.value)}
+      />
+      <ErrorNote error={save.error} />
+      <div>
+        <Button type="submit" variant="primary" pending={save.isPending}>
+          Save Jira intake
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 const TABS: Record<string, { label: string; element: () => ReactElement | null }> = {
   profile: { label: "Profile", element: ProfileTab },
   integrations: { label: "Integrations", element: IntegrationsTab },
-  notifications: { label: "Notifications", element: NotificationsTab },
+  notifications: {
+    label: "Notifications",
+    element: () => (
+      <div className="stack">
+        <NotificationsTab />
+        <JiraIntake />
+      </div>
+    ),
+  },
   usage: { label: "Usage", element: AiUsage },
   sessions: { label: "Sessions", element: Sessions },
   password: { label: "Password", element: PasswordForm },

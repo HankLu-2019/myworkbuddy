@@ -87,10 +87,15 @@ type Pending = {
 /** First suggested prompt when a chat starts from a run (07 §5.7). */
 export const INVESTIGATE_PROMPT = "What's the likely cause and what should I check?";
 
-/** `?context=run:<id>` → the refs to attach to a new session. */
-export function contextFromParam(value: string | null): { type: "run"; id: string }[] {
-  const m = value?.match(/^run:([0-9a-f-]{36})$/i);
-  return m ? [{ type: "run", id: m[1] }] : [];
+/** First suggested prompt when a chat starts from a plan revision ("Discuss in chat", 03 §9). */
+export const DISCUSS_PROMPT = "What are the weak spots in this plan?";
+
+type ContextRef = { type: "run" | "plan_revision"; id: string };
+
+/** `?context=run:<id>` or `?context=plan_revision:<id>` → the refs to attach to a new session. */
+export function contextFromParam(value: string | null): ContextRef[] {
+  const m = value?.match(/^(run|plan_revision):([0-9a-f-]{36})$/i);
+  return m ? [{ type: m[1] as ContextRef["type"], id: m[2] }] : [];
 }
 
 /** The user message a reply answered, for Retry. */
@@ -186,15 +191,17 @@ export default function ChatPage() {
   }, [sessionId]);
 
   const create = useMutation({
-    mutationFn: (context: { type: "run"; id: string }[] = []) =>
+    mutationFn: (context: ContextRef[] = []) =>
       api<Session>("/api/chat/sessions", {
         method: "POST",
-        json: context.length ? { context, title: "Investigate a run" } : {},
+        json: context.length ? { context, title: context[0].type === "run" ? "Investigate a run" : "Discuss a plan" } : {},
       }),
     onSuccess: (s) => {
       qc.invalidateQueries({ queryKey: ["sessions"] });
-      // A chat started from a run suggests its first question (07 §5.7).
-      navigate(`/chat/${s.id}`, { state: s.context?.length ? { prefill: INVESTIGATE_PROMPT } : undefined });
+      // A chat started from a run or a plan suggests its first question (07 §5.7, 03 §9).
+      const first = s.context?.[0]?.type;
+      const prefill = first === "run" ? INVESTIGATE_PROMPT : first === "plan_revision" ? DISCUSS_PROMPT : undefined;
+      navigate(`/chat/${s.id}`, { state: prefill ? { prefill } : undefined });
     },
   });
 
@@ -380,12 +387,14 @@ export default function ChatPage() {
                 <span className="muted small">Attached:</span>
                 {session.data.context.map((ref) => (
                   <span key={ref.id} className="chip">
-                    <Link to={`/runs/${ref.id}`}>Run result</Link>
+                    <Link to={ref.href ?? (ref.type === "run" ? `/runs/${ref.id}` : "/work")}>
+                      {ref.label ?? (ref.type === "run" ? "Run result" : "Plan revision")}
+                    </Link>
                     {isOwner && (
                       <button
                         type="button"
                         className="chip-remove"
-                        aria-label="Remove the run from this chat"
+                        aria-label={`Remove ${ref.type === "run" ? "the run" : "the plan"} from this chat`}
                         onClick={() => patch.mutate({ context: session.data!.context!.filter((r) => r.id !== ref.id) })}
                       >
                         ×

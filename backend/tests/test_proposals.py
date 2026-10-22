@@ -282,7 +282,9 @@ async def test_attached_run_reaches_the_model_wrapped_and_once(client_for) -> No
     c = await client_for("alice")
     run = await _a_run(await _user())
     sid = await _new_session(c, context=[{"type": "run", "id": str(run.id)}])
-    assert (await c.get(f"/api/chat/sessions/{sid}")).json()["context"] == [{"type": "run", "id": str(run.id)}]
+    assert (await c.get(f"/api/chat/sessions/{sid}")).json()["context"] == [
+        {"type": "run", "id": str(run.id), "label": "Run result", "href": f"/runs/{run.id}"}
+    ]
     seen: list[list[ModelMessage]] = []
     set_model_override(_recording_model(seen))
     await c.post(f"/api/chat/sessions/{sid}/messages", json={"content": "Why is it failing?"})
