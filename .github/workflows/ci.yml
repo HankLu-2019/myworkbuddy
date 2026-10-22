@@ -90,27 +90,34 @@ jobs:
         run: |
           cp .env.example .env
           key=$(python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
-          sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=ci-postgres|; s|^MWB_SECRET_KEY=.*|MWB_SECRET_KEY=$key|; s|^MWB_HOSTNAME=.*|MWB_HOSTNAME=http://localhost:8080|; s|^MWB_TLS_MODE=.*|MWB_TLS_MODE=none|; s|^LITELLM_MASTER_KEY=.*|LITELLM_MASTER_KEY=sk-ci|; s|^LITELLM_DB_PASSWORD=.*|LITELLM_DB_PASSWORD=ci-litellm|; s|^MWB_SANDBOX_RUNTIME=.*|MWB_SANDBOX_RUNTIME=runc|" .env
+          sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=ci-postgres|; s|^MWB_SECRET_KEY=.*|MWB_SECRET_KEY=$key|; s|^MWB_HOSTNAME=.*|MWB_HOSTNAME=http://localhost:8080|; s|^MWB_TLS_MODE=.*|MWB_TLS_MODE=none|; s|^LITELLM_MASTER_KEY=.*|LITELLM_MASTER_KEY=sk-ci|; s|^LITELLM_DB_PASSWORD=.*|LITELLM_DB_PASSWORD=ci-litellm|; s|^MWB_SANDBOX_RUNTIME=.*|MWB_SANDBOX_RUNTIME=runc|; s|^MWB_RUNNER_TOKEN=.*|MWB_RUNNER_TOKEN=ci-runner-token-0123456789abcdef0123456789|" .env
       - name: Build the sandbox image
         run: docker build -t mwb-sandbox:latest sandbox > sandbox.log 2>&1 || { tail -n 60 sandbox.log; exit 1; }
-      - name: Start the egress proxy, the fake gateway and the API
-        run: $COMPOSE up -d --build --wait --wait-timeout 300 egress-proxy llm-gateway api >> sandbox.log 2>&1 || { $COMPOSE logs --tail 40 egress-proxy llm-gateway migrate api >> sandbox.log 2>&1; tail -n 80 sandbox.log; exit 1; }
+      - name: Start the egress proxy, the fake gateway, the API and the runner
+        run: $COMPOSE up -d --build --wait --wait-timeout 300 egress-proxy llm-gateway api runner >> sandbox.log 2>&1 || { $COMPOSE logs --tail 40 egress-proxy llm-gateway migrate api runner >> sandbox.log 2>&1; tail -n 80 sandbox.log; exit 1; }
       - uses: astral-sh/setup-uv@v6
-      - name: Security tests (runc)
+      - name: Security and runner tests (runc)
         working-directory: runner
         env:
           MWB_SANDBOX_RUNTIME: runc
+          MWB_RUNNER_TOKEN: ci-runner-token-0123456789abcdef0123456789
         run: |
           uv sync --frozen --group dev > /dev/null
+          # The runner is called as deployed: over HTTP on its compose network address.
+          # $COMPOSE names files relative to the repository root, so ask from there.
+          ip=$(cd .. && docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$($COMPOSE ps -q runner)" | awk '{print $1}')
+          [ -n "$ip" ] || { echo "::error::No address for the runner container"; exit 1; }
+          export MWB_RUNNER_URL="http://$ip:8000"
           uv run --frozen pytest -m docker -v -p no:cacheprovider > ../sandbox-tests.log 2>&1; status=$?; tail -n 60 ../sandbox-tests.log; exit $status
       - if: failure()
         run: |
-          $COMPOSE logs --tail 40 egress-proxy llm-gateway > proxy.log 2>&1 || true
+          $COMPOSE logs --tail 40 egress-proxy llm-gateway runner > proxy.log 2>&1 || true
+          docker inspect --format '{{.Name}} {{json .State.Health}}' $($COMPOSE ps -aq runner egress-proxy) >> proxy.log 2>&1 || true
           grep -E "^(FAILED|ERROR) |^E  |AssertionError" sandbox-tests.log | head -n 60 > sandbox-failures.log || true
           .github/scripts/annotate-tail.sh "sandbox failures" sandbox-failures.log 60
           .github/scripts/annotate-tail.sh "sandbox tests" sandbox-tests.log 80
           .github/scripts/annotate-tail.sh "sandbox build and stack" sandbox.log 60
-          .github/scripts/annotate-tail.sh "proxy and gateway logs" proxy.log 60
+          .github/scripts/annotate-tail.sh "proxy, gateway and runner logs" proxy.log 60
 
   frontend:
     runs-on: ubuntu-24.04

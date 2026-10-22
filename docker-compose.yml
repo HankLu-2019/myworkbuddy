@@ -191,6 +191,33 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Phase 4 (design 04 §1, §4): starts sandboxes from fixed presets. The only service with the Docker socket;
+  # reachable only on the default network, with the bearer MWB_RUNNER_TOKEN.
+  runner:
+    build: ./runner
+    image: myworkbuddy-runner:latest
+    logging: *logging
+    mem_limit: 512m
+    cpu_shares: 512
+    read_only: true
+    tmpfs: ["/tmp"]
+    environment:
+      MWB_ENV: ${MWB_ENV:-prod}
+      MWB_RUNNER_TOKEN: ${MWB_RUNNER_TOKEN:-}
+      MWB_SANDBOX_RUNTIME: ${MWB_SANDBOX_RUNTIME:-runsc}
+      MWB_SANDBOX_IMAGE: ${MWB_SANDBOX_IMAGE:-mwb-sandbox:latest}
+      MWB_SANDBOX_NETWORK: ${MWB_SANDBOX_NETWORK:-mwb-sandbox}
+      MWB_SANDBOX_PREFIX: ${MWB_SANDBOX_PREFIX:-172.31.0}
+      MWB_API_URL: http://api:8000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - squid-jobs:/etc/squid/jobs
+      - ${MWB_DOCKER_ROOT:-/var/lib/docker}:/docker-root:ro
+    depends_on:
+      egress-proxy:
+        condition: service_healthy
+    restart: unless-stopped
+
   # The sandbox image (design 04 §1): built here, started only by the runner. `docker compose build sandbox`.
   sandbox:
     build: ./sandbox

@@ -33,3 +33,11 @@ services:
       MWB_TLS_MODE: none
     ports: !override
       - "8080:8080"
+
+  runner:
+    environment:
+      MWB_ENV: dev
+      # Tests drive the orphan sweep themselves; the background one would race them.
+      MWB_SWEEP_INTERVAL_S: "3600"
+      # CI runners have little free disk once the images are built; production keeps 15 %.
+      MWB_DISK_MIN_FREE_RATIO: "0.02"
