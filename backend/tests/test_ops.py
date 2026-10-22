@@ -248,6 +248,14 @@ async def test_system_page_shows_each_item(client_for, task_queue) -> None:
     alerts = " | ".join(body["alerts"])
     for expected in ("Backups are not configured", "Only 5% of the data disk", "missing from git", "failed embedding"):
         assert expected in alerts
+    assert "gVisor" not in alerts
+
+
+async def test_the_system_page_warns_when_sandboxes_run_without_gvisor(client_for, monkeypatch) -> None:
+    monkeypatch.setattr(get_settings(), "sandbox_runtime", "runc")
+    admin = await client_for("root", role="admin")
+    alerts = (await admin.get("/api/admin/system")).json()["alerts"]
+    assert any("without gVisor (MWB_SANDBOX_RUNTIME=runc)" in a for a in alerts)
 
 
 async def test_failed_jobs_are_listed_and_can_be_retried(client_for) -> None:

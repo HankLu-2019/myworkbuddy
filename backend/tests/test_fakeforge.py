@@ -68,3 +68,59 @@ def test_fake_git_server_serves_shallow_clones_and_refuses_pushes(tmp_path: Path
     finally:
         server.should_exit = True
         thread.join(5)
+
+
+# ---------- the Anthropic API Claude Code uses in the sandbox (04 §4) ----------
+
+
+def _events(text: str) -> list[dict]:
+    import json
+
+    return [json.loads(line[6:]) for line in text.splitlines() if line.startswith("data: ")]
+
+
+async def test_fake_anthropic_drives_the_agent_loop() -> None:
+    tools = [{"name": "Bash"}, {"name": "Write"}]
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fake") as c:
+        start = [{"role": "user", "content": "Read .mwb/TASK.md"}]
+        first = await c.post("/v1/messages", json={"model": "coder", "stream": True, "tools": tools, "messages": start})
+        events = _events(first.text)
+        assert [e["type"] for e in events][:2] == ["message_start", "content_block_start"]
+        call = next(e for e in events if e["type"] == "content_block_start")["content_block"]
+        assert call["name"] == "Bash"
+        args = next(e for e in events if e["type"] == "content_block_delta")["delta"]["partial_json"]
+        assert "cat .mwb/TASK.md" in args
+        assert next(e for e in events if e["type"] == "message_delta")["delta"]["stop_reason"] == "tool_use"
+
+        text = {"type": "text", "text": "# Task\n\n## File changes\n- modify `app/webhooks.py`: retry\n"}
+        history = [
+            {"role": "user", "content": "Read .mwb/TASK.md"},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": [text]}]},
+        ]
+        second = (await c.post("/v1/messages", json={"model": "coder", "tools": tools, "messages": history})).json()
+        assert second["stop_reason"] == "tool_use" and "app/webhooks.py" in second["content"][1]["input"]["command"]
+        history += [
+            {"role": "assistant", "content": second["content"]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": ""}]},
+        ]
+        last = (await c.post("/v1/messages", json={"model": "coder", "tools": tools, "messages": history})).json()
+        assert last["stop_reason"] == "end_turn" and last["content"][0]["text"].startswith("Done")
+        plain = (
+            await c.post("/v1/messages", json={"model": "fast", "messages": [{"role": "user", "content": "title"}]})
+        ).json()
+        assert plain["content"] == [{"type": "text", "text": "Fake agent session"}]
+
+
+async def test_fake_anthropic_budget_error_is_not_retried() -> None:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fake") as c:
+        key = (
+            await c.post("/key/generate", json={"key_alias": "mwb-job-1", "models": ["coder"], "max_budget": 0})
+        ).json()["key"]
+        r = await c.post("/v1/messages", headers={"Authorization": f"Bearer {key}"},
+                         json={"model": "coder", "messages": [{"role": "user", "content": "x"}]})  # fmt: skip
+        assert r.status_code == 400 and "Budget has been exceeded" in r.json()["error"]["message"]
+        failing = await c.post(
+            "/v1/messages", json={"model": "coder", "messages": [{"role": "user", "content": "[[fail]]"}]}
+        )
+        assert failing.status_code == 500

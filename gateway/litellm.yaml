@@ -18,6 +18,12 @@ model_list:
     litellm_params:
       model: os.environ/MWB_PLANNER_MODEL_ID
       aws_region_name: os.environ/AWS_REGION
+  # Coding jobs (Phase 4): Claude Code in the sandbox calls this through LiteLLM's Anthropic route (/v1/messages),
+  # so it must be a Claude model. Defaults to the chat model (docker-compose.yml sets MWB_CODER_MODEL_ID).
+  - model_name: coder
+    litellm_params:
+      model: os.environ/MWB_CODER_MODEL_ID
+      aws_region_name: os.environ/AWS_REGION
   # To use an OpenAI-compatible endpoint instead of Bedrock for "chat", replace the entry above with:
   # - model_name: chat
   #   litellm_params:

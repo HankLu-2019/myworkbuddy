@@ -19,6 +19,7 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 _open: dict[int, asyncio.Task | None] = {}  # connection id -> the task that began its transaction
+_where: dict[int, str] = {}  # connection id -> the app code that began it, for the violation message
 _parents: "weakref.WeakKeyDictionary[asyncio.Task, asyncio.Task]" = weakref.WeakKeyDictionary()
 violations: list[str] = []
 
@@ -36,6 +37,7 @@ def install(engine: AsyncEngine) -> None:
     @event.listens_for(sync, "begin")
     def _begin(conn) -> None:
         _open[id(conn)] = _current()
+        _where[id(conn)] = _app_frame()
 
     @event.listens_for(sync, "commit")
     def _commit(conn) -> None:
@@ -69,11 +71,20 @@ def _lineage(task: asyncio.Task | None) -> set[asyncio.Task | None]:
     return seen
 
 
+def _app_frame() -> str:
+    import traceback
+
+    frames = [f for f in traceback.extract_stack(limit=40) if "/app/" in f.filename and "/tests/" not in f.filename]
+    return f"{frames[-1].filename.split('/app/', 1)[1]}:{frames[-1].lineno}" if frames else "?"
+
+
 def check(what: str) -> None:
     mine = _lineage(_current())
-    count = sum(1 for owner in _open.values() if owner in mine)
-    if count:
-        violations.append(f"{what} called with {count} DB transaction(s) open (rule R1)")
+    held = [_where.get(c, "?") for c, owner in list(_open.items()) if owner in mine]
+    if held:
+        violations.append(
+            f"{what} called with {len(held)} DB transaction(s) open (rule R1), begun at {', '.join(held)}"
+        )
 
 
 def reset() -> None:

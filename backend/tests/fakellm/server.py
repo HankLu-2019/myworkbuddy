@@ -28,6 +28,8 @@ Chat behaviour:
 - Phase 3 (07 §5.8): the planner (an output tool with a `commit_message` field) gets a fixed plan for the fake
   repository, revised with the user's feedback (tests/fakellm/forge.py).
 
+- Phase 4 (04 §4): `POST /v1/messages`, the Anthropic API Claude Code uses in the sandbox (tests/fakellm/anthropic.py).
+
 Also a stand-in feed at GET /fake/feed.xml with one item published a minute ago, and stand-ins for Jira and a Git
 server (tests/fakellm/forge.py).
 """
@@ -44,10 +46,11 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from tests.fakellm import forge
+from tests.fakellm import anthropic, forge
 
 app = FastAPI(title="fake-llm")
 app.include_router(forge.router)
+app.include_router(anthropic.router)
 
 CHAT_COST = 0.001
 EMBED_COST = 0.00001
@@ -75,6 +78,16 @@ def _key_for(request: Request, model: str | None) -> tuple[dict[str, Any] | None
         body = {"error": {"message": msg, "type": "budget_exceeded", "param": None, "code": "429"}}
         return rec, JSONResponse(body, status_code=429)
     return rec, None
+
+
+def key_for(request: Request, model: str | None, *, anthropic: bool = False):
+    """`_key_for` for the Anthropic route: a budget error is HTTP 400, which Claude Code doesn't retry."""
+    rec, err = _key_for(request, model)
+    if anthropic and err is not None and err.status_code == 429:
+        body = json.loads(err.body)
+        body["error"]["code"] = "400"
+        err = JSONResponse(body, status_code=400)
+    return rec, err
 
 
 def _charge(rec: dict[str, Any] | None, cost: float) -> str:
@@ -411,3 +424,6 @@ async def chat_completions(request: Request):
         SPEND_LOGS[call_id] = {"request_id": call_id, "spend": CHAT_COST, "api_key_alias": rec and rec["key_alias"]}
 
     return StreamingResponse(events(), media_type="text/event-stream", headers=headers)
+
+
+charge = _charge

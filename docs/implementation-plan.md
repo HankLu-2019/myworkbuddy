@@ -168,8 +168,9 @@ Design: [03-plans.md](design/03-plans.md).
 
 Design: [04-execution.md](design/04-execution.md).
 
-- [ ] **X1 Sandbox image, networks, egress proxy, gVisor** (04 §1). Verify Claude Code flags and gateway env vars against the docs for the pinned CLI version and update 04 §4 if they differ.
+- [x] **X1 Sandbox image, networks, egress proxy, gVisor** (04 §1). Verify Claude Code flags and gateway env vars against the docs for the pinned CLI version and update 04 §4 if they differ.
   - Acceptance: security tests 1–3 in 04 §9 pass in CI (runc) and on the VM (runsc, *manual*); agent preset smoke run against the fake LLM produces a file change.
+  - Done with the changes recorded in 04 §1 ("Changed while building X1"): Claude Code 2.1.293 pinned and its flags confirmed, `AGENT_MAX_TURNS` instead of an `MWB_` variable, a fixed `ANTHROPIC_BASE_URL`, Squid with per-job include files, the `coder` gateway model, and a fake Anthropic endpoint for the smoke run.
 - [ ] **X2 Runner service** (04 §4).
   - Acceptance: security tests 4, 5 and 9; unit tests for preset and limit validation; tar extraction rejects traversal and absolute symlinks.
 - [ ] **X3 Jobs model, state machine, events** (04 §2–3).

@@ -64,6 +64,54 @@ jobs:
           .github/scripts/annotate-tail.sh "pytest failures" pytest-failures.log 120
           .github/scripts/annotate-tail.sh "pytest" pytest.log 80
 
+  # The runner package (design 04 §4): presets, limits, mwb-verify. The Docker-backed tests run in `sandbox`.
+  runner:
+    runs-on: ubuntu-24.04
+    defaults: { run: { working-directory: runner } }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --group dev
+      - run: uv run --frozen ruff check . > ../runner.log 2>&1 && uv run --frozen ruff format --check . >> ../runner.log 2>&1 || { cat ../runner.log; exit 1; }
+      - run: uv run --frozen pytest --cov=mwb_runner --cov-report=term --cov-fail-under=80 -p no:cacheprovider > ../runner.log 2>&1; status=$?; tail -n 40 ../runner.log; exit $status
+      - if: failure()
+        working-directory: .
+        run: .github/scripts/annotate-tail.sh "runner" runner.log 60
+
+  # Sandbox security tests 1–3 and the agent smoke run (design 04 §9) against a real Docker daemon, with runc
+  # (gVisor is checked by hand on the VM). The proxy and the fake gateway come from the compose files.
+  sandbox:
+    runs-on: ubuntu-24.04
+    env:
+      COMPOSE: docker compose -f docker-compose.yml -f compose.ci.yml
+    steps:
+      - uses: actions/checkout@v5
+      - name: Write .env
+        run: |
+          cp .env.example .env
+          key=$(python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
+          sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=ci-postgres|; s|^MWB_SECRET_KEY=.*|MWB_SECRET_KEY=$key|; s|^MWB_HOSTNAME=.*|MWB_HOSTNAME=http://localhost:8080|; s|^MWB_TLS_MODE=.*|MWB_TLS_MODE=none|; s|^LITELLM_MASTER_KEY=.*|LITELLM_MASTER_KEY=sk-ci|; s|^LITELLM_DB_PASSWORD=.*|LITELLM_DB_PASSWORD=ci-litellm|; s|^MWB_SANDBOX_RUNTIME=.*|MWB_SANDBOX_RUNTIME=runc|" .env
+      - name: Build the sandbox image
+        run: docker build -t mwb-sandbox:latest sandbox > sandbox.log 2>&1 || { tail -n 60 sandbox.log; exit 1; }
+      - name: Start the egress proxy, the fake gateway and the API
+        run: $COMPOSE up -d --build --wait --wait-timeout 300 egress-proxy llm-gateway api >> sandbox.log 2>&1 || { $COMPOSE logs --tail 40 egress-proxy llm-gateway migrate api >> sandbox.log 2>&1; tail -n 80 sandbox.log; exit 1; }
+      - uses: astral-sh/setup-uv@v6
+      - name: Security tests (runc)
+        working-directory: runner
+        env:
+          MWB_SANDBOX_RUNTIME: runc
+        run: |
+          uv sync --frozen --group dev > /dev/null
+          uv run --frozen pytest -m docker -v -p no:cacheprovider > ../sandbox-tests.log 2>&1; status=$?; tail -n 60 ../sandbox-tests.log; exit $status
+      - if: failure()
+        run: |
+          $COMPOSE logs --tail 40 egress-proxy llm-gateway > proxy.log 2>&1 || true
+          grep -E "^(FAILED|ERROR) |^E  |AssertionError" sandbox-tests.log | head -n 60 > sandbox-failures.log || true
+          .github/scripts/annotate-tail.sh "sandbox failures" sandbox-failures.log 60
+          .github/scripts/annotate-tail.sh "sandbox tests" sandbox-tests.log 80
+          .github/scripts/annotate-tail.sh "sandbox build and stack" sandbox.log 60
+          .github/scripts/annotate-tail.sh "proxy and gateway logs" proxy.log 60
+
   frontend:
     runs-on: ubuntu-24.04
     defaults: { run: { working-directory: frontend } }
@@ -96,7 +144,8 @@ jobs:
           set -o pipefail
           { docker build --target prod -t mwb-backend:prod backend \
             && docker build --target dev -t mwb-backend:dev backend \
-            && docker build --target prod -t mwb-web:prod frontend; } > images.log 2>&1 || { tail -n 80 images.log; exit 1; }
+            && docker build --target prod -t mwb-web:prod frontend \
+          && docker build -t mwb-squid deploy/squid; } > images.log 2>&1 || { tail -n 80 images.log; exit 1; }
       - name: Caddyfile is valid in every TLS mode
         run: |
           mkdir -p tls && openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=mwb.example.com -keyout tls/key.pem -out tls/cert.pem 2>/dev/null
