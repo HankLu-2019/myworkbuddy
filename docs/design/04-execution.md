@@ -331,6 +331,12 @@ Each external call is audited (`job.push`, `job.mr`, `job.jira_comment`) with th
 | Disk | Runner refuses new runs if Docker's data root has < 15 % free; a watchdog kills a run whose workspace exceeds `MWB_JOB_DISK_GB` (default 10) |
 | Concurrency | `MWB_MAX_CONCURRENT_JOBS` (default 2) via worker concurrency; per user 1 active job |
 
+*Changed while building X7:*
+
+- **Tracking** is `jobs_track` (hourly at :23, main worker): for each `pushed` job, GitLab `GET merge_requests/:iid` (`merged`/`closed`) or Gerrit `GET /a/changes/<number>` (or the Change-Id query when the push output gave only a URL; `MERGED`/`ABANDONED`). The status change re-checks `pushed` in its own short transaction and adds an inbox item ("PROJ-123 merged", or "…the review request was closed" with the ticket back in Approved). Errors are logged and retried next hour; a 401 marks the credential through the connector.
+- **Cleanup** is `jobs_cleanup` (hourly at :47): a job waiting for review gets an inbox notice once a day before `MWB_JOB_REVIEW_DAYS` (counted from its last status change; the notice is remembered in `jobs.push.expiry_notice`) and is `discarded` (`review_expired`) with its workspace and key removed when they're up. Artifacts older than `MWB_ARTIFACT_RETENTION_DAYS` (90) go, files and rows, for jobs that are neither active nor `pushed` (a pushed job may still get a round built from its patch). Keys still stored for ended or pushed jobs (their removal failed) are removed again.
+- **Disk:** the runner already refused runs below the free-space threshold (X2). Its sweep now also measures each running job's volume through the read-only Docker root mount and kills a run past `MWB_JOB_DISK_GB` (default 10); `GET /v1/runs/{id}` reports `reason: "disk_limit"` (or `timeout`, `requested`), and the job fails with `workspace_too_large` instead of `timed_out`.
+
 ## 8. API
 
 | Method and path | Purpose |

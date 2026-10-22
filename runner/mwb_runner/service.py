@@ -47,7 +47,8 @@ class Runner:
         self.s = settings
         self._lock = threading.Lock()
         self._reserved: set[str] = set()
-        self.killed: set[str] = set()  # run ids the runner killed (timeouts and DELETE)
+        self.killed: set[str] = set()  # run ids the runner killed (timeouts, disk limit and DELETE)
+        self.kill_reason: dict[str, str] = {}  # run id → "timeout" | "disk_limit" | "requested"
 
     # ---------- workspaces ----------
 
@@ -167,6 +168,7 @@ class Runner:
             "state": status,
             "exit_code": None if running else state.get("ExitCode"),
             "oom_killed": bool(state.get("OOMKilled")),
+            "reason": self.kill_reason.get(run_id) if status == "killed" else None,
             "started_at": state.get("StartedAt"),
             "finished_at": None if running else state.get("FinishedAt"),
         }
@@ -179,6 +181,7 @@ class Runner:
     def kill_run(self, run_id: str) -> None:
         c = self._container(run_id)
         self.killed.add(run_id)
+        self.kill_reason.setdefault(run_id, "requested")
         self.ops.kill(c["Id"])
         self._remove_acl(run_id)
 
@@ -241,7 +244,7 @@ class Runner:
         """Kill runs past timeout + grace; with the API's answer, remove containers, volumes and ACL files of jobs
         that aren't active. Without an answer (API down), only timeouts are enforced: never delete on a guess."""
         now = now or datetime.now(UTC)
-        report = {"timed_out": 0, "containers": 0, "volumes": 0, "acls": 0}
+        report = {"timed_out": 0, "too_large": 0, "containers": 0, "volumes": 0, "acls": 0}
         live_runs: set[str] = set()
         for c in self.ops.containers("mwb.job"):
             labels = c.get("Labels") or {}
@@ -254,9 +257,16 @@ class Runner:
                 limit = int(labels.get("mwb.timeout_s", "0") or 0) + GRACE_S
                 if started and (now - started).total_seconds() > limit:
                     self.killed.add(run_id)
+                    self.kill_reason[run_id] = "timeout"
                     self.ops.kill(c["Id"])
                     self._remove_acl(run_id)
                     report["timed_out"] += 1
+                elif job and self._workspace_bytes(job, stop_at=self._disk_limit()) > self._disk_limit():
+                    self.killed.add(run_id)
+                    self.kill_reason[run_id] = "disk_limit"
+                    self.ops.kill(c["Id"])
+                    self._remove_acl(run_id)
+                    report["too_large"] += 1
             if active_jobs is not None and job not in active_jobs:
                 self.ops.remove(c["Id"])
                 self._remove_acl(run_id)
@@ -279,6 +289,34 @@ class Runner:
                 except RuntimeError as exc:
                     log.warning("sweep: %s", exc)
         return report
+
+    def _disk_limit(self) -> int:
+        return int(self.s.job_disk_gb * 1024**3)
+
+    def _workspace_bytes(self, job_id: str, stop_at: int) -> int:
+        """Size of a job's volume, read through the read-only Docker root mount; stops counting past `stop_at`."""
+        try:
+            data = Path(self.s.docker_root) / "volumes" / volume_name(uuid.UUID(job_id)) / "_data"
+        except ValueError:
+            return 0
+        total = 0
+        stack = [data]
+        while stack:
+            try:
+                entries = list(os.scandir(stack.pop()))
+            except OSError:
+                continue
+            for e in entries:
+                try:
+                    if e.is_dir(follow_symlinks=False):
+                        stack.append(Path(e.path))
+                    elif e.is_file(follow_symlinks=False):
+                        total += e.stat(follow_symlinks=False).st_blocks * 512
+                except OSError:
+                    continue
+                if total > stop_at:
+                    return total
+        return total
 
     # ---------- health ----------
 

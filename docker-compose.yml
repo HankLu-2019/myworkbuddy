@@ -234,6 +234,7 @@ services:
       MWB_SANDBOX_IMAGE: ${MWB_SANDBOX_IMAGE:-mwb-sandbox:latest}
       MWB_SANDBOX_NETWORK: ${MWB_SANDBOX_NETWORK:-mwb-sandbox}
       MWB_SANDBOX_PREFIX: ${MWB_SANDBOX_PREFIX:-172.31.0}
+      MWB_JOB_DISK_GB: ${MWB_JOB_DISK_GB:-10}
       MWB_API_URL: http://api:8000
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

@@ -2,8 +2,8 @@
 verify preset runs the real sandbox/mwb-verify on them, patches come from real git, and the agent preset runs a
 scripted behaviour (by default the same as the fake LLM's agent: change the first planned file, write notes).
 
-Agent behaviours are callables `(workspace: Path, env: dict) -> (exit_code, stdout_lines)`, or the string
-"hang" for a run that keeps running until killed.
+Agent behaviours are callables `(workspace: Path, env: dict) -> (exit_code, stdout_lines)`, or the strings
+"hang" (runs until killed), "killed" (the runner's timeout) and "disk_limit" (killed for its workspace size).
 """
 
 import asyncio
@@ -136,7 +136,9 @@ class FakeRunner:
                 if behaviour == "hang":
                     run["hang"] = asyncio.Event()
                 elif behaviour == "killed":
-                    run.update(state="killed", exit_code=137)
+                    run.update(state="killed", exit_code=137, reason="timeout")
+                elif behaviour == "disk_limit":
+                    run.update(state="killed", exit_code=137, reason="disk_limit")
                 else:
                     code, lines = behaviour(ws, body["env"])
                     run.update(state="exited", exit_code=code, lines=lines)
@@ -147,7 +149,8 @@ class FakeRunner:
             run = self.runs.get(run_id)
             if run is None:
                 return JSONResponse({"detail": "unknown", "code": "not_found"}, status_code=404)
-            return {"run_id": run_id, "state": run["state"], "exit_code": run["exit_code"], "oom_killed": False}
+            return {"run_id": run_id, "state": run["state"], "exit_code": run["exit_code"], "oom_killed": False,
+                    "reason": run.get("reason")}  # fmt: skip
 
         @app.get("/v1/runs/{run_id}/logs")
         async def logs(run_id: str, follow: bool = False):
@@ -168,7 +171,7 @@ class FakeRunner:
             if run is None:
                 return JSONResponse({"detail": "unknown", "code": "not_found"}, status_code=404)
             if run["state"] == "running":
-                run.update(state="killed", exit_code=137)
+                run.update(state="killed", exit_code=137, reason="requested")
                 if "hang" in run:
                     run["hang"].set()
             if remove:

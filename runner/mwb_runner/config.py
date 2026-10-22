@@ -29,6 +29,7 @@ class RunnerSettings(BaseSettings):
     pids_limit: int = 512
     patch_max_bytes: int = 20 * 1024 * 1024
     disk_min_free_ratio: float = Field(0.15, ge=0, lt=1)
+    job_disk_gb: float = Field(10, gt=0)  # a run whose workspace grows past this is killed by the sweep (04 §7)
 
     # Service
     runner_token: str = Field("", min_length=0)

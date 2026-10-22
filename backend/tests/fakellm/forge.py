@@ -40,7 +40,7 @@ FILES = {
     ".gitlab-ci.yml": "test:\n  image: python:3.12\n  script:\n    - pytest -q\n",
 }
 _root: Path | None = None
-STATE: dict[str, Any] = {"mrs": [], "comments": {}, "posts": {"mr": 0, "comment": 0}, "merge": {}}
+STATE: dict[str, Any] = {"mrs": [], "comments": {}, "posts": {"mr": 0, "comment": 0}, "merge": {}, "gerrit": {}}
 
 
 def _authorized(request: Request) -> bool:
@@ -197,6 +197,21 @@ async def gerrit_changes(request: Request) -> PlainTextResponse:
     return PlainTextResponse(")]}'\n" + json.dumps(found[:1]))
 
 
+@router.get("/a/changes/{number}")
+async def gerrit_change(number: int) -> PlainTextResponse:
+    import json
+
+    status = STATE["gerrit"].get(number, "NEW")
+    return PlainTextResponse(")]}'\n" + json.dumps({"project": "team/payments", "_number": number, "status": status}))
+
+
+@router.post("/fake/gerrit/{number}")
+async def fake_gerrit_status(number: int, request: Request) -> JSONResponse:
+    """Set a Gerrit change's status (X7 tracking): `?status=MERGED` or `ABANDONED`."""
+    STATE["gerrit"][number] = request.query_params.get("status", "MERGED")
+    return JSONResponse({"_number": number, "status": STATE["gerrit"][number]})
+
+
 @router.get("/fake/state")
 async def fake_state() -> JSONResponse:
     repo = git_root() / "team" / "payments.git"
@@ -207,7 +222,7 @@ async def fake_state() -> JSONResponse:
 
 @router.post("/fake/reset")
 async def fake_reset() -> JSONResponse:
-    STATE.update(mrs=[], comments={}, posts={"mr": 0, "comment": 0}, merge={})
+    STATE.update(mrs=[], comments={}, posts={"mr": 0, "comment": 0}, merge={}, gerrit={})
     repo = git_root() / "team" / "payments.git"
     refs = subprocess.run(["git", "for-each-ref", "--format=%(refname)"], cwd=repo, capture_output=True,
                           text=True).stdout.split()  # fmt: skip

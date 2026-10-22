@@ -186,8 +186,9 @@ Design: [04-execution.md](design/04-execution.md).
 - [x] **X6 Push gate and orchestrator** (04 §5.6, §6, 07 §5.9).
   - Acceptance: Playwright flow 07 §5.9 against a local git server and stub GitLab API; security tests 7–8; GitLab MR created once and updated on the next round; Gerrit Change-Id stable across rounds; Jira comment posted once with the real link; 401 marks the credential invalid.
   - Done with the changes recorded in 04 §6 and 07 §4.11 ("Changed while building X6"): the push runs as steps of the job's task, deterministic commits make a repeated push a no-op, MR and Jira comment are found before they are created, and changes after a push re-prepare from the pushed patch.
-- [ ] **X7 Tracking, cleanup, orphans** (04 §6–7).
+- [x] **X7 Tracking, cleanup, orphans** (04 §6–7).
   - Acceptance: merged/closed MRs update job and work item; volumes and keys removed per the cleanup table; runner refuses runs below the disk threshold.
+  - Done with the changes recorded in 04 §7 ("Changed while building X7"): `jobs_track` and `jobs_cleanup` hourly on the main worker, a reminder before a job in review is discarded, and the runner's sweep kills a run whose workspace passes `MWB_JOB_DISK_GB`.
 
 **Phase 4 end-to-end checklist** (*manual*, on the VM with gVisor): a real small ticket goes plan → job → review → push to a test repo on GitLab and on Gerrit; the security tests in 04 §9 are run on the VM.
 
@@ -198,3 +199,12 @@ Slack/Teams notifications · user-defined agents and skills editor · admin-regi
 ## Retrospectives
 
 *(append after each phase)*
+
+### Phase 4 (X1–X7), automated part
+
+What the checklist above still needs by hand: a real ticket through plan → job → review → push on the VM with gVisor (`runsc`), against a test repository on GitLab and on Gerrit, with real Bedrock; and the 04 §9 security tests run there with `runsc` (CI runs them with `runc`).
+
+- **What held:** one idempotent task per job (`job_advance`, `lock=job:<id>`) carried prepare, run, verify and push with no second scheduler; every step either re-checks the status it expects or stores its outcome first, so redelivery is safe (security test 8 crashes the worker after each external step).
+- **What changed from the design:** recorded under "Changed while building X1…X7" in 04 and 07. The larger ones: Squid reloads by `squid -k parse` + SIGHUP (no PID file with `-N`); gitleaks runs as `stdin` and fails closed; the push is deterministic (approval time as commit dates) instead of tracking pushes separately; changes after a push re-prepare from the pushed patch with a new key (`pushed → preparing`).
+- **CI cost:** the e2e job now builds the sandbox image and runs a real job (flow 5.9); expect it to be the slowest job. The sandbox job reaches the runner over its compose address and needs the runner's free-disk threshold lowered on GitHub's runners.
+- **Left for later:** retries of a failed push from the UI (today: start a new job), a budget figure in the Start job confirmation (the job budget is a server setting the UI doesn't see), Sysbox for compose-based verification (Phase 5).

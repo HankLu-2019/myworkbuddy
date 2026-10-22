@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     job_max_turns: int = Field(60, ge=1, le=500)
     job_max_changed_lines: int = Field(3000, ge=1)
     job_review_days: int = Field(7, ge=1)  # workspaces of jobs left in review are removed after this
+    artifact_retention_days: int = Field(90, ge=7)  # job transcripts, patches and logs of finished jobs (04 §7)
     # Email (design 02 §5). No MWB_SMTP_HOST: emails stay queued and the System page says why.
     smtp_host: str = ""
     smtp_port: int = Field(587, ge=1, le=65535)
