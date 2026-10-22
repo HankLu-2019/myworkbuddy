@@ -1,0 +1,43 @@
+[project]
+name = "mwb-runner"
+version = "0.1.0"
+description = "Starts MyWorkBuddy sandboxes: the only service with the Docker socket (design 04 §1, §4)."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.150",
+  "uvicorn[standard]>=0.30",
+  "pydantic-settings>=2.5",
+  "docker>=7.1",
+  "httpx>=0.28",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.25",
+  "pytest-cov>=6",
+  "ruff>=0.9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mwb_runner"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = ["docker: needs a Docker daemon with the sandbox images and the egress proxy (CI job `sandbox`)"]
+addopts = "-m 'not docker'"
+
+[tool.coverage.run]
+source = ["mwb_runner"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["B008"]

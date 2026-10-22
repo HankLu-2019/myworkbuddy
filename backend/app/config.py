@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     # Hosts a plan may ask the Phase 4 sandbox to reach (ADR-12), comma-separated, e.g. "github.com,pypi.org".
     sandbox_optional_hosts: str = ""
     autoplan_per_day: int = Field(5, ge=0)  # plans the intake may auto-draft per user per day (03 §7)
+    # Coding jobs (design 04). gVisor (`runsc`) unless the host can't run it; `runc` is flagged on the System page.
+    sandbox_runtime: Literal["runsc", "runc"] = "runsc"
     # Email (design 02 §5). No MWB_SMTP_HOST: emails stay queued and the System page says why.
     smtp_host: str = ""
     smtp_port: int = Field(587, ge=1, le=65535)

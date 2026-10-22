@@ -105,6 +105,8 @@ def _alerts(
     state: dict[str, dict[str, Any]], checks: dict[str, str], stuck: int, disk: dict[str, Any], outbox: dict[str, Any]
 ) -> list[str]:
     alerts = [v for v in checks.values() if v != "ok"]
+    if get_settings().sandbox_runtime == "runc":
+        alerts.append("Coding sandboxes run without gVisor (MWB_SANDBOX_RUNTIME=runc); install gVisor and use runsc")
     evals = state.get("agent_evals")
     if evals and evals.get("passed") != evals.get("total"):
         alerts.append(f"Agent evals: {evals['total'] - evals['passed']} of {evals['total']} cases failed last night")

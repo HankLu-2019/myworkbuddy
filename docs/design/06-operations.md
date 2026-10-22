@@ -60,7 +60,9 @@ Then sign in at `https://$MWB_HOSTNAME`, create integrations (Phase 2+), create 
 | `MWB_TRANSCRIPT_MAX_MB` | `50` | Per imported Claude Code transcript |
 | `MWB_LIBRARIAN_LOCAL_HOUR` | `2` | User's local time |
 | `MWB_MAX_CONCURRENT_JOBS` | `2` | Phase 4 |
-| `MWB_SANDBOX_RUNTIME` | `runsc` | Phase 4 |
+| `MWB_SANDBOX_RUNTIME` | `runsc` | Phase 4. `runc` only where gVisor can't run; the System page then warns |
+| `MWB_CODER_MODEL_ID` | the chat model | Phase 4. A Claude model: Claude Code uses LiteLLM's Anthropic route |
+| `MWB_SANDBOX_NETWORK`, `MWB_SANDBOX_PREFIX` | `mwb-sandbox`, `172.31.0` | Phase 4. The internal sandbox network; change only to run a second stack on the same host |
 | `MWB_RUNNER_TOKEN` | — | Phase 4, random 32 bytes |
 | `MWB_PROXY_AGENT_HOSTS`, `MWB_PROXY_VERIFY_HOSTS`, `MWB_SANDBOX_OPTIONAL_HOSTS` | see 04 §1 | Phase 4 |
 | `MWB_JOB_MAX_CHANGED_LINES`, `MWB_JOB_DISK_GB` | `3000`, `10` | Phase 4 |

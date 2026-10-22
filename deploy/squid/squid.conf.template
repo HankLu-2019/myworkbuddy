@@ -1,0 +1,32 @@
+# Rendered by entrypoint.sh from MWB_PROXY_AGENT_HOSTS / MWB_PROXY_VERIFY_HOSTS (design 04 §1).
+visible_hostname egress-proxy
+http_port 3128 name=agent
+http_port 3129 name=verify
+
+acl agent_port myportname agent
+acl verify_port myportname verify
+acl agent_hosts dstdomain __AGENT_HOSTS__
+acl verify_hosts dstdomain __VERIFY_HOSTS__
+acl SSL_ports port 443
+acl Safe_ports port 80 443 4000
+acl CONNECT method CONNECT
+
+http_access deny !Safe_ports
+http_access deny CONNECT !SSL_ports
+# Per-job optional hosts, written by the runner while a job's sandbox runs (acl job_<id> src <ip>, ...).
+include /etc/squid/jobs/*.conf
+http_access allow agent_port agent_hosts
+http_access allow verify_port verify_hosts
+http_access deny all
+
+# A forward proxy only: no caching, no identifying headers, no TLS interception.
+cache deny all
+cache_mem 8 MB
+forwarded_for delete
+httpd_suppress_version_string on
+shutdown_lifetime 3 seconds
+
+access_log daemon:/var/log/squid/access.log squid
+cache_log stdio:/dev/stderr
+logfile_rotate 30
+pid_filename /run/squid/squid.pid

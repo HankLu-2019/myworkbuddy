@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Run a plan's verification commands inside the sandbox (design 04 §4 preset `verify`, §5.4).
+
+Usage: mwb-verify /workspace/.mwb/verify.json
+
+verify.json: {"commands": [{"command": "pytest -q", "timeout_s": 600}, ...], "total_timeout_s": 2700}
+
+Each command runs with `sh -lc` in /workspace, in its own process group (killed whole on timeout). Output goes to
+.mwb/logs/verify-<n>.log (truncated to the last 1 MB). The result is written to .mwb/verify-result.json:
+[{"command", "exit_code", "duration_s", "timed_out", "log"}]. Commands after the total timeout is spent are
+reported as skipped (exit_code null). The script exits 0 when every command passed, 1 otherwise.
+"""
+
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+MAX_LOG = 1_000_000
+
+
+def _kill(proc: subprocess.Popen) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def run(spec_path: str, workspace: str = "/workspace") -> int:
+    root = Path(workspace)
+    spec = json.loads(Path(spec_path).read_text())
+    logs = root / ".mwb" / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + float(spec.get("total_timeout_s", 2700))
+    results = []
+    for n, item in enumerate(spec.get("commands", []), start=1):
+        command = str(item["command"])
+        log = logs / f"verify-{n}.log"
+        left = deadline - time.monotonic()
+        if left <= 0:
+            results.append({"command": command, "exit_code": None, "duration_s": 0, "timed_out": False,
+                            "skipped": True, "log": None})  # fmt: skip
+            continue
+        timeout = min(float(item.get("timeout_s", 600)), left)
+        start = time.monotonic()
+        with log.open("wb") as out:
+            proc = subprocess.Popen(["sh", "-lc", command], cwd=root, stdout=out, stderr=subprocess.STDOUT,
+                                    stdin=subprocess.DEVNULL, start_new_session=True)  # fmt: skip
+            try:
+                code = proc.wait(timeout=timeout)
+                timed_out = False
+            except subprocess.TimeoutExpired:
+                _kill(proc)
+                proc.wait()
+                code, timed_out = 124, True
+        size = log.stat().st_size
+        if size > MAX_LOG:
+            data = log.read_bytes()[-MAX_LOG:]
+            log.write_bytes(b"[...truncated...]\n" + data)
+        results.append({"command": command, "exit_code": code, "duration_s": round(time.monotonic() - start, 2),
+                        "timed_out": timed_out, "skipped": False, "log": str(log.relative_to(root))})  # fmt: skip
+    (root / ".mwb" / "verify-result.json").write_text(json.dumps(results, indent=1))
+    return 0 if all(r["exit_code"] == 0 for r in results) else 1
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("usage: mwb-verify /workspace/.mwb/verify.json", file=sys.stderr)
+        sys.exit(2)
+    sys.exit(run(sys.argv[1], os.environ.get("MWB_WORKSPACE", "/workspace")))
