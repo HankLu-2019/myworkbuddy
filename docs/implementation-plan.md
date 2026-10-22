@@ -197,8 +197,9 @@ Design: [04-execution.md](design/04-execution.md).
 
 Design: [08-follow-through.md](design/08-follow-through.md). Tasks are in priority order: F1–F5 take a job from "merge request opened" to "merged", F6–F7 connect jobs to CI failures and the knowledge base, F8–F12 prepare a team rollout. Each can ship on its own; F5 is small and can go first.
 
-- [ ] **F1 Pipeline watch and "Fix CI failure"** (08 §F1).
+- [x] **F1 Pipeline watch and "Fix CI failure"** (08 §F1).
   - Acceptance: a failed pipeline for the pushed sha adds exactly one inbox item (older shas ignored); Fix CI failure starts a round whose `feedback.md` holds the wrapped log tails, fetched by the server; a planted prompt injection stays inside the envelope; passed and Gerrit `Verified -1` states shown; refused without a failed pipeline and after 5 rounds.
+  - Done with the changes recorded in 08 §F1: logs as `untrusted.wrap()` JSON blocks in `feedback.md`, a Home card for failed pipelines, tracking every 10 minutes.
 - [ ] **F2 Address review comments** (08 §F2).
   - Acceptance: only the selected, still-unresolved comments (GitLab discussions, Gerrit comments) reach `feedback.md`, re-fetched by the server and wrapped; replies are posted only when approved in the push preview, once each, including after a crash between posting and recording; resolved comments and system notes are never offered.
 - [ ] **F3 The agent can ask** (08 §F3).

@@ -430,6 +430,70 @@ export function PushDialog({ job, open, onOpenChange }: { job: Job; open: boolea
 }
 
 /** After the push (07 §4.10): the review request and Jira comment links, and whether it's merged. */
+const PIPELINE_STATE: Record<string, [string, string]> = {
+  running: ["running", "Pipeline running"],
+  passed: ["succeeded", "Pipeline passed"],
+  failed: ["failed", "Pipeline failed"],
+  canceled: ["cancelled", "Pipeline canceled"],
+};
+
+/** The pushed commit's pipeline, and Fix CI failure when it failed (08 §F1). */
+function Pipeline({ job }: { job: Job }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [note, setNote] = useState("");
+  const push = (job.push ?? {}) as JobPush;
+  const p = push.pipeline;
+  const fix = useMutation({
+    mutationFn: () => api<Job>(`/api/jobs/${job.id}/fix-ci`, { method: "POST", json: { note: note.trim() || null } }),
+    onSuccess: () => {
+      setNote("");
+      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["work"] });
+      toast({ title: "The agent is fixing the pipeline", tone: "success" });
+    },
+  });
+  if (!p || p.sha !== push.pushed_sha) return job.status === "pushed" ? <p className="muted small">No pipeline seen for the pushed commit yet.</p> : null;
+  const [state, label] = PIPELINE_STATE[p.status] ?? ["waiting", p.status];
+  return (
+    <div className="stack-tight">
+      <div className="row">
+        <StatusPill status={state} label={label} />
+        {p.url && (
+          <a href={p.url} target="_blank" rel="noreferrer" className="small">
+            Open pipeline
+          </a>
+        )}
+      </div>
+      {p.status === "failed" && job.status === "pushed" && (
+        <form
+          className="stack-tight"
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            fix.mutate();
+          }}
+        >
+          {p.failed.length > 0 && <p className="small">Failed: {p.failed.map((f) => f.name ?? "CI").join(", ")}</p>}
+          <TextArea
+            label="Note for the agent (optional)"
+            rows={2}
+            maxLength={4000}
+            value={note}
+            hint="The end of the failing logs is sent to the agent; anything you add here goes with it."
+            onChange={(e) => setNote(e.target.value)}
+          />
+          <div className="row">
+            <Button type="submit" variant="primary" pending={fix.isPending}>
+              Fix CI failure
+            </Button>
+          </div>
+          <ErrorNote error={fix.error} />
+        </form>
+      )}
+    </div>
+  );
+}
+
 function Pushed({ job }: { job: Job }) {
   const push = (job.push ?? {}) as JobPush;
   const link = push.mr_url ?? push.change_url;
@@ -453,6 +517,7 @@ function Pushed({ job }: { job: Job }) {
           </li>
         )}
       </ul>
+      <Pipeline job={job} />
       {job.status === "pushed" && <p className="muted">Watching for merge.</p>}
       {job.status === "merged" && <Banner tone="success">Merged.</Banner>}
       {job.status === "closed" && <Banner tone="warning">The review request was closed without merging.</Banner>}

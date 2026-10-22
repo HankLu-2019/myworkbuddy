@@ -55,6 +55,7 @@ class NeedsYou(BaseModel):
         "schedule_paused",
         "plan_ready",
         "job_review",
+        "pipeline_failed",
     ]
     key: str  # stable id, so the client can tell cards apart
     message: str
@@ -393,6 +394,29 @@ async def home(auth: CurrentAuth, db: DB) -> HomeOut:
                 key=f"job:{item_id}",
                 message=f"The job for {key} is ready for review",
                 action="Review changes",
+                href=f"/work/{item_id}/job",
+                at=at,
+            )  # fmt: skip
+        )
+    failing = (
+        await db.execute(
+            select(Job.work_item_id, JiraIssue.key, Job.updated_at, Job.push)
+            .join(WorkItem, WorkItem.id == Job.work_item_id)
+            .join(JiraIssue, JiraIssue.id == WorkItem.jira_issue_id)
+            .where(Job.owner_id == user.id, Job.status == "pushed")
+            .where(Job.push["pipeline"]["status"].astext == "failed")
+            .order_by(Job.updated_at.desc())
+        )
+    ).all()
+    for item_id, key, at, push in failing[:5]:
+        if (push or {}).get("pipeline", {}).get("sha") != (push or {}).get("pushed_sha"):
+            continue
+        needs.append(
+            NeedsYou(
+                kind="pipeline_failed",
+                key=f"pipeline:{item_id}",
+                message=f"The pipeline for {key} failed",
+                action="Fix CI failure",
                 href=f"/work/{item_id}/job",
                 at=at,
             )  # fmt: skip

@@ -752,6 +752,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{job_id}/fix-ci": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fix Ci
+         * @description A new round whose feedback is the failing pipeline's logs, fetched here, never sent by the client (08 §F1).
+         */
+        post: operations["fix_ci_api_jobs__job_id__fix_ci_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{job_id}/patch": {
         parameters: {
             query?: never;
@@ -1956,6 +1976,11 @@ export interface components {
             /** Path */
             path: string;
         };
+        /** FixCiIn */
+        FixCiIn: {
+            /** Note */
+            note?: string | null;
+        };
         /**
          * FixHint
          * @description What to do about a failed ingest (07-ux §4.6, §5.10).
@@ -2401,7 +2426,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "ingest_failed" | "budget_warning" | "budget_exceeded" | "credential_invalid" | "credential_unreadable" | "alert" | "schedule_paused" | "plan_ready" | "job_review";
+            kind: "ingest_failed" | "budget_warning" | "budget_exceeded" | "credential_invalid" | "credential_unreadable" | "alert" | "schedule_paused" | "plan_ready" | "job_review" | "pipeline_failed";
             /** Message */
             message: string;
         };
@@ -5178,6 +5203,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fix_ci_api_jobs__job_id__fix_ci_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FixCiIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
                 };
             };
             /** @description Validation Error */

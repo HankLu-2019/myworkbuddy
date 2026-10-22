@@ -140,5 +140,5 @@ async def test_a_workspace_past_the_disk_limit_fails_the_job(make_user, client_f
 async def test_the_periodic_tasks_run_both() -> None:
     from app.tasks import app as tasks
 
-    assert set(await tasks.jobs_track(timestamp=0)) == {"checked", "merged", "closed", "errors"}
+    assert set(await tasks.jobs_track(timestamp=0)) == {"checked", "merged", "closed", "pipelines_failed", "errors"}
     assert set(await tasks.jobs_cleanup(timestamp=0)) == {"reminded", "discarded", "artifacts", "keys"}

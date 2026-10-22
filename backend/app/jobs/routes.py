@@ -15,7 +15,7 @@ from sqlalchemy import select
 
 from app import pagination
 from app.config import get_settings
-from app.connectors.base import ConnectorError
+from app.connectors.base import Connection, ConnectorError
 from app.db import get_sessionmaker
 from app.deps import DB, CurrentAuth
 from app.enums import JobStatus as S
@@ -281,8 +281,16 @@ async def request_changes(job_id: uuid.UUID, body: ChangesIn, auth: CurrentAuth,
 
 
 async def _changes_after_push(db: DB, job: Job, body: "ChangesIn", user: User, ip: str | None) -> JobOut:
+    note = f"Changes requested after the push (round {job.review_round + 1})."
+    return await _round_after_push(db, job, body.feedback, user, ip, kind="review", note=note)
+
+
+async def _round_after_push(
+    db: DB, job: Job, feedback: str, user: User, ip: str | None, *, kind: str, note: str
+) -> JobOut:
     """A new round after a push (04 §6): the workspace and key are gone, so the job prepares again from the pushed
-    patch plus the feedback, with a new LLM key; the next approved push updates the same branch or change."""
+    patch plus the feedback, with a new LLM key; the next approved push updates the same branch or change.
+    `kind` is "review" (the user's words, under a reviewer header) or "ci" (feedback.md as the server built it)."""
     from app.jobs import keys
     from app.jobs.pipeline import defer_advance
     from app.llm.keys import GatewayAdminError
@@ -304,18 +312,69 @@ async def _changes_after_push(db: DB, job: Job, body: "ChangesIn", user: User, i
         raise AppError(
             status.HTTP_502_BAD_GATEWAY, "llm_unavailable", "The LLM gateway couldn't create a key for this job."
         ) from None
-    push = {**(job.push or {}), "resume": {"patch_artifact_id": patch_id, "feedback": body.feedback}}
+    push = {**(job.push or {}), "resume": {"patch_artifact_id": patch_id, "feedback": feedback, "kind": kind}}
     moved = await transition_in(
         db, job_id, S.pushed, S.preparing, actor_id=user.id, ip=ip, review_round=round_ + 1, attempt=1,
         result=None, current_run=None, error=None, error_code=None, push=push,
-        detail={"note": f"Changes requested after the push (round {round_ + 1}).",
-                "feedback_chars": len(body.feedback)},
+        detail={"note": note, "feedback_chars": len(feedback)},
     )  # fmt: skip
     if moved is None:
         raise AppError(status.HTTP_409_CONFLICT, "plan_changed", "The job changed meanwhile. Reload.")
     await db.commit()
     await defer_advance(job_id)
     return job_out(*await owned_job(db, job_id, user))
+
+
+class FixCiIn(BaseModel):
+    note: str | None = Field(None, max_length=4000)
+
+
+@router.post("/api/jobs/{job_id}/fix-ci", response_model=JobOut)
+async def fix_ci(job_id: uuid.UUID, body: FixCiIn, auth: CurrentAuth, db: DB, request: Request) -> JobOut:
+    """A new round whose feedback is the failing pipeline's logs, fetched here, never sent by the client (08 §F1)."""
+    from app.deps import client_ip
+    from app.integrations.service import get_credentials
+    from app.jobs import ci
+    from app.knowledge.ingest.repos import project_integration
+    from app.models import Integration, Project
+
+    job = await _job_or_404(db, job_id, auth.user)
+    pipeline = (job.push or {}).get("pipeline") or {}
+    if (
+        job.status != S.pushed
+        or pipeline.get("status") != "failed"
+        or pipeline.get("sha") != job.push.get("pushed_sha")
+    ):
+        raise AppError(status.HTTP_409_CONFLICT, "conflict", "There's no failed pipeline for the pushed changes.")
+    if job.review_round >= MAX_REVIEW_ROUNDS:
+        raise AppError(
+            status.HTTP_409_CONFLICT,
+            "conflict",
+            f"This job has had {MAX_REVIEW_ROUNDS} review rounds; start a new job.",
+        )
+    project = await db.get(Project, job.project_id) if job.project_id else None
+    integration = await project_integration(db, project) if project else None
+    if project is None or integration is None:
+        raise AppError(status.HTTP_409_CONFLICT, "conflict", "The ticket's repository is no longer available.")
+    conn = Connection(auth.user.id, integration, await get_credentials(db, auth.user.id, integration))
+    jenkins_conns = []
+    for j in await db.scalars(select(Integration).where(Integration.kind == "jenkins", Integration.enabled)):
+        try:
+            creds = await get_credentials(db, auth.user.id, j)
+        except AppError:
+            continue
+        if creds:
+            jenkins_conns.append(Connection(auth.user.id, j, creds))
+    await db.commit()  # rule R1: the logs are fetched with nothing open
+    try:
+        logs = await ci.failure_logs(job, pipeline, conn, project, jenkins_conns)
+    finally:
+        for c in (conn, *jenkins_conns):
+            await c.close()
+    feedback = ci.failure_feedback(pipeline, logs, body.note)
+    job = await _job_or_404(db, job_id, auth.user)
+    return await _round_after_push(db, job, feedback, auth.user, client_ip(request), kind="ci",
+                                   note=f"Fixing the failed pipeline (round {job.review_round + 1}).")  # fmt: skip
 
 
 @router.get("/api/jobs/{job_id}/push-preview", response_model=PushPayload)

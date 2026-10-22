@@ -149,7 +149,9 @@ async def _reapply(job: Job, repo: Path, resume: dict[str, Any]) -> None:
             await run_git("apply", "--whitespace=nowarn", str(path), cwd=repo)
         except RuntimeError as exc:
             raise StepFailed("preparing", "patch_failed", f"The pushed changes don't apply: {str(exc)[:300]}") from None
-    (repo / ".mwb" / "feedback.md").write_text(review_feedback_md(resume.get("feedback", "")))
+    feedback = resume.get("feedback", "")
+    # "ci": the server built feedback.md itself (08 §F1); otherwise the user's words under a reviewer header.
+    (repo / ".mwb" / "feedback.md").write_text(feedback if resume.get("kind") == "ci" else review_feedback_md(feedback))
 
 
 async def prepare(ctx: dict[str, Any]) -> None:
