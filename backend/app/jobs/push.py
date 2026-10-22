@@ -176,7 +176,7 @@ def build_preview(job: Job, c: dict[str, Any]) -> dict[str, Any]:
         "gerrit": {"topic": f"mwb-{key}"} if gerrit else None,
         "jira_comment": None if already_commented or not c["jira_ok"] else {"enabled": True, "body": comment},
         "patch_sha256": result.get("patch_sha256", ""),
-        "acknowledgements": [PUSH_ACK] if result.get("failed_checks") else [],
+        "acknowledgements": [],  # the user ticks "push despite failing checks" themselves (07 §5.9 step 6)
     }  # fmt: skip
 
 

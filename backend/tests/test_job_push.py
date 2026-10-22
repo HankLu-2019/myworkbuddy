@@ -260,10 +260,10 @@ async def test_failing_checks_need_the_acknowledgement(
         await db.execute(update(Job).where(Job.id == job.id).values(result={**job.result, "failed_checks": True}))
         await db.commit()
     c = await client_for("alice", create=False)
-    r = await approve(c, job_id, lambda p: p.update(acknowledgements=[]))
+    r = await approve(c, job_id)  # the preview leaves it unticked
     assert r.status_code == 409 and r.json()["field"] == "acknowledgements"
     assert "Push despite failing checks" in r.json()["detail"]
-    r = await approve(c, job_id)  # the preview ticks it
+    r = await approve(c, job_id, lambda p: p.update(acknowledgements=[push_mod.PUSH_ACK]))  # ticked by the user
     assert r.status_code == 200 and (await job_row(job_id)).push["payload"]["acknowledgements"] == [push_mod.PUSH_ACK]
 
 
