@@ -21,6 +21,7 @@ import {
   formatUsd,
   useToast,
 } from "../../components/ui";
+import { StartJobButton } from "./JobTab";
 import { COLUMNS, COLUMN_LABEL, nextAction } from "./states";
 
 /** Repositories the user can plan against: ready ones they can see. */
@@ -132,6 +133,8 @@ function BoardCard({ item }: { item: WorkItem }) {
             <Link to={action.to} className={buttonClass(action.label === "Review plan" ? "primary" : "secondary", "sm")}>
               <span className="btn-label">{action.label}</span>
             </Link>
+          ) : action.kind === "start_job" ? (
+            <StartJobButton item={item} size="sm" />
           ) : action.kind === "wait" ? (
             <StatusPill status="drafting" label={action.label} />
           ) : null}

@@ -14,6 +14,7 @@ const STATE_OF: Record<string, VisualState> = {
   pushing: "working",
   summarizing: "working",
   needs_decision: "needs",
+  approved_push: "working",
   awaiting_review: "needs",
   paused: "needs",
   unreadable: "needs",
@@ -76,6 +77,15 @@ const LABELS: Record<string, string> = {
   alert: "Alert",
   paused: "Paused",
   cancelled: "Cancelled",
+  preparing: "Preparing",
+  verifying: "Checking",
+  approved_push: "Push approved",
+  pushing: "Pushing",
+  pushed: "Pushed",
+  merged: "Merged",
+  closed: "Closed",
+  discarded: "Discarded",
+  created: "Waiting to start",
 };
 
 export function visualState(status: string): VisualState {

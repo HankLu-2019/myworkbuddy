@@ -8,11 +8,18 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv \
     PATH="/opt/venv/bin:$PATH" PYTHONUNBUFFERED=1
 WORKDIR /app
 
+# The secret scanner for job patches (design 04 §5.4), pinned.
+FROM base AS gitleaks
+ARG GITLEAKS_VERSION=8.28.0
+ADD https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz /tmp/gitleaks.tgz
+RUN tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks && /usr/local/bin/gitleaks version
+
 FROM base AS deps
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 FROM deps AS prod
+COPY --from=gitleaks /usr/local/bin/gitleaks /usr/local/bin/gitleaks
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY app ./app

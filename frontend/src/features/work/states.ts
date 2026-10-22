@@ -39,6 +39,7 @@ export function ticketName(item: Pick<WorkItem, "key" | "project">): string {
 /** The one next action for a ticket (07 §4.9 cards, §4.10 header). */
 export type NextAction =
   | { kind: "draft"; label: "Draft plan" }
+  | { kind: "start_job"; label: "Start job" }
   | { kind: "choose_repo"; label: "Choose repository" }
   | { kind: "link"; label: string; to: string }
   | { kind: "wait"; label: string }
@@ -53,8 +54,11 @@ export function nextAction(item: WorkItem): NextAction {
     case "needs_decision":
       return { kind: "link", label: "Review plan", to: `/work/${item.id}/plan` };
     case "approved":
-      // Phase 4 adds "Start job" here.
-      return { kind: "link", label: "View plan", to: `/work/${item.id}/plan` };
+      return { kind: "start_job", label: "Start job" };
+    case "in_progress":
+      return { kind: "link", label: "Open job", to: `/work/${item.id}/job` };
+    case "in_review":
+      return { kind: "link", label: "Review changes", to: `/work/${item.id}/job` };
     case "dismissed":
       return { kind: "none" };
     default:

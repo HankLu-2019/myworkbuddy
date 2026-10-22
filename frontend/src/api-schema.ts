@@ -211,6 +211,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Artifact */
+        get: operations["get_artifact_api_artifacts__artifact_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/login": {
         parameters: {
             query?: never;
@@ -654,6 +671,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/{job_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Job
+         * @description Stop a job that's still working: kill its run, remove its workspace and key.
+         */
+        post: operations["cancel_job_api_jobs__job_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Discard Job
+         * @description Throw the result away: workspace and key go, the ticket is back to approved.
+         */
+        post: operations["discard_job_api_jobs__job_id__discard_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{job_id}/events": {
         parameters: {
             query?: never;
@@ -669,6 +726,43 @@ export interface paths {
         get: operations["job_events_api_jobs__job_id__events_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/patch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Job Patch */
+        get: operations["job_patch_api_jobs__job_id__patch_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/{job_id}/request-changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request Changes
+         * @description Another round: the feedback goes to the agent as .mwb/feedback.md (04 §5.5).
+         */
+        post: operations["request_changes_api_jobs__job_id__request_changes_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1491,7 +1585,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "ingest" | "run" | "plan";
+            kind: "ingest" | "run" | "plan" | "job";
             /**
              * Since
              * Format: date-time
@@ -1608,6 +1702,11 @@ export interface components {
         Body_upload_document_api_knowledge_documents_post: {
             /** File */
             file: string;
+        };
+        /** ChangesIn */
+        ChangesIn: {
+            /** Feedback */
+            feedback: string;
         };
         /** Checklist */
         Checklist: {
@@ -1845,6 +1944,11 @@ export interface components {
             board_needs: number;
             /** Checklists */
             checklists: components["schemas"]["Checklist"][];
+            /**
+             * Jobs Running
+             * @default 0
+             */
+            jobs_running: number;
             librarian: components["schemas"]["LibrarianSummary"] | null;
             /** Needs You */
             needs_you: components["schemas"]["NeedsYou"][];
@@ -2209,7 +2313,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "ingest_failed" | "budget_warning" | "budget_exceeded" | "credential_invalid" | "credential_unreadable" | "alert" | "schedule_paused" | "plan_ready";
+            kind: "ingest_failed" | "budget_warning" | "budget_exceeded" | "credential_invalid" | "credential_unreadable" | "alert" | "schedule_paused" | "plan_ready" | "job_review";
             /** Message */
             message: string;
         };
@@ -3929,6 +4033,37 @@ export interface operations {
             };
         };
     };
+    get_artifact_api_artifacts__artifact_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     login_api_auth_login_post: {
         parameters: {
             query?: never;
@@ -4807,6 +4942,68 @@ export interface operations {
             };
         };
     };
+    cancel_job_api_jobs__job_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discard_job_api_jobs__job_id__discard_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     job_events_api_jobs__job_id__events_get: {
         parameters: {
             query?: {
@@ -4829,6 +5026,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_patch_api_jobs__job_id__patch_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    request_changes_api_jobs__job_id__request_changes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangesIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
                 };
             };
             /** @description Validation Error */

@@ -87,6 +87,11 @@ export async function api<T>(path: string, opts: Options = {}): Promise<T> {
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
+/** GET a text body (patches, logs); errors as `api`. */
+export async function apiText(path: string): Promise<string> {
+  return (await send(path)).text();
+}
+
 export type StreamEvent = { event: string; data: any };
 
 /** POST and read a server-sent-event response, calling onEvent for each event. */
@@ -187,6 +192,33 @@ export type RevisionPage = Schemas["RevisionPage"];
 export type PlanDoc = Schemas["PlanDoc"];
 export type FieldDiff = Schemas["FieldDiff"];
 export type PlanDiff = Schemas["DiffOut"];
+
+// Phase 4: jobs (04 §8).
+export type Job = Schemas["JobOut"];
+export type JobPage = Schemas["JobPage"];
+export type JobStatus = Job["status"];
+
+/** `JobOut.result` (04 §5.4 JobResult), stored as JSON. */
+export interface JobResult {
+  schema_version: 1;
+  patch_artifact_id: string;
+  patch_sha256: string;
+  files: { path: string; status: "added" | "modified" | "deleted" | "renamed"; added: number; removed: number; binary: boolean }[];
+  checks: { name: string; status: "pass" | "warn" | "fail"; detail: string }[];
+  verify: { command: string; exit_code: number | null; duration_s: number; timed_out: boolean; log_artifact_id: string }[];
+  agent_notes: string;
+  attempts: number;
+  cost_usd: number;
+  failed_checks: boolean;
+}
+
+/** One `job_events` row as the SSE stream sends it. */
+export interface JobEvent {
+  seq: number;
+  at: string;
+  type: "status" | "agent_text" | "agent_tool" | "verify_cmd" | "check" | "push" | "error";
+  [key: string]: unknown;
+}
 
 export type PlanValidation = Schemas["ValidationResult"];
 export type PlanDecision = Schemas["DecisionOut"];

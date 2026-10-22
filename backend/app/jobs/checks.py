@@ -4,9 +4,14 @@ Each check gives `{"name", "status": pass|warn|fail, "detail"}`. A `fail` makes 
 another try with feedback, up to max_attempts); a `warn` is shown to the reviewer.
 """
 
+import asyncio
+import json
 import re
+import shutil
 from dataclasses import dataclass, field
 from typing import Any, Literal
+
+from app.plans.validation import CI_PATTERNS
 
 Status = Literal["pass", "warn", "fail"]
 DIFF_HEADER = re.compile(r"^diff --git a/(.+?) b/(.+)$")
@@ -69,12 +74,108 @@ def check(name: str, status: Status, detail: str) -> dict[str, Any]:
     return {"name": name, "status": status, "detail": detail}
 
 
-def run_checks(patch: str, files: list[FileStat], policy: dict[str, Any], verify: list[dict[str, Any]]) -> list[dict]:
+GITLEAKS_TIMEOUT_S = 120
+EXEC_DIRS = ("scripts/", "bin/")
+
+
+async def secret_scan(files: list[FileStat]) -> dict[str, Any]:
+    """gitleaks over the added lines only (04 §5.4). Findings name the rule and file:line, never the secret (R7).
+    Without gitleaks the check fails: a scan that didn't run is not a pass."""
+    exe = shutil.which("gitleaks")
+    if exe is None:
+        return check("secret_scan", "fail", "The secret scanner (gitleaks) isn't installed on the worker.")
+    lines: list[str] = []
+    origin: list[tuple[str, int]] = []
+    for f in files:
+        for n, line in enumerate(f.added_lines, start=1):
+            lines.append(line)
+            origin.append((f.path, n))
+    if not lines:
+        return check("secret_scan", "pass", "No added lines to scan.")
+    proc = await asyncio.create_subprocess_exec(
+        exe, "stdin", "--no-banner", "--log-level", "error", "--report-format", "json", "--report-path", "-",
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )  # fmt: skip
+    try:
+        out, _err = await asyncio.wait_for(proc.communicate("\n".join(lines).encode()), GITLEAKS_TIMEOUT_S)
+    except TimeoutError:
+        proc.kill()
+        return check("secret_scan", "fail", "The secret scan took too long.")
+    try:
+        findings = json.loads(out or b"[]")
+    except ValueError:
+        return check("secret_scan", "fail", "The secret scanner's output couldn't be read.")
+    if not findings:
+        return check("secret_scan", "pass", f"No secrets in {len(lines)} added line(s).")
+    where = []
+    for f in findings[:10]:
+        idx = int(f.get("StartLine", 1)) - 1
+        path, n = origin[idx] if 0 <= idx < len(origin) else ("?", 0)
+        where.append(f"{f.get('RuleID', 'secret')} in {path} (added line {n})")
+    return check("secret_scan", "fail", f"{len(findings)} possible secret(s): {'; '.join(where)}.")
+
+
+async def run_checks(
+    patch: str, files: list[FileStat], policy: dict[str, Any], verify: list[dict[str, Any]]
+) -> list[dict]:
+    """The checks table of 04 §5.4, in a stable order."""
     out = []
     if not patch.strip():
         out.append(check("no_changes", "fail", "The agent made no changes."))
     else:
         out.append(check("no_changes", "pass", f"{len(files)} file(s) changed."))
+
+    planned = set(policy.get("changes") or [])
+    outside = [f.path for f in files if f.path not in planned]
+    out.append(
+        check("outside_plan", "warn", f"Files not in the plan: {', '.join(outside[:20])}.")
+        if outside
+        else check("outside_plan", "pass", "Only planned files changed.")
+    )
+
+    limit = int(policy.get("max_changed_lines", 3000))
+    total = sum(f.added + f.removed for f in files)
+    out.append(
+        check("size", "fail", f"{total} changed lines; the limit is {limit}.")
+        if total > limit
+        else check("size", "pass", f"{total} changed line(s).")
+    )
+
+    binary = [f.path for f in files if f.binary]
+    out.append(
+        check("binary", "warn", f"Binary files: {', '.join(binary[:20])}.")
+        if binary
+        else check("binary", "pass", "No binary files.")
+    )
+
+    odd = [f"{f.path} (symlink)" for f in files if f.symlink]
+    odd += [f"{f.path} (submodule)" for f in files if f.submodule]
+    odd += [f"{f.path} (made executable)" for f in files
+            if f.new_mode == "100755" and f.old_mode != "100755" and not f.path.startswith(EXEC_DIRS)]  # fmt: skip
+    out.append(
+        check("file_modes", "warn", f"Unusual changes: {', '.join(odd[:20])}.")
+        if odd
+        else check("file_modes", "pass", "No symlinks, submodules or new executables.")
+    )
+
+    acked = set(policy.get("acknowledged") or [])
+    ci = [f.path for f in files if any(p.search(f.path) for p in CI_PATTERNS)]
+    unacked = [p for p in ci if f"ci_config:{p}" not in acked]
+    if unacked:
+        out.append(
+            check(
+                "ci_config",
+                "fail",
+                f"CI/CD files changed without being acknowledged in the plan: {', '.join(unacked)}.",
+            )
+        )
+    elif ci:
+        out.append(check("ci_config", "pass", f"CI/CD changes acknowledged in the plan: {', '.join(ci)}."))
+    else:
+        out.append(check("ci_config", "pass", "No CI/CD files changed."))
+
+    out.append(await secret_scan(files))
+
     failed = [r for r in verify if r.get("exit_code") != 0]
     if not verify:
         out.append(check("verification", "warn", "The plan has no verification commands."))

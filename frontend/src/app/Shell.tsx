@@ -3,6 +3,7 @@ import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from "react
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
+  Hammer,
   ArrowLeft,
   CalendarClock,
   KanbanSquare,
@@ -72,6 +73,7 @@ function useBadges(isAdmin: boolean, userId: number | undefined) {
   return {
     unread: inbox.data?.unread ?? 0,
     board: home.data?.board_needs ?? 0,
+    jobs: home.data?.jobs_running ?? 0,
     schedulePaused: !!home.data?.needs_you.some((n) => n.kind === "schedule_paused"),
     librarianNew: librarianUnseen(userId, home.data?.librarian?.at),
     sourcesFailed: !!projects.data?.some((p) => p.mine && p.status === "failed"),
@@ -128,6 +130,12 @@ export default function Shell() {
           label: "Board",
           icon: <KanbanSquare size={18} aria-hidden />,
           badge: badges.board ? <CountBadge count={badges.board} label="need a decision" /> : undefined,
+        },
+        {
+          to: "/jobs",
+          label: "Jobs",
+          icon: <Hammer size={18} aria-hidden />,
+          badge: badges.jobs ? <CountBadge count={badges.jobs} label="running" /> : undefined,
         },
       ],
     },

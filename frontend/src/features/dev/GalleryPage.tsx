@@ -1,3 +1,4 @@
+import { PatchView } from "../../components/Patch";
 import { useState, type ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 import { MoreHorizontal, Plus, Trash2 } from "lucide-react";
@@ -61,6 +62,16 @@ Text with **bold**, \`code\` and a [relative link](/wiki).
 def answer() -> int:
     return 42
 \`\`\``;
+
+const SAMPLE_PATCH = `diff --git a/app/webhooks.py b/app/webhooks.py
+--- a/app/webhooks.py
++++ b/app/webhooks.py
+@@ -1,3 +1,3 @@
+ import httpx
+-RETRIES = 0
++RETRIES = 3
+ def send(): ...
+`;
 
 const SAMPLE_DIFF = `--- a/notes/oom.md
 +++ b/notes/oom.md
@@ -259,6 +270,7 @@ export default function GalleryPage() {
         <ProgressStrip steps={["Ticket", "Plan", "Approved", "Job", "Review", "Merged"]} current={2} label="Example progress" />
         <CodeBlock label="Example code">{"docker compose exec api pytest"}</CodeBlock>
         <DiffView text={SAMPLE_DIFF} />
+        <PatchView patch={SAMPLE_PATCH} label="Example patch" />
         <Markdown>{SAMPLE_MD}</Markdown>
       </Section>
     </div>

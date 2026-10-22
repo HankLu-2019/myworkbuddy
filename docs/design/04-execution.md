@@ -252,6 +252,15 @@ Actions:
 - **Discard** → `discarded`, workspace deleted, work item back to `approved`.
 - **Approve push** opens the push preview (below).
 
+*Changed while building X5:*
+
+- **Checks** live in `app/jobs/checks.py` and run in this order: `no_changes`, `outside_plan`, `size`, `binary`, `file_modes`, `ci_config`, `secret_scan`, `verification`. CI paths use the plan validator's patterns; a CI change passes only when the plan acknowledged `ci_config:<path>`. New executables are fine under `scripts/` and `bin/`.
+- **Secret scan:** gitleaks 8.28 has no `detect --pipe`; the worker runs `gitleaks stdin --report-format json --report-path -` on the added lines only, maps each finding back to file and added-line number, and reports the rule id and location, never the match (R7). If gitleaks is missing, times out or prints something unreadable, the check fails: a scan that didn't run isn't a pass. The api image carries the pinned binary (multi-stage copy); CI installs the same version.
+- **Request changes** sets `attempt = 1` (not 0: attempts count from 1 everywhere), clears `result`, uploads `.mwb/feedback.md` and a review prompt as an overlay before the transition (the network call happens with no transaction open, R1), and is refused after 5 review rounds ("start a new job"). The X4 retry feedback and review feedback are different files' contents but the same path.
+- **Cancel** (`POST /api/jobs/{id}/cancel`) is allowed while the job works on its own (`created`, `preparing`, `running`, `verifying`): status `cancelled`, the run killed, workspace and key removed.
+- **Patch and artifacts** are served owner-only (`GET /api/jobs/{id}/patch`, `GET /api/artifacts/{id}`) with `X-Content-Type-Options: nosniff`; the UI renders the patch itself, never as Markdown or HTML.
+- **Home:** running jobs appear in Activity ("Job for KEY", step and attempt); jobs waiting for review count in `board_needs` and appear in Needs you; `jobs_running` feeds the Jobs badge.
+
 ### 5.6 Push approval payload
 
 `GET /api/jobs/{id}/push-preview` returns the exact outbound content, editable by the user before approval:
