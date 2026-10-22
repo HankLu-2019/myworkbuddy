@@ -221,8 +221,9 @@ Design: [08-follow-through.md](design/08-follow-through.md). Tasks are in priori
 - [x] **F8 Slack and Teams notifications** (08 §F8).
   - Acceptance: one message per inbox item and matching channel, deduplicated; webhook hosts allowlisted; the webhook URL never appears in logs or API responses; failures retried, then the channel disabled with an inbox notice; Send test.
   - Done with the changes recorded in 08 §F8: the URL encrypted on the channel row, a per-channel inbox cursor, 410 also disables, a per-local-day cap with one notice, escaped chat text, and the HTTP clients' request logs turned down to warnings.
-- [ ] **F9 Outcome dashboard** (08 §F9).
+- [x] **F9 Outcome dashboard** (08 §F9).
   - Acceptance: figures match a seeded fixture exactly; members can't read `scope=all`; periods in the user's time zone; table view for every chart; empty states.
+  - Done with the changes recorded in 08 §F9: jobs counted by creation date in local dates, `in_progress` outcome, planning cost included, an options endpoint for the filters, shared chart components.
 - [ ] **F10 Verification with containers (Sysbox, opt-in)** (08 §F10).
   - Acceptance: `services: true` on a repository that isn't enabled is a validation error; the `verify-services` preset is fixed in the runner (unit tests); security tests 1–3 from an inner container and a Postgres service under `docker compose` on the VM (*manual*).
 - [ ] **F11 Single sign-on (OIDC)** (08 §F11).

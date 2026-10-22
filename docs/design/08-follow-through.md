@@ -311,6 +311,15 @@ Everything is computed in SQL from `jobs`, `plans`, `plan_revisions`, `job_event
 - Periods use the user's time zone (rule R8).
 - Empty states.
 
+*Changed while building F9:*
+- A job belongs to the period it was **created** in; `from`/`to` are local dates in the viewer's time zone (default: the last 30 days, at most 366). Weeks start on the local Monday. An admin reading `scope=all` sees the period in their own time zone.
+- Outcome is the final status, or `in_progress` for jobs not finished yet (including `pushed`, watching for merge). Failed jobs are split by `error_code`.
+- Attempts are counted from status events into `running`, except from `needs_input` (an answer resumes the same attempt). Review rounds are `review_round + 1`; plan revisions are the number of the revision the job ran.
+- Medians: start → first `awaiting_review`, first `pushed` → `merged`; jobs that didn't get there are left out.
+- Cost is `jobs.cost_usd` plus planning (`plan_revisions.cost_usd`, by the revision's date). Per merged change: the merged jobs' cost plus their plans' cost, over the number merged. Chat cost isn't included.
+- `GET /api/insights/options` lists the repositories and issue types that have jobs in scope, for the filters.
+- Charts are one series each (`--chart-1`, checked against both surfaces), with values at the bar tips and a "Show table" view; shared as `BarChart`, `ColumnChart` and `StatTile` in `components/ui.tsx`.
+
 ## F10. Verification with containers (Sysbox, opt-in)
 
 **Why:** many repositories can only run their tests with a database or other services in containers. ADR-11 deferred this.
