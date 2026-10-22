@@ -207,6 +207,15 @@ Task `draft_plan(plan_id, feedback: str | None)`, queue `llm`, `lock=f"plan:{pla
 5. Short tx: insert revision `current_revision + 1` with hash and validation; plan `needs_decision`; work item `needs_decision`; inbox item "Plan ready for PROJ-123". Commit.
 6. On failure: plan `failed` with error; work item back to `new`; inbox item.
 
+*Changed while building P3:*
+
+- **The task lock is per repository**, `lock=f"project:{project_id}"`, because the plan task fetches and reads the shared ingest cache; `queueing_lock=f"plan:{plan_id}"` only de-duplicates queued work (R4). `draft_plan` returns without doing anything unless the plan is still `drafting`.
+- **Step 1 moved into the request.** `POST /api/work-items/{id}/plans` (202) does step 1 in its own transaction: it needs a repository (`409`, `field: project_id`) and a work item in `new` or `needs_decision` (else `409`), supersedes the item's `needs_decision`, `failed` or `rejected` plans, creates a `drafting` plan and sets the work item `planning` with `current_plan_id`. `GET /api/plans/{id}` returns the plan with its current revision. Both are owner-only (404 otherwise) and were brought forward from P4 so the task can be started and observed; P4 adds approve/reject/revise.
+- **Repo tool refusals** are tool errors the model sees: `invalid_args` (outside the checkout, `..`, absolute, `.git/`, a directory, a submodule, a binary file, a bad glob or pattern), `forbidden` (a symlink, never followed), `too_large` (> 1 MB), `not_found`. `repo_grep` takes `regex: bool` (basic regex; fixed string by default). Output is capped at 500 tree entries and 200 grep lines.
+- **Validation inputs**: `existing_paths` is `git ls-tree -r` at `base_sha`. The fix attempt's prompt lists the errors; the second result is stored even if still invalid, and its inbox item is a warning saying so.
+- **Failure** sets the plan `failed` with the error and the work item back to `new`, except when the plan already has a revision (a failed revise, P4): then plan and work item go back to `needs_decision` with the error kept, so the last good revision can still be decided on; the inbox item is "Planning PROJ-123 failed". Inbox items gain kind `plan` (link `/work/{id}/plan`).
+- Migration 0013 adds `plans.auto` (auto-drafted, for the daily limit) and recreates the `inbox_items.kind` CHECK. The planner seed has `report: false`; agent evals cover report agents only.
+
 ## 6. Approval
 
 `POST /api/plans/{id}/approve` body `{"revision": n, "content_hash": "...", "acknowledged": ["..."]}`:

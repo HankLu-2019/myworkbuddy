@@ -84,6 +84,7 @@ async def clean(task_queue: InMemoryConnector) -> AsyncIterator[None]:
     llm_embeddings._resolved = None  # the resolved embedding model is per process; tests start fresh
     llm_keys._info_cache.clear()
     txguard.reset()
+    txguard.track_tasks()
     yield
     violations = list(txguard.violations)
     set_model_override(None)

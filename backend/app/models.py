@@ -312,6 +312,7 @@ class Plan(Base):
     current_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     base_sha: Mapped[str | None] = mapped_column(Text)
     base_branch: Mapped[str | None] = mapped_column(Text)
+    auto: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))  # started by intake
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = _now()

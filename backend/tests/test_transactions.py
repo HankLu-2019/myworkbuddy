@@ -98,3 +98,37 @@ async def test_guard_catches_a_network_call_inside_a_transaction(make_user) -> N
         await db.rollback()
     txguard.reset()
     assert alice.id
+
+
+async def test_guard_sees_a_parent_transaction_but_not_a_sibling_one(make_user) -> None:
+    import asyncio
+
+    alice = await make_user("alice")
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def sibling_write() -> None:  # e.g. a progress update in its own short transaction
+        async with get_sessionmaker()() as db:
+            await db.execute(text("SELECT 1"))
+            started.set()
+            await release.wait()
+            await db.commit()
+
+    async def call() -> None:
+        await started.wait()
+        txguard.check("LLM request")
+        release.set()
+
+    await asyncio.gather(sibling_write(), call())
+    assert txguard.violations == []
+
+    async with get_sessionmaker()() as db:
+        await db.execute(text("SELECT 1"))  # open in the parent, then fanned out
+        await asyncio.gather(asyncio.create_task(asyncio.sleep(0)), call_check())
+        await db.rollback()
+    assert txguard.violations and "rule R1" in txguard.violations[0]
+    txguard.reset()
+    assert alice.id
+
+
+async def call_check() -> None:
+    txguard.check("LLM request")
