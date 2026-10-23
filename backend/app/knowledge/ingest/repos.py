@@ -62,9 +62,13 @@ CLONE_DEPTH = 300
 
 def validate_repo_url(url: str) -> str:
     parsed = urlparse(url.strip())
-    allowed = {"https", "http"} if get_settings().allow_http_repos else {"https"}
-    if parsed.scheme not in allowed or not parsed.hostname:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Repository URL must use {'/'.join(allowed)}")
+    s = get_settings()
+    http_ok = s.allow_http_repos or s.http_allowed(parsed.hostname)
+    if not parsed.hostname or parsed.scheme not in ({"https", "http"} if http_ok else {"https"}):
+        if parsed.scheme == "http" and parsed.hostname:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"{parsed.hostname} isn't allowed over plain "
+                                "http. Use https, or ask an admin to add the host to MWB_HTTP_INTERNAL_HOSTS.")  # fmt: skip
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Repository URL must use https")
     if parsed.username or parsed.password:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,

@@ -35,6 +35,9 @@ from app.users.routes import router as users_router
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     setup_logging(get_settings().log_level)
     ensure_runtime_ok()
+    from app.secrets.service import load_keyring
+
+    await load_keyring()  # Vault unwraps the data keys once, before any request (no-op with Fernet)
     async with tasks_app.open_async():
         log.info("api.started")
         yield

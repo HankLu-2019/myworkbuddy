@@ -217,6 +217,27 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Optional (profile "vault"): HashiCorp Vault holding the key that protects stored secrets (MWB_SECRETS_BACKEND=vault).
+  # Internal network only. First run: deploy/vault/init.sh; after each restart: deploy/vault/unseal.sh.
+  vault:
+    image: hashicorp/vault:1.17.6
+    profiles: ["vault"]
+    logging: *logging
+    command: ["server"]
+    cap_add: ["IPC_LOCK"]
+    mem_limit: 256m
+    environment:
+      VAULT_ADDR: http://127.0.0.1:8200
+    volumes:
+      - ./deploy/vault/vault.hcl:/vault/config/vault.hcl:ro
+      - vaultdata:/vault/file
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:8200/v1/sys/health?sealedcode=200&uninitcode=200' >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   # Phase 4 (design 04 §1, §4): starts sandboxes from fixed presets. The only service with the Docker socket;
   # reachable only on the default network, with the bearer MWB_RUNNER_TOKEN.
   runner:
@@ -307,3 +328,4 @@ volumes:
   caddydata:
   squid-jobs:
   squid-logs:
+  vaultdata:

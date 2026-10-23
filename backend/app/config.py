@@ -16,6 +16,18 @@ class Settings(BaseSettings):
     database_url: str
     secret_keys: str = ""  # MWB_SECRET_KEYS: comma-separated Fernet keys, newest first
     secret_key: str = ""  # MWB_SECRET_KEY: legacy single key
+    # Where the key that protects stored secrets lives. "vault": HashiCorp Vault Transit holds the key-encryption key
+    # and unwraps MyWorkBuddy's data keys at start-up (app/secrets/vault.py); MWB_SECRET_KEYS then only reads
+    # values written before the switch, until `mwb rotate-secrets`.
+    secrets_backend: Literal["fernet", "vault"] = "fernet"
+    vault_addr: str = ""  # e.g. http://vault:8200 (the compose service) or https://vault.company.example
+    vault_token: SecretStr = SecretStr("")  # or AppRole below
+    vault_role_id: str = ""
+    vault_secret_id: SecretStr = SecretStr("")
+    vault_transit_mount: str = "transit"
+    vault_transit_key: str = "mwb"
+    vault_namespace: str = ""  # Vault Enterprise / HCP namespaces
+    vault_ca_file: str = ""  # a CA bundle for a Vault with the company's own certificate
     default_timezone: str = "Europe/Stockholm"
     gateway_url: str = "http://llm-gateway:4000"
     gateway_key: str = ""
@@ -63,6 +75,10 @@ class Settings(BaseSettings):
     allow_http_repos: bool = False
     # Integrations (design 02 §1): http:// base URLs only in dev and tests.
     allow_http_integrations: bool = False
+    # Self-hosted servers without TLS on the internal network (fnmatch patterns, comma-separated), e.g.
+    # "gitlab.local,*.corp.internal". Plain http to exactly these hosts is allowed even in production, for
+    # integrations and repositories; anything else must be https. The System page lists them as a warning.
+    http_internal_hosts: str = ""
     # Schedules (design 02 §4).
     schedule_min_interval_min: int = Field(15, ge=1)  # smallest gap between runs for members
     schedule_min_interval_admin_min: int = Field(5, ge=1)
@@ -131,6 +147,13 @@ class Settings(BaseSettings):
         keys = [k.strip() for k in self.secret_keys.split(",") if k.strip()]
         return keys or ([self.secret_key] if self.secret_key else [])
 
+    def http_allowed(self, host: str | None) -> bool:
+        """Whether `host` is one of the hosts an admin listed in MWB_HTTP_INTERNAL_HOSTS for plain http."""
+        import fnmatch
+
+        patterns = [p.strip().lower() for p in self.http_internal_hosts.split(",") if p.strip()]
+        return bool(host) and any(fnmatch.fnmatch(host.lower(), p) for p in patterns)
+
     @property
     def session_cookie(self) -> str:
         # __Host- forces Secure, Path=/ and no Domain, so the cookie can't be set by a sibling subdomain.
@@ -156,6 +179,24 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def vault_problems(s: Settings) -> list[str]:
+    """MWB_SECRETS_BACKEND=vault (rule R14). Plain http only to the compose service `vault`, which isn't published
+    and is reached on the internal network only, or in dev."""
+    if s.secrets_backend != "vault":
+        return []
+    problems = []
+    addr = urlparse(s.vault_addr)
+    if not addr.scheme or not addr.hostname:
+        problems.append("Set MWB_VAULT_ADDR, e.g. http://vault:8200 or https://vault.company.example")
+    elif addr.scheme != "https" and not (s.env == "dev" or addr.hostname == "vault"):
+        problems.append("MWB_VAULT_ADDR must be https (plain http only to the compose service vault)")
+    if not s.vault_token.get_secret_value() and not (s.vault_role_id and s.vault_secret_id.get_secret_value()):
+        problems.append("Set MWB_VAULT_ROLE_ID and MWB_VAULT_SECRET_ID (AppRole), or MWB_VAULT_TOKEN")
+    if s.vault_ca_file and not Path(s.vault_ca_file).is_file():
+        problems.append(f"MWB_VAULT_CA_FILE={s.vault_ca_file} doesn't exist")
+    return problems
 
 
 def oidc_problems(s: Settings) -> list[str]:
@@ -191,8 +232,9 @@ def runtime_problems(s: Settings) -> list[str]:
     from app.models import EMBED_DIMS
 
     problems = []
-    if not s.fernet_keys:
+    if s.secrets_backend == "fernet" and not s.fernet_keys:
         problems.append("Set MWB_SECRET_KEYS (or MWB_SECRET_KEY); generate one with `mwb generate-key`")
+    problems += vault_problems(s)
     for i, key in enumerate(s.fernet_keys, start=1):
         try:
             Fernet(key.encode())

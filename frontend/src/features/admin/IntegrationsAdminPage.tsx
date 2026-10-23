@@ -129,7 +129,11 @@ function IntegrationDialog({ editing, open, onOpenChange }: { editing: AdminInte
           value={form.base_url}
           onChange={set("base_url")}
           placeholder={form.kind === "kubernetes" ? "https://k8s.example.com:6443" : "https://gitlab.example.com"}
-          hint={form.kind === "kubernetes" ? "The API server, exactly as it appears in kubeconfigs." : "https:// only."}
+          hint={
+            form.kind === "kubernetes"
+              ? "The API server, exactly as it appears in kubeconfigs."
+              : "Your own server works: any host and port, e.g. https://gitlab.company.local:8443. With a company certificate, paste its CA below. Plain http only for hosts listed in MWB_HTTP_INTERNAL_HOSTS."
+          }
           required
         />
         {form.kind === "jira" && (

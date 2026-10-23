@@ -34,10 +34,16 @@ Then sign in at `https://$MWB_HOSTNAME`, create integrations (Phase 2+), create 
 | `MWB_ENV` | `prod` | `dev` relaxes cookie/TLS checks |
 | `MWB_HOSTNAME` | — | e.g. `mwb.company.example` |
 | `MWB_ALLOW_HTTP_INTEGRATIONS` | `false` | `http://` integration URLs; dev and CI only, refused when `MWB_ENV=prod` |
+| `MWB_HTTP_INTERNAL_HOSTS` | — | Hosts (fnmatch patterns, comma-separated) that may use plain `http://` for integrations and repositories, also in production. For self-hosted servers without TLS on the internal network; the System page warns. Self-hosted `https://` (any host, any port, a company CA in the integration) needs nothing here |
 | `MWB_GITLAB_URL`, `MWB_GERRIT_URL`, `MWB_JIRA_URL` | — | Read once by migration 0006 when upgrading from Phase 1 (§7) |
 | `MWB_TLS_MODE` | `files` | `files` (uses `deploy/tls/cert.pem`, `key.pem`, mounted at `/tls`), `internal` (Caddy CA), or `none` (dev and CI only; refused when `MWB_ENV=prod`) |
 | `POSTGRES_PASSWORD`, `LITELLM_DB_PASSWORD` | — | |
-| `MWB_SECRET_KEYS` | — | Comma-separated Fernet keys, newest first |
+| `MWB_SECRET_KEYS` | — | Comma-separated Fernet keys, newest first. With `MWB_SECRETS_BACKEND=vault`, only to read values written before the switch |
+| `MWB_SECRETS_BACKEND` | `fernet` | `vault`: HashiCorp Vault Transit holds the key-encryption key; see §8a |
+| `MWB_VAULT_ADDR` | — | `http://vault:8200` (the compose service, profile `vault`) or the company's `https://` Vault |
+| `MWB_VAULT_ROLE_ID` / `MWB_VAULT_SECRET_ID` | — | AppRole login (preferred); or `MWB_VAULT_TOKEN` |
+| `MWB_VAULT_TRANSIT_MOUNT` / `MWB_VAULT_TRANSIT_KEY` | `transit` / `mwb` | Where the key is in Vault |
+| `MWB_VAULT_NAMESPACE`, `MWB_VAULT_CA_FILE` | — | Vault Enterprise/HCP namespace; a CA bundle for the company's certificate |
 | `LITELLM_MASTER_KEY` | — | Only api/worker use it, for key management |
 | `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | — | Or an instance role; region per O1 |
 | `MWB_CHAT_MODEL_ID`, `MWB_FAST_MODEL_ID`, `MWB_PLANNER_MODEL_ID`, `MWB_CODER_MODEL_ID`, `MWB_EMBED_MODEL_ID` | — | LiteLLM model strings |
@@ -168,6 +174,27 @@ Rollback: `git checkout <previous tag>` and `up -d` works only if the release no
 | `MWB_RUNNER_TOKEN` | Change in `.env`, restart `runner` and `worker-jobs`. |
 | TLS certificate | Replace files in `deploy/tls/`, `docker compose restart caddy`. |
 | AWS credentials | Change in `.env`, restart `llm-gateway`. |
+
+## 8a. Stored secrets in HashiCorp Vault
+
+Envelope encryption: Vault's Transit engine holds the key-encryption key, which never leaves Vault. MyWorkBuddy's data keys are made by Vault and stored only wrapped (`system_state.vault_data_keys`); api, worker and worker-jobs ask Vault to unwrap them once at start and then encrypt locally, so no request waits on Vault and no network call happens inside a transaction. A copy of the database, even with `.env`, can't decrypt anything without Vault.
+
+**Compose Vault (one VM):**
+```bash
+docker compose --profile vault up -d vault
+deploy/vault/init.sh            # once: prints the unseal key and root token (password manager!) and the .env lines
+# add the printed MWB_SECRETS_BACKEND / MWB_VAULT_* lines to .env, then:
+docker compose up -d api worker worker-jobs
+docker compose exec api mwb rotate-secrets   # moves existing tokens under Vault's key
+docker compose exec api mwb vault status
+```
+Vault starts **sealed** after its container or the VM restarts, and MyWorkBuddy then refuses to start ("Vault is sealed"): run `deploy/vault/unseal.sh`, then `docker compose restart api worker worker-jobs`. Start it with `--profile vault` every time (or set `COMPOSE_PROFILES=vault` in the shell).
+
+**Company Vault:** enable Transit, create the key (`aes256-gcm96`, not exportable, deletion not allowed), apply `deploy/vault/policy.hcl`, create an AppRole with that policy, and set `MWB_VAULT_ADDR=https://…` with the role and secret IDs.
+
+**Backups:** the database backup holds only wrapped keys. Restoring needs the same Vault and Transit key: back up the `vaultdata` volume (and keep the unseal key), or rely on the company Vault's own backups.
+
+**Rotation:** new data key: `mwb vault new-data-key`, restart api and workers, `mwb rotate-secrets`. Transit key: `vault write -f transit/keys/mwb/rotate`, then `mwb vault rewrap` (older Vault key versions can then be retired). After a switch from Fernet and `mwb rotate-secrets`, `MWB_SECRET_KEYS` can be removed.
 
 ## 9. User lifecycle
 

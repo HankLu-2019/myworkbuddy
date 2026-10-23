@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MyWorkBuddy Field Guide</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a field manual. A sticky step index on the left, one reading column on the right; parts are bands, steps
+   are numbered because they are a real sequence. The product's own blue is the accent. */
+:root {
+  --bg: #f6f8fb;
+  --surface: #ffffff;
+  --ink: #16202c;
+  --muted: #566476;
+  --line: #d8e0ea;
+  --accent: #1f5fae;
+  --accent-soft: #e6eef9;
+  --ok: #1e7a4f;
+  --ok-soft: #e3f3ea;
+  --warn: #8a5a00;
+  --warn-soft: #fbf1dc;
+  --code-bg: #eef2f7;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f151c; --surface: #161e28; --ink: #e2e9f1; --muted: #9aa9ba; --line: #2a3644;
+    --accent: #7fb0ee; --accent-soft: #1b2b40; --ok: #6fd3a0; --ok-soft: #15301f; --warn: #f0c060; --warn-soft: #33280f;
+    --code-bg: #0b1016; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f151c; --surface: #161e28; --ink: #e2e9f1; --muted: #9aa9ba; --line: #2a3644;
+  --accent: #7fb0ee; --accent-soft: #1b2b40; --ok: #6fd3a0; --ok-soft: #15301f; --warn: #f0c060; --warn-soft: #33280f;
+  --code-bg: #0b1016; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.6; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 32px 64px; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 40px; }
+@media (max-width: 860px) { .wrap { grid-template-columns: minmax(0, 1fr); gap: 20px; } }
+
+/* Index */
+nav.index { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 20px); align-self: start; max-height: calc(100vh - 40px); overflow: auto; font-size: 14px; }
+@media (max-width: 860px) { nav.index { position: static; max-height: none; } }
+.brand { font-family: var(--display); font-weight: 700; font-size: 20px; letter-spacing: -0.01em; margin: 0 0 4px; }
+.brand small { display: block; font-family: var(--body); font-weight: 500; font-size: 13px; color: var(--muted); letter-spacing: 0; }
+.progress { margin: 16px 0 20px; }
+.progress .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.progress .fill { height: 100%; width: 0; background: var(--ok); transition: width .3s; }
+.progress p { margin: 6px 0 0; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+nav.index ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+nav.index .part { margin-top: 14px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+nav.index a { display: flex; gap: 8px; color: var(--ink); text-decoration: none; padding: 3px 8px; border-radius: 6px; }
+nav.index a:hover, nav.index a:focus-visible { background: var(--accent-soft); outline: none; }
+nav.index a .n { font-family: var(--mono); font-size: 12px; color: var(--muted); min-width: 2.4em; padding-top: 1px; }
+nav.index a.done .n { color: var(--ok); }
+nav.index a.done span:last-child { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line); }
+
+/* Content */
+main { min-width: 0; }
+.hero { padding-bottom: 24px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.hero .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(30px, 5vw, 44px); line-height: 1.1; letter-spacing: -0.02em; margin: 6px 0 12px; text-wrap: balance; }
+.lede { font-size: 18px; color: var(--muted); max-width: 64ch; margin: 0; }
+.routes { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 22px; }
+.route { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+.route h3 { font-family: var(--display); font-size: 18px; margin: 0 0 4px; }
+.route p { margin: 0; color: var(--muted); font-size: 15px; }
+.route .meta { margin-top: 8px; font-family: var(--mono); font-size: 12px; color: var(--accent); }
+
+section.part-band { margin-top: 48px; }
+section.part-band > header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; border-bottom: 2px solid var(--ink); padding-bottom: 8px; margin-bottom: 8px; }
+section.part-band > header .pn { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+h2 { font-family: var(--display); font-weight: 700; font-size: 28px; letter-spacing: -0.015em; margin: 0; text-wrap: balance; }
+.part-intro { color: var(--muted); max-width: 66ch; margin: 8px 0 0; }
+
+article.step { padding: 26px 0; border-bottom: 1px solid var(--line); scroll-margin-top: 16px; }
+article.step > .head { display: flex; gap: 14px; align-items: flex-start; }
+.num { flex: none; font-family: var(--mono); font-weight: 500; font-size: 13px; color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 4px 8px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+article.step.done .num { color: var(--ok); background: var(--ok-soft); }
+h3.title { font-family: var(--display); font-weight: 700; font-size: 21px; line-height: 1.3; margin: 0; text-wrap: balance; flex: 1; min-width: 0; }
+.time { font-size: 13px; color: var(--muted); white-space: nowrap; margin-top: 6px; }
+.body { margin-left: 52px; max-width: 70ch; }
+@media (max-width: 560px) { .body { margin-left: 0; } }
+.body p { margin: 10px 0; }
+.body ol, .body ul { margin: 10px 0; padding-left: 22px; }
+.body li { margin: 4px 0; }
+.label { display: block; margin-top: 16px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.see { background: var(--ok-soft); border-radius: 8px; padding: 10px 14px; margin-top: 8px; }
+.see p, .see ul { margin: 4px 0; }
+.why { border-left: 3px solid var(--accent); padding: 2px 0 2px 14px; margin-top: 14px; color: var(--muted); }
+.note { background: var(--warn-soft); color: var(--ink); border-radius: 8px; padding: 10px 14px; margin-top: 12px; font-size: 15px; }
+.note strong { color: var(--warn); }
+.ui { font-weight: 600; white-space: nowrap; }
+.ui::before { content: "‹"; color: var(--muted); font-weight: 400; margin-right: 1px; }
+.ui::after { content: "›"; color: var(--muted); font-weight: 400; margin-left: 1px; }
+code { font-family: var(--mono); font-size: .88em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.cmd { position: relative; margin: 10px 0; }
+.cmd pre { margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; padding-right: 74px; overflow-x: auto; font-family: var(--mono); font-size: 13.5px; line-height: 1.55; }
+.cmd pre .c { color: var(--muted); }
+.copy { position: absolute; top: 8px; right: 8px; font: 500 12px var(--body); color: var(--accent); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.copy:hover, .copy:focus-visible { border-color: var(--accent); outline: none; }
+.mark { margin-top: 16px; display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; color: var(--muted); cursor: pointer; user-select: none; }
+.mark input { width: 18px; height: 18px; accent-color: var(--ok); cursor: pointer; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+.tbl { overflow-x: auto; margin: 12px 0; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+a { color: var(--accent); }
+.foot { margin-top: 48px; color: var(--muted); font-size: 14px; }
+.reset { font: 500 13px var(--body); color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; margin-top: 8px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .progress .fill { transition: none; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <nav class="index" aria-label="Steps">
+    <p class="brand">MyWorkBuddy<small>Field guide for a first run</small></p>
+    <div class="progress" aria-live="polite">
+      <div class="bar"><div class="fill" id="fill"></div></div>
+      <p id="count">0 of 0 steps done</p>
+    </div>
+    <ol id="toc"></ol>
+    <button class="reset" type="button" id="reset">Clear my ticks</button>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <span class="eyebrow">Hands-on tour · about 2–3 hours, in sittings</span>
+      <h1>Run MyWorkBuddy on your VM and try every part of it</h1>
+      <p class="lede">Read one step, do it, tick it. The steps go in the order a new team would meet the product: start it, set it up as an admin, use it as a member, then take a Jira ticket all the way to a merge request.</p>
+      <div class="routes">
+        <div class="route">
+          <h3>Start with fake mode</h3>
+          <p>The stack runs with the same stand-ins the test suite uses: a fake AI model, a fake GitLab, Jira and RSS feed. Every feature works, nothing leaves the VM, nothing costs money.</p>
+          <div class="meta">Parts 1–6 · no credentials needed</div>
+        </div>
+        <div class="route">
+          <h3>Then switch to real mode</h3>
+          <p>Point it at AWS Bedrock, your GitLab or Gerrit and Jira, add TLS and gVisor. Answers become real and slower; the flows stay the same.</p>
+          <div class="meta">Part 7 · needs Bedrock and tokens</div>
+        </div>
+      </div>
+    </header>
+
+    <!-- PART 1 -->
+    <section class="part-band" aria-labelledby="p1">
+      <header><span class="pn">Part 1</span><h2 id="p1">Start it</h2></header>
+      <p class="part-intro">You need a Linux VM (Ubuntu 24.04 or Debian 12) with Docker Engine 27 or later and the Compose plugin, about 8 GB of RAM and 40 GB of free disk. The sandbox image alone is several GB.</p>
+
+      <article class="step" id="s-clone" data-step>
+        <div class="head"><span class="num">1.1</span><h3 class="title">Get the code</h3><span class="time">2 min</span></div>
+        <div class="body">
+          <p>The four newest pull requests (Insights, containers in verification, single sign-on, MCP servers) aren't on <code>main</code> yet. Until they're merged, use the branch that has all of them.</p>
+          <div class="cmd"><pre>git clone https://github.com/HankLu-2019/myworkbuddy.git /opt/myworkbuddy
+cd /opt/myworkbuddy
+git checkout feat/f12-mcp   <span class="c"># after #47–#50 are merged: git checkout main</span></pre></div>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-env" data-step>
+        <div class="head"><span class="num">1.2</span><h3 class="title">Write the settings file for fake mode</h3><span class="time">3 min</span></div>
+        <div class="body">
+          <p>This makes a <code>.env</code> with a fresh encryption key and passwords, plain HTTP on port 8080, and <code>runc</code> as the sandbox runtime (fine for a trial; Part 7 switches to gVisor).</p>
+          <div class="cmd"><pre>cp .env.example .env && chmod 600 .env
+key=$(python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
+sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 16)|; \
+s|^MWB_SECRET_KEY=.*|MWB_SECRET_KEY=$key|; \
+s|^MWB_HOSTNAME=.*|MWB_HOSTNAME=http://localhost:8080|; \
+s|^MWB_TLS_MODE=.*|MWB_TLS_MODE=none|; \
+s|^MWB_COOKIE_SECURE=.*|MWB_COOKIE_SECURE=false|; \
+s|^LITELLM_MASTER_KEY=.*|LITELLM_MASTER_KEY=sk-$(openssl rand -hex 16)|; \
+s|^LITELLM_DB_PASSWORD=.*|LITELLM_DB_PASSWORD=$(openssl rand -hex 16)|; \
+s|^MWB_SANDBOX_RUNTIME=.*|MWB_SANDBOX_RUNTIME=runc|; \
+s|^MWB_RUNNER_TOKEN=.*|MWB_RUNNER_TOKEN=$(openssl rand -hex 24)|" .env</pre></div>
+          <div class="note"><strong>Keep a copy of <code>.env</code>.</strong> Without <code>MWB_SECRET_KEY</code>, the tokens people store can't be decrypted.</div>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-build" data-step>
+        <div class="head"><span class="num">1.3</span><h3 class="title">Build the sandbox image</h3><span class="time">10–15 min</span></div>
+        <div class="body">
+          <p>This is the container the coding agent and the verification commands run in: Python, Go, Node and a pinned Claude Code, with no credentials inside.</p>
+          <div class="cmd"><pre>docker build -t mwb-sandbox:latest sandbox</pre></div>
+          <p>If it fails on a download (Go, uv), run it again: those are network hiccups.</p>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-up" data-step>
+        <div class="head"><span class="num">1.4</span><h3 class="title">Start the stack with the fakes</h3><span class="time">5–10 min</span></div>
+        <div class="body">
+          <p><code>compose.ci.yml</code> swaps the AI gateway for the fake one, which also plays GitLab, Jira and a status feed at <code>http://llm-gateway:4000</code> inside Docker.</p>
+          <div class="cmd"><pre>alias mwb-compose='docker compose -f docker-compose.yml -f compose.ci.yml'
+mwb-compose up -d --build --wait
+mwb-compose ps</pre></div>
+          <span class="label">You should see</span>
+          <div class="see"><p>Every service <code>running</code> or <code>healthy</code>, and <code>migrate</code> exited with code 0.</p></div>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-admin" data-step>
+        <div class="head"><span class="num">1.5</span><h3 class="title">Create your admin and open the app</h3><span class="time">2 min</span></div>
+        <div class="body">
+          <div class="cmd"><pre>mwb-compose exec api mwb create-admin --username admin --email you@example.com
+<span class="c"># it asks for a password: at least 10 characters</span></pre></div>
+          <p>The app is on port 8080 of the VM. From your laptop, tunnel it so the address matches <code>MWB_HOSTNAME</code>:</p>
+          <div class="cmd"><pre>ssh -L 8080:localhost:8080 you@your-vm</pre></div>
+          <p>Then open <code>http://localhost:8080</code> in your browser.</p>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+    </section>
+
+    <!-- PART 2 -->
+    <section class="part-band" aria-labelledby="p2">
+      <header><span class="pn">Part 2</span><h2 id="p2">Set it up as the admin</h2></header>
+      <p class="part-intro">An admin connects the company systems once. People then add their own tokens, so everyone only ever sees what they could see themselves.</p>
+
+      <article class="step" id="s-system" data-step>
+        <div class="head"><span class="num">2.1</span><h3 class="title">Sign in and check System</h3><span class="time">3 min</span></div>
+        <div class="body">
+          <ol>
+            <li>Sign in as <code>admin</code>. Home shows an <strong>admin setup checklist</strong>.</li>
+            <li>Open <span class="ui">Admin</span> → <span class="ui">System</span>.</li>
+          </ol>
+          <span class="label">You should see</span>
+          <div class="see"><ul>
+            <li>Database, AI gateway and worker checks green, background job queues, disk space, AI spend this month.</li>
+            <li><strong>Sandboxes</strong>: the runner ready. It warns that the runtime is <code>runc</code> (expected in fake mode) and that verification with containers isn't available (no Sysbox).</li>
+          </ul></div>
+          <div class="why">System is where you'll look first whenever something seems off: every block reports on its own, so one broken part doesn't hide the rest.</div>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-integrations" data-step>
+        <div class="head"><span class="num">2.2</span><h3 class="title">Connect the fake GitLab, Jira and a status feed</h3><span class="time">5 min</span></div>
+        <div class="body">
+          <p>Open <span class="ui">Admin</span> → <span class="ui">Integrations</span> → <span class="ui">Add integration</span> three times:</p>
+          <div class="tbl"><table>
+            <thead><tr><th>Kind</th><th>Name</th><th>URL</th><th>Extra</th></tr></thead>
+            <tbody>
+              <tr><td>GitLab</td><td>GitLab</td><td><code>http://llm-gateway:4000</code></td><td></td></tr>
+              <tr><td>Jira</td><td>Jira</td><td><code>http://llm-gateway:4000</code></td><td></td></tr>
+              <tr><td>RSS/Atom feeds</td><td>Status feed</td><td><code>http://llm-gateway:4000</code></td><td>Feed URLs: <code>http://llm-gateway:4000/fake/feed.xml</code></td></tr>
+            </tbody>
+          </table></div>
+          <p>Plain <code>http</code> is accepted only because fake mode allows it. In real mode, any self-hosted <code>https</code> server works (any host and port; paste the company CA if it uses one), and an internal server without TLS can be allowed by name with <code>MWB_HTTP_INTERNAL_HOSTS</code>.</p>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-users" data-step>
+        <div class="head"><span class="num">2.3</span><h3 class="title">Add yourself as a member</h3><span class="time">2 min</span></div>
+        <div class="body">
+          <p>Use a separate member account for the rest of the tour, because members and admins see different things. Open <span class="ui">Admin</span> → <span class="ui">Users</span> → <span class="ui">Add user</span>, name it <code>erin</code>, and copy the one-time password it shows (it's shown once).</p>
+          <p>While you're there, look at the budget column: every user has a monthly AI budget, enforced by the gateway.</p>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+    </section>
+
+    <!-- PART 3 -->
+    <section class="part-band" aria-labelledby="p3">
+      <header><span class="pn">Part 3</span><h2 id="p3">Use it as a member: knowledge and chat</h2></header>
+      <p class="part-intro">Sign out, then sign in as <code>erin</code> in a private window so you can switch between the two accounts.</p>
+
+      <article class="step" id="s-first" data-step>
+        <div class="head"><span class="num">3.1</span><h3 class="title">First sign-in and Getting started</h3><span class="time">3 min</span></div>
+        <div class="body">
+          <ol>
+            <li>Sign in with the one-time password; you're asked to choose your own right away.</li>
+            <li>Confirm your time zone when Home asks. Schedules and Insights use it.</li>
+            <li>Home now shows a <strong>Getting started</strong> checklist that ticks itself as you go.</li>
+          </ol>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-tokens" data-step>
+        <div class="head"><span class="num">3.2</span><h3 class="title">Add your tokens and test them</h3><span class="time">3 min</span></div>
+        <div class="body">
+          <p><span class="ui">Settings</span> → <span class="ui">Integrations</span>. For each integration, paste a token and press <span class="ui">Test</span>:</p>
+          <ul>
+            <li>GitLab: <code>glpat-trial-token</code> (any token starting <code>glpat-</code> works; <code>glpat-readonly…</code> pretends it can't push)</li>
+            <li>Jira: <code>jira-trial-token</code> (anything starting <code>jira-</code>)</li>
+          </ul>
+          <span class="label">You should see</span>
+          <div class="see"><p>"Verified" next to each. Tokens are write-only: you can replace or remove one, never read it back.</p></div>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-repo" data-step>
+        <div class="head"><span class="num">3.3</span><h3 class="title">Add a repository and watch it index</h3><span class="time">3 min</span></div>
+        <div class="body">
+          <p><span class="ui">Sources</span> → <span class="ui">Repositories</span> → <span class="ui">Add repository</span>, with URL <code>http://llm-gateway:4000/fake/git/team/payments.git</code> and the GitLab integration.</p>
+          <span class="label">You should see</span>
+          <div class="see"><ul>
+            <li>Progress (queued → running → ready), then counts of files, code chunks and docs.</li>
+            <li>A <strong>project card</strong> in your wiki that sums up the repository.</li>
+            <li>A <strong>Conventions</strong> box: rules for the planner and agent, for repositories without their own <code>AGENTS.md</code> or <code>CLAUDE.md</code>.</li>
+          </ul></div>
+          <div class="why">Indexing is what lets chat and the planner answer with your code, not general knowledge. It's private until you choose <span class="ui">Share with team</span>.</div>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-chat" data-step>
+        <div class="head"><span class="num">3.4</span><h3 class="title">Ask chat a question</h3><span class="time">3 min</span></div>
+        <div class="body">
+          <p>Open <span class="ui">Chat</span> → <span class="ui">New chat</span> and ask "How are webhooks delivered in payments?"</p>
+          <span class="label">You should see</span>
+          <div class="see"><ul>
+            <li>A tool call to <code>search_knowledge</code>, then a streamed answer with a citation <code>[1]</code>. In fake mode the wording is a fixed sentence; the plumbing is real.</li>
+            <li>Click the citation: the source opens beside the chat. The cost of the answer is shown under it.</li>
+          </ul></div>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-docs" data-step>
+        <div class="head"><span class="num">3.5</span><h3 class="title">Upload a document, search, and share</h3><span class="time">5 min</span></div>
+        <div class="body">
+          <ol>
+            <li><span class="ui">Sources</span> → <span class="ui">Documents</span>: drop in a Markdown or PDF runbook.</li>
+            <li><span class="ui">Search</span> for a word from it. Results mix documents, code and wiki pages, ranked by meaning and by exact words together.</li>
+            <li>On the document, <span class="ui">Share with team</span>, then sign in as <code>admin</code> and search for it there. Then <span class="ui">Make private</span> and check that it disappears for admin.</li>
+          </ol>
+          <div class="why">Private by default is the main promise of the knowledge base. Try to break it here: a document someone didn't share should never show up in another person's search, chat or plans.</div>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-wiki" data-step>
+        <div class="head"><span class="num">3.6</span><h3 class="title">Look at the wiki and your memory</h3><span class="time">3 min</span></div>
+        <div class="body">
+          <p><span class="ui">Wiki</span> holds Markdown pages in git: yours, and a team space. Create a page, edit it, open <span class="ui">History</span> to see the diff.</p>
+          <p>Every chat session gets a short summary; a nightly <strong>librarian</strong> (02:00 your time) folds those into <code>me/how-i-work.md</code>, which chat reads to know how you work. Check <span class="ui">Wiki</span> → <span class="ui">Changes</span> tomorrow to see what it wrote, and revert anything you don't like.</p>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+    </section>
+
+    <!-- PART 4 -->
+    <section class="part-band" aria-labelledby="p4">
+      <header><span class="pn">Part 4</span><h2 id="p4">Let it watch things for you</h2></header>
+
+      <article class="step" id="s-propose" data-step>
+        <div class="head"><span class="num">4.1</span><h3 class="title">Have chat propose a schedule</h3><span class="time">3 min</span></div>
+        <div class="body">
+          <p>In a new chat, write: "Check the payments namespace every weekday morning and tell me only if something's wrong."</p>
+          <span class="label">You should see</span>
+          <div class="see"><p>"I've proposed a schedule for that." and a card with the check, the time in your time zone, and <span class="ui">Create</span>. Chat never creates a schedule on its own; you click.</p></div>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-brief" data-step>
+        <div class="head"><span class="num">4.2</span><h3 class="title">Make a morning brief and run it now</h3><span class="time">5 min</span></div>
+        <div class="body">
+          <ol>
+            <li><span class="ui">Schedules</span> → <span class="ui">New schedule</span>. Name it "Morning brief", check type <strong>Morning brief</strong>, and pick the status feed.</li>
+            <li><span class="ui">Create schedule</span>, then <span class="ui">Run now</span>.</li>
+            <li>Open the <span class="ui">Inbox</span>.</li>
+          </ol>
+          <span class="label">You should see</span>
+          <div class="see"><ul>
+            <li>A run result "1 new item(s) in the status feed" with findings and links.</li>
+            <li>An inbox item. Run it again: no new item, because it notifies only when something changed.</li>
+            <li><span class="ui">Investigate in chat</span> opens a chat that already has the run as context.</li>
+          </ul></div>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-notify" data-step>
+        <div class="head"><span class="num">4.3</span><h3 class="title">Optional: get notified in Slack or Teams</h3><span class="time">5 min</span></div>
+        <div class="body">
+          <p>Needs a real incoming-webhook URL and outbound HTTPS from the VM. <span class="ui">Settings</span> → <span class="ui">Notifications</span> → <span class="ui">Add channel</span>: pick the app, paste the URL, choose what to send, then <span class="ui">Send test</span>.</p>
+          <p>The URL is a secret: after saving you only ever see a hint like <code>hooks.slack.com/…abcd</code>. Messages carry the title and a link back; details stay out unless you tick <strong>Include the first lines of each item</strong>.</p>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+    </section>
+
+    <!-- PART 5 -->
+    <section class="part-band" aria-labelledby="p5">
+      <header><span class="pn">Part 5</span><h2 id="p5">Take a ticket to a merge request</h2></header>
+      <p class="part-intro">This is the main flow: Jira ticket → plan you approve → an agent writes the change in a locked-down sandbox → you review the diff → push and merge request. Nothing is pushed or posted without an approval of the exact content.</p>
+
+      <article class="step" id="s-ticket" data-step>
+        <div class="head"><span class="num">5.1</span><h3 class="title">Put a ticket on the Board</h3><span class="time">2 min</span></div>
+        <div class="body">
+          <p><span class="ui">Board</span> → <span class="ui">Add ticket</span>, Jira key <code>PROJ-123</code>. The fake Jira answers any key with "Retry webhook delivery on 5xx".</p>
+          <p>On the card, choose the repository <strong>payments</strong>, then <span class="ui">Draft plan</span>.</p>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-plan" data-step>
+        <div class="head"><span class="num">5.2</span><h3 class="title">Review, revise and approve the plan</h3><span class="time">5 min</span></div>
+        <div class="body">
+          <ol>
+            <li><span class="ui">Review plan</span>. Read the summary, the files it will change, tests, verification commands, risks and the sandbox request.</li>
+            <li>Type feedback ("Give up after three attempts and log the event id.") and press <span class="ui">Revise with feedback</span>.</li>
+            <li>Revision 2 arrives with "Changed from revision 1: …". Open the comparison.</li>
+            <li>Tick any warnings it asks you to acknowledge, then <span class="ui">Approve revision 2</span>.</li>
+          </ol>
+          <div class="why">The plan is the contract. Validation checks that files exist at the base commit, that protected paths and CI files are flagged, and that the commit message starts with the Jira key. Your approval binds the exact content of the revision you approved.</div>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-job" data-step>
+        <div class="head"><span class="num">5.3</span><h3 class="title">Start the job and watch it work</h3><span class="time">5 min</span></div>
+        <div class="body">
+          <p>On the ticket's <span class="ui">Job</span> tab, press <span class="ui">Start job</span>. Follow the timeline: preparing → running (the agent) → verifying (the plan's commands) → awaiting review. <span class="ui">Jobs</span> in the sidebar lists everything running.</p>
+          <span class="label">You should see</span>
+          <div class="see"><ul>
+            <li>The agent's steps streaming in, then each verification command with its exit code and log.</li>
+            <li>A checks list: secrets scan, file size, changed lines, protected paths, files outside the plan.</li>
+          </ul></div>
+          <p>To see where it runs: <code>docker ps --filter label=mwb.job</code>. The container has no credentials, a read-only root, no Linux capabilities, and reaches the outside only through the egress proxy.</p>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-push" data-step>
+        <div class="head"><span class="num">5.4</span><h3 class="title">Review the change and push it</h3><span class="time">5 min</span></div>
+        <div class="body">
+          <ol>
+            <li>Read the diff (split or unified). If it's not right, <span class="ui">Request changes</span> with a note; the agent tries again in the same workspace.</li>
+            <li>When it is, <span class="ui">Review push</span>. The preview shows exactly what will happen: the branch, commit message, merge request title and body, and the Jira comment.</li>
+            <li><span class="ui">Push branch and open merge request</span>.</li>
+          </ol>
+          <span class="label">You should see</span>
+          <div class="see"><p>"Pushed" with links <span class="ui">Merge request</span> and <span class="ui">Jira comment</span>, and "Watching for merge."</p></div>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-after" data-step>
+        <div class="head"><span class="num">5.5</span><h3 class="title">Simulate a failing pipeline, a review comment and the merge</h3><span class="time">10–25 min</span></div>
+        <div class="body">
+          <p>On real GitLab these happen by themselves. In fake mode you trigger them. Define a small helper on the VM:</p>
+          <div class="cmd"><pre>fake() { mwb-compose exec -T api python -c "import sys,urllib.request as u; u.urlopen(u.Request('http://llm-gateway:4000'+sys.argv[1], data=(sys.argv[2] if len(sys.argv)>2 else '{}').encode(), method='POST', headers={'content-type':'application/json'}))" "$@"; }</pre></div>
+          <p><strong>A failing pipeline.</strong> Then wait up to 10 minutes (pushed jobs are checked every 10 minutes); the job shows the failure, and you get an inbox item.</p>
+          <div class="cmd"><pre>fake /fake/pipeline '{"mr_iid":1,"status":"failed","jobs":[{"name":"unit","stage":"test","status":"failed","log":"AssertionError: retries == 0"}]}'</pre></div>
+          <p>Press <span class="ui">Fix CI failure</span>, add a note if you like. A new round starts from the pushed change, with the failing log as untrusted input.</p>
+          <p><strong>A reviewer's comment.</strong></p>
+          <div class="cmd"><pre>fake /fake/discussion '{"mr_iid":1,"body":"Please log the event id when giving up.","path":"app/webhooks.py","line":3}'</pre></div>
+          <p>Press <span class="ui">Address review comments</span>, pick the thread, and later approve the reply that gets posted to it.</p>
+          <p><strong>The merge.</strong></p>
+          <div class="cmd"><pre>fake /fake/merge/1</pre></div>
+          <span class="label">You should see</span>
+          <div class="see"><p>Within 10 minutes the job is "Merged", and a <strong>Change</strong> document appears in your knowledge (search for "merged"). The planner uses past changes of the same repository the next time.</p></div>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-question" data-step>
+        <div class="head"><span class="num">5.6</span><h3 class="title">Things to notice along the way</h3><span class="time">reading</span></div>
+        <div class="body">
+          <ul>
+            <li><strong>The agent can ask.</strong> When a plan is unclear, a job pauses with a question, shown on Home and under <span class="ui">Jobs</span> → <span class="ui">Waiting for you</span>. Answer it and it carries on (at most 3 questions a job).</li>
+            <li><strong>A failed push can be retried</strong> from the Job tab without starting over.</li>
+            <li><strong>A CI failure can become a ticket.</strong> On a CI failures schedule result, <span class="ui">Create ticket</span> on a finding drafts the Jira issue, and can draft its plan right away. Needs a Jenkins or GitLab CI integration, so try it in real mode.</li>
+          </ul>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+    </section>
+
+    <!-- PART 6 -->
+    <section class="part-band" aria-labelledby="p6">
+      <header><span class="pn">Part 6</span><h2 id="p6">See how it's going, and the admin extras</h2></header>
+
+      <article class="step" id="s-insights" data-step>
+        <div class="head"><span class="num">6.1</span><h3 class="title">Open Insights</h3><span class="time">3 min</span></div>
+        <div class="body">
+          <p><span class="ui">Insights</span> (under Work) shows the jobs started in a period: how they ended, attempts and review rounds per job, median time from start to review and from push to merge, and AI cost per merged change and per week. Each chart has <span class="ui">Show table</span>.</p>
+          <p>As <code>admin</code>, switch <strong>Whose jobs</strong> to "Everyone's". Members only ever see their own.</p>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-mcp" data-step>
+        <div class="head"><span class="num">6.2</span><h3 class="title">Register an MCP server (read-only tools)</h3><span class="time">5 min</span></div>
+        <div class="body">
+          <p>The fake gateway is also an MCP server. Fake mode allows plain http, so as <code>admin</code>: <span class="ui">Admin</span> → <span class="ui">Integrations</span> → <span class="ui">Add MCP server</span>.</p>
+          <ul>
+            <li>Name <code>docs</code>, URL <code>http://llm-gateway:4000/mcp</code></li>
+            <li>Auth header <code>Authorization</code>, value <code>Bearer mcp-secret</code></li>
+          </ul>
+          <span class="label">You should see</span>
+          <div class="see"><ul>
+            <li>Six tools, all off. <code>create_ticket</code> and <code>purge_cache</code> say "Write tool: can't be turned on".</li>
+            <li><span class="ui">Turn on</span> for <code>search_docs</code> asks why it's needed and why it only reads, and shows the description and schema the model will see.</li>
+            <li>Members' chats now offer <code>mcp.docs.search_docs</code> to the model. The fake model sticks to knowledge search, so you'll see it used in real mode. Its answers are treated as untrusted data (the fake server's answer even contains "Ignore previous instructions", on purpose).</li>
+          </ul></div>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-sso" data-step>
+        <div class="head"><span class="num">6.3</span><h3 class="title">Single sign-on (real mode)</h3><span class="time">20 min</span></div>
+        <div class="body">
+          <p>Needs your company's identity provider. Register a client with redirect URI <code>&lt;MWB_HOSTNAME&gt;/api/auth/oidc/callback</code>, then set <code>MWB_OIDC_ISSUER</code>, <code>MWB_OIDC_CLIENT_ID</code>, <code>MWB_OIDC_CLIENT_SECRET</code> and restart. The sign-in page gains <span class="ui">Sign in with SSO</span>.</p>
+          <ul>
+            <li>A member whose verified email matches an account is linked once, then matched by the provider's ID only.</li>
+            <li>Admin accounts are never linked by email. Link yours yourself: <span class="ui">Settings</span> → <span class="ui">Profile</span> → <span class="ui">Link SSO</span>.</li>
+            <li><code>MWB_LOCAL_LOGIN=admins</code> turns passwords off for members; admins keep theirs as a fallback.</li>
+          </ul>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-sysbox" data-step>
+        <div class="head"><span class="num">6.4</span><h3 class="title">Verification with containers (needs Sysbox)</h3><span class="time">30 min</span></div>
+        <div class="body">
+          <p>For repositories whose tests need a database in Docker. Install Sysbox on the VM, then:</p>
+          <div class="cmd"><pre>docker build -f sandbox/Dockerfile.dind -t mwb-sandbox-dind:latest sandbox
+<span class="c"># .env: MWB_PROXY_REGISTRY_HOSTS=&lt;your registry mirror&gt;, then:</span>
+mwb-compose up -d runner</pre></div>
+          <p>System's Sandboxes block should say "available (Sysbox installed)". As admin, turn on <strong>Verification with containers</strong> on the repository page. A plan can then ask for it, and you'll see it in the plan and in the approval.</p>
+          <div class="note"><strong>This part hasn't run on a real VM yet.</strong> Please try a plan whose verification runs <code>docker compose up -d postgres</code>, and run the sandbox security tests from an inner container (design 04 §9, tests 1–3).</div>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+    </section>
+
+    <!-- PART 7 -->
+    <section class="part-band" aria-labelledby="p7">
+      <header><span class="pn">Part 7</span><h2 id="p7">Switch to real mode</h2></header>
+      <p class="part-intro">The same stack, without <code>compose.ci.yml</code>. Do it on a fresh database, or keep the trial data. The fake integrations simply stop answering, so remove them.</p>
+
+      <article class="step" id="s-real-env" data-step>
+        <div class="head"><span class="num">7.1</span><h3 class="title">Point it at Bedrock and your systems</h3><span class="time">20 min</span></div>
+        <div class="body">
+          <p>In <code>.env</code>, set:</p>
+          <ul>
+            <li><code>AWS_REGION</code>, <code>AWS_ACCESS_KEY_ID</code>, <code>AWS_SECRET_ACCESS_KEY</code>, and the model IDs <code>MWB_CHAT_MODEL_ID</code>, <code>MWB_FAST_MODEL_ID</code>, <code>MWB_EMBED_MODEL_ID</code> (planner and coder default to chat), or an OpenAI-compatible endpoint instead.</li>
+            <li><code>MWB_HOSTNAME=https://…</code>, <code>MWB_TLS_MODE=files</code> with <code>deploy/tls/cert.pem</code> and <code>key.pem</code> (or <code>internal</code>), <code>MWB_COOKIE_SECURE=true</code>.</li>
+            <li><code>MWB_SMTP_*</code> for email.</li>
+            <li>Self-hosted servers without TLS: <code>MWB_HTTP_INTERNAL_HOSTS=gitlab.local,*.corp.internal</code>. System then warns that tokens to them aren't encrypted in transit.</li>
+          </ul>
+          <p><strong>Optional: keep the secrets key in HashiCorp Vault.</strong> With the compose Vault:</p>
+          <div class="cmd"><pre>docker compose --profile vault up -d vault
+deploy/vault/init.sh          <span class="c"># prints the unseal key, root token and the .env lines, once</span>
+<span class="c"># add MWB_SECRETS_BACKEND=vault and the MWB_VAULT_* lines to .env, restart api worker worker-jobs, then:</span>
+docker compose exec api mwb rotate-secrets
+docker compose exec api mwb vault status</pre></div>
+          <p>After every restart of the VM, Vault is sealed and MyWorkBuddy won't start until you run <code>deploy/vault/unseal.sh</code>. System → Stored secrets shows where the key lives.</p>
+          <p>Install gVisor, register <code>runsc</code> with Docker, then set <code>MWB_SANDBOX_RUNTIME=runsc</code>.</p>
+          <div class="cmd"><pre>docker run --rm --runtime=runsc hello-world
+docker compose -f docker-compose.yml up -d --build --wait
+docker compose exec api mwb llm check   <span class="c"># the gateway can create and delete a user key</span></pre></div>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+
+      <article class="step" id="s-real-run" data-step>
+        <div class="head"><span class="num">7.2</span><h3 class="title">Run the real checklists</h3><span class="time">1–2 h</span></div>
+        <div class="body">
+          <p>These are the checks nothing automated can do. They're in <code>docs/implementation-plan.md</code>, one per phase:</p>
+          <ul>
+            <li>Chat answers in English and Chinese with citations; a real GitLab and a real Gerrit repository indexed; backup and restore drill.</li>
+            <li>A real Kubernetes health check alerts on a crash-looping test pod, stays quiet the next time, then says "recovered".</li>
+            <li>A real ticket → plan → job → push on a test repository, on GitLab and on Gerrit, with gVisor.</li>
+            <li>A failing pipeline fixed with <span class="ui">Fix CI failure</span>; a reviewer's comment addressed and replied to; a CI failure turned into a ticket; a Slack or Teams message; a teammate signing in with SSO.</li>
+          </ul>
+          <label class="mark"><input type="checkbox"> Done</label>
+        </div>
+      </article>
+    </section>
+
+    <section class="part-band" aria-labelledby="pt">
+      <header><span class="pn">If something's off</span><h2 id="pt">Where to look</h2></header>
+      <div class="tbl"><table>
+        <thead><tr><th>What you see</th><th>Look at</th></tr></thead>
+        <tbody>
+          <tr><td>A service won't start</td><td><code>mwb-compose ps -a</code>, then <code>mwb-compose logs --tail 50 migrate api</code>. Logs are JSON, one event per line.</td></tr>
+          <tr><td>The repository stays "failed"</td><td>Repository page shows the error and what to do; check the URL and that the token tested OK.</td></tr>
+          <tr><td>Jobs fail right away</td><td>System → Sandboxes; <code>docker images mwb-sandbox</code>; <code>mwb-compose logs runner egress-proxy</code>.</td></tr>
+          <tr><td>Nothing happens after a push</td><td>Pushed jobs are checked every 10 minutes; the worker must be healthy (System).</td></tr>
+          <tr><td>Disk filling up</td><td>System → Disk; job workspaces are removed after review, and <code>docker system df</code>.</td></tr>
+        </tbody>
+      </table></div>
+      <p class="foot">The design and operations details are in <code>docs/design/</code> (start with <code>06-operations.md</code> for running it, <code>07-ux.md</code> for what each page should do). Ticks on this page are kept only in this browser.</p>
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  var KEY = "mwb-guide-done";
+  var steps = Array.prototype.slice.call(document.querySelectorAll("[data-step]"));
+  var done = {};
+  try { done = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { done = {}; }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(done)); } catch (e) {} }
+
+  var toc = document.getElementById("toc");
+  var lastPart = null;
+  steps.forEach(function (step) {
+    var band = step.closest(".part-band");
+    var partTitle = band.querySelector("h2").textContent;
+    if (band !== lastPart) {
+      var li = document.createElement("li");
+      li.className = "part";
+      li.textContent = band.querySelector(".pn").textContent + " · " + partTitle;
+      toc.appendChild(li);
+      lastPart = band;
+    }
+    var item = document.createElement("li");
+    var a = document.createElement("a");
+    a.href = "#" + step.id;
+    var n = document.createElement("span"); n.className = "n"; n.textContent = step.querySelector(".num").textContent;
+    var t = document.createElement("span"); t.textContent = step.querySelector(".title").textContent;
+    a.appendChild(n); a.appendChild(t);
+    item.appendChild(a);
+    toc.appendChild(item);
+    step._link = a;
+    var box = step.querySelector(".mark input");
+    box.id = "done-" + step.id;
+    box.checked = !!done[step.id];
+    box.addEventListener("change", function () {
+      if (box.checked) done[step.id] = true; else delete done[step.id];
+      save(); paint();
+    });
+    step._box = box;
+  });
+
+  function paint() {
+    var n = 0;
+    steps.forEach(function (s) {
+      var on = !!done[s.id];
+      if (on) n++;
+      s.classList.toggle("done", on);
+      s._link.classList.toggle("done", on);
+      s._box.checked = on;
+    });
+    document.getElementById("fill").style.width = (100 * n / steps.length) + "%";
+    document.getElementById("count").textContent = n + " of " + steps.length + " steps done";
+  }
+  document.getElementById("reset").addEventListener("click", function () { done = {}; save(); paint(); });
+  paint();
+
+  document.querySelectorAll(".cmd").forEach(function (block) {
+    var btn = document.createElement("button");
+    btn.type = "button"; btn.className = "copy"; btn.textContent = "Copy";
+    btn.addEventListener("click", function () {
+      var text = block.querySelector("pre").innerText;
+      var ok = function () { btn.textContent = "Copied"; setTimeout(function () { btn.textContent = "Copy"; }, 1500); };
+      var fallback = function () {
+        var r = document.createRange(); r.selectNodeContents(block.querySelector("pre"));
+        var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        btn.textContent = "Selected: press Ctrl+C";
+      };
+      try { navigator.clipboard.writeText(text).then(ok, fallback); } catch (e) { fallback(); }
+    });
+    block.appendChild(btn);
+  });
+
+  if (location.hash) { var t = document.getElementById(location.hash.slice(1)); if (t) t.scrollIntoView(); }
+})();
+</script>
+</body>
+</html>
