@@ -33,6 +33,8 @@ type System = {
   embeddings: { failed: number; sample: { chunk_id: number; document_id: number; error: string }[] };
   llm_spend: { month_to_date_usd: number; users_counted: number; users_unknown: number };
   /** 08 §F10: the runner, and whether verification with containers (Sysbox) can run. */
+  secrets?: { backend: "fernet" | "vault"; ok: boolean; error: string | null; address?: string; data_keys: number; legacy_keys: number };
+  http_internal_hosts?: string[];
   sandbox?: { ok: boolean; error: string | null; runtime?: string | null; checks?: Record<string, string>; services: string | null };
   audit?: { at: string; action: string; user: string | null; target: string | null }[];
 };
@@ -182,6 +184,29 @@ export default function SystemPage() {
               )}
               {s.disk_guard && !s.disk_guard.ok && <Banner tone="danger">{s.disk_guard.problem}</Banner>}
             </Section>
+
+            {s.secrets && (
+              <Section id="sys-secrets" title="Stored secrets">
+                {s.secrets.backend === "vault" ? (
+                  s.secrets.ok ? (
+                    <p>
+                      Protected by HashiCorp Vault at <span className="mono small">{s.secrets.address}</span>: {s.secrets.data_keys} data key
+                      {s.secrets.data_keys === 1 ? "" : "s"} loaded.
+                    </p>
+                  ) : (
+                    <Banner tone="danger">Vault at {s.secrets.address} is {s.secrets.error}. Unseal it, then restart the api and workers.</Banner>
+                  )
+                ) : (
+                  <p>Encrypted with the key in MWB_SECRET_KEYS. To keep that key in HashiCorp Vault instead, see deploy/vault/init.sh.</p>
+                )}
+                {s.secrets.backend === "vault" && s.secrets.legacy_keys > 0 && (
+                  <p className="muted small">MWB_SECRET_KEYS is still set, to read values from before Vault. After mwb rotate-secrets you can remove it.</p>
+                )}
+                {!!s.http_internal_hosts?.length && (
+                  <Banner tone="warning">Plain http is allowed to {s.http_internal_hosts.join(", ")}: tokens sent there aren't encrypted in transit.</Banner>
+                )}
+              </Section>
+            )}
 
             {s.sandbox && (
               <Section id="sys-sandbox" title="Sandboxes">

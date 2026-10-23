@@ -110,9 +110,13 @@ def _invalid(message: str) -> AppError:
 def validate_base_url(url: str, *, keep_path: bool = False) -> str:
     """https only (http when MWB_ALLOW_HTTP_INTEGRATIONS), no credentials, query or fragment; no trailing slash."""
     parsed = urlparse(url.strip())
-    allowed = {"https", "http"} if get_settings().allow_http_integrations else {"https"}
-    if parsed.scheme not in allowed or not parsed.hostname:
-        raise _invalid(f"{url!r} must be an {' or '.join(sorted(allowed))} URL")
+    s = get_settings()
+    http_ok = s.allow_http_integrations or s.http_allowed(parsed.hostname)
+    if not parsed.hostname or parsed.scheme not in ({"https", "http"} if http_ok else {"https"}):
+        if parsed.scheme == "http" and parsed.hostname:
+            raise _invalid(f"{parsed.hostname} isn't allowed over plain http. Use https, or ask the server's admin to "
+                           "add the host to MWB_HTTP_INTERNAL_HOSTS.")  # fmt: skip
+        raise _invalid(f"{url!r} must be an https URL, e.g. https://gitlab.company.example or https://git.local:8443")
     if parsed.username or parsed.password:
         raise _invalid("Don't put credentials in the URL; users add their own in Settings")
     if parsed.fragment or (parsed.query and not keep_path):

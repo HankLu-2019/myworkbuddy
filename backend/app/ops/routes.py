@@ -129,6 +129,22 @@ def _alerts(
     return alerts
 
 
+async def _secrets() -> dict[str, Any]:
+    """Where the key protecting stored secrets lives, and whether Vault is reachable and unsealed."""
+    from app.config import get_settings
+    from app.secrets import service, vault
+
+    s = get_settings()
+    if s.secrets_backend != "vault":
+        return {"backend": "fernet", "ok": True, "error": None, "data_keys": 0, "legacy_keys": len(s.fernet_keys)}
+    try:
+        h = await vault.health()
+    except Exception as exc:
+        h = {"ok": False, "error": type(exc).__name__}
+    return {"backend": "vault", "ok": bool(h.get("ok")), "error": h.get("error"), "address": s.vault_addr,
+            "data_keys": len(service._vault_keys or []), "legacy_keys": len(s.fernet_keys)}  # fmt: skip
+
+
 async def _sandbox() -> dict[str, Any]:
     """The runner's health and whether verification with containers can run (08 §F10)."""
     from app.jobs import runner_client
@@ -172,7 +188,7 @@ async def system(auth: AdminAuth, db: DB) -> dict[str, Any]:
     ]
     outbox = await outbox_status(db)
     await db.commit()  # rule R1: the gateway checks below are network calls
-    checks, spend, sandbox = await asyncio.gather(health.readiness(), _spend(), _sandbox())
+    checks, spend, sandbox, secrets_state = await asyncio.gather(health.readiness(), _spend(), _sandbox(), _secrets())
     disk = _disk()
     hb = states.get(health.HEARTBEAT_KEY)
     age = health.heartbeat_age(hb)
@@ -191,6 +207,9 @@ async def system(auth: AdminAuth, db: DB) -> dict[str, Any]:
         "embeddings": {"failed": stuck, "sample": stuck_sample},
         "llm_spend": spend,
         "sandbox": sandbox,
+        "secrets": secrets_state,
+        # Hosts reached over plain http on purpose (MWB_HTTP_INTERNAL_HOSTS): tokens to them travel unencrypted.
+        "http_internal_hosts": [h.strip() for h in get_settings().http_internal_hosts.split(",") if h.strip()],
         "audit": audit_rows,
     }
 

@@ -414,6 +414,12 @@ Everything is computed in SQL from `jobs`, `plans`, `plan_revisions`, `job_event
 - Each call re-checks the tool in the database first, so turning it off takes effect on the next call. The call has an overall timeout (`MWB_MCP_CALL_TIMEOUT_S`, 30 s), the text is wrapped (rule R6) and capped (`MWB_MCP_MAX_OUTPUT_CHARS`, 20 000), a tool's own error text is wrapped too, and the audit row has the argument names only, never their values.
 - Migration 0023 (`mcp_servers`, `mcp_tools`); the server name is a slug checked in the database. Admin UI: an "MCP servers" section under Admin → Integrations.
 
+## After Phase 5: from trying it on the VM
+
+**Stored secrets in HashiCorp Vault.** Optional (`MWB_SECRETS_BACKEND=vault`), with a Vault service in compose (profile `vault`) or the company's Vault. Transit with envelope encryption, chosen over storing the secrets themselves in Vault's KV: the key-encryption key stays in Vault, the database keeps only ciphertext and wrapped data keys, and backups and restores keep working the same way (they need the same Vault). Data keys are unwrapped once per process at start (api lifespan, every `mwb` command including the workers), never inside a transaction (rule R1). Without loaded keys, encrypting raises instead of falling back to the `.env` key. `rotate-secrets` now covers every encrypted column (user tokens, integration credentials, job keys, chat webhooks, MCP credentials). Runbook: 06 §8a. Tested against a fake Vault (`tests/fakellm/vault.py`); a real Vault on the VM is a manual check.
+
+**Self-hosted servers over plain http.** Self-hosted GitLab, Gerrit, Jira and Jenkins already worked on any `https://` host and port (with a company CA). Servers without TLS on the internal network were refused in production. `MWB_HTTP_INTERNAL_HOSTS` lists the hosts allowed over plain `http://`, for integrations and repositories; anything else still needs https, the error says how to allow a host, and the System page warns while the list isn't empty. The integration form now says that any self-hosted URL works.
+
 ## Out of scope (Phase 6 backlog)
 
 User-defined agents and skills editor · Spinnaker connector · reranker (Bedrock Cohere Rerank) · RCA evaluation set · wiki export · a network per sandbox job (04 §1 known limit) · MCP write tools with per-call approval · fixing CI failures without a click.

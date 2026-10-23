@@ -612,6 +612,20 @@ describe("system page", () => {
     expect(screen.getByText("never recorded")).toBeInTheDocument();
   });
 
+  it("shows where stored secrets are protected, and plain-http hosts", async () => {
+    const vault = { backend: "vault", ok: true, error: null, address: "http://vault:8200", data_keys: 1, legacy_keys: 1 };
+    mockApi({ ...signedInAs(ADMIN), "GET /api/admin/system": { ...SYSTEM, secrets: vault, http_internal_hosts: ["gitlab.local"] } });
+    const { unmount } = renderAt("/admin/system", <SystemPage />);
+    const block = await screen.findByRole("region", { name: "Stored secrets" });
+    expect(block).toHaveTextContent("Protected by HashiCorp Vault at http://vault:8200: 1 data key loaded.");
+    expect(block).toHaveTextContent("After mwb rotate-secrets you can remove it.");
+    expect(block).toHaveTextContent("Plain http is allowed to gitlab.local");
+    unmount();
+    mockApi({ ...signedInAs(ADMIN), "GET /api/admin/system": { ...SYSTEM, secrets: { ...vault, ok: false, error: "sealed" } } });
+    renderAt("/admin/system", <SystemPage />);
+    expect(await screen.findByText(/Vault at http:\/\/vault:8200 is sealed/)).toBeInTheDocument();
+  });
+
   it("formats sizes", () => {
     expect(bytes(512)).toBe("512 B");
     expect(bytes(1536)).toBe("1.5 KB");

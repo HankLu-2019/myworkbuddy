@@ -114,6 +114,33 @@ async def test_http_integrations_only_when_allowed(client_for, monkeypatch) -> N
     ].startswith("http://")
 
 
+async def test_listed_internal_hosts_may_use_plain_http_even_in_production(client_for, monkeypatch) -> None:
+    """Self-hosted servers without TLS: only the hosts an admin lists in MWB_HTTP_INTERNAL_HOSTS."""
+    admin = await _admin(client_for)
+    s = get_settings()
+    monkeypatch.setattr(s, "allow_http_integrations", False)
+    monkeypatch.setattr(s, "allow_http_repos", False)
+    r = await admin.post("/api/admin/integrations", json={"kind": "gitlab", "name": "Own GitLab",
+                                                          "base_url": "http://gitlab.local:8929"})  # fmt: skip
+    assert r.status_code == 422 and "MWB_HTTP_INTERNAL_HOSTS" in r.json()["detail"]
+    monkeypatch.setattr(s, "http_internal_hosts", "gitlab.local, *.corp.internal")
+    made = await _create(admin, kind="gitlab", name="Own GitLab", base_url="http://gitlab.local:8929")
+    assert made["base_url"] == "http://gitlab.local:8929"
+    assert (await _create(admin, kind="jira", name="Jira", base_url="http://jira.eu.corp.internal"))["base_url"]
+    r = await admin.post("/api/admin/integrations", json={"kind": "jenkins", "name": "CI",
+                                                          "base_url": "http://jenkins.elsewhere.example"})  # fmt: skip
+    assert r.status_code == 422
+    # Self-hosted https needs nothing: any host and port.
+    assert (await _create(admin, kind="gerrit", name="Gerrit", base_url="https://review.local:8443"))["base_url"]
+    from app.knowledge.ingest.repos import validate_repo_url
+
+    assert validate_repo_url("http://gitlab.local:8929/team/app.git") == "http://gitlab.local:8929/team/app.git"
+    with pytest.raises(Exception, match="isn't allowed over plain http"):
+        validate_repo_url("http://other.example/team/app.git")
+    system = (await admin.get("/api/admin/system")).json()
+    assert system["http_internal_hosts"] == ["gitlab.local", "*.corp.internal"]
+
+
 async def test_integration_with_repositories_cannot_be_deleted(client_for, git_integrations) -> None:
     admin = await _admin(client_for)
     alice = await client_for("alice")

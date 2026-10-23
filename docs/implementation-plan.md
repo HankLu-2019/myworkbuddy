@@ -234,6 +234,13 @@ Design: [08-follow-through.md](design/08-follow-through.md). Tasks are in priori
   - Acceptance: tools listed and enabled by an admin as read only; write-hinted tools can't be enabled; disabled tools can't be called; results wrapped, capped, timed out; a changed tool definition disables the tool; roles enforced; calls audited.
   - Done with the changes recorded in 08 §F12: our own small streamable-HTTP client, `mcp__<server>__<tool>` names for the model, write hints by annotation or verb with a DB CHECK, `removed` tools, migration 0023.
 
+**After Phase 5** (from trying it on the VM; 08 "After Phase 5"):
+
+- [x] **V1 Stored secrets in HashiCorp Vault** (08 "After Phase 5", 06 §8a). Optional `MWB_SECRETS_BACKEND=vault`, a compose Vault (profile `vault`) or the company's.
+  - Acceptance: new secrets are encrypted under a Vault data key and can't be read with the database and `.env` alone; a restart unwraps the same data key; Fernet-era values stay readable and `rotate-secrets` moves them; a sealed or refusing Vault stops start-up with a clear message; new data keys and rewrap; the System page reports Vault. *Manual:* init, seal/unseal and restart on the VM.
+- [x] **V2 Self-hosted servers over plain http** (08 "After Phase 5"). `MWB_HTTP_INTERNAL_HOSTS`.
+  - Acceptance: listed hosts accepted over http for integrations and repositories in production, others refused with how to allow them; the System page warns.
+
 **Phase 5 end-to-end checklist** (*manual*, on the VM): a real merge request whose pipeline fails is fixed with Fix CI failure and merged; a reviewer's comment is addressed and replied to; a CI failure becomes a ticket, a plan and a job; notifications reach a Slack or Teams test channel; a teammate signs in with SSO.
 
 ## Phase 6 — Backlog

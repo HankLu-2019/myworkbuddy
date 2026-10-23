@@ -17,10 +17,21 @@ cli = typer.Typer(no_args_is_help=True, pretty_exceptions_enable=False)
 _NO_CONFIG_CHECK = {"generate-key", "check-config", "worker-health"}
 
 
+# Commands that run before the schema exists, so can't read the wrapped Vault data keys.
+_NO_KEYRING = _NO_CONFIG_CHECK | {"db-bootstrap"}
+
+
 @cli.callback()
 def _startup(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand not in _NO_CONFIG_CHECK:
         ensure_runtime_ok()
+    if ctx.invoked_subcommand not in _NO_KEYRING:
+        from app.secrets.service import load_keyring
+
+        try:
+            asyncio.run(load_keyring())  # its own engine and event loop; the keys stay in memory for the command
+        except RuntimeError as exc:
+            raise SystemExit(f"Secrets: {exc}") from None
 
 
 @cli.command("check-config")
@@ -94,6 +105,45 @@ def list_users_cmd() -> None:
         last = u.last_login_at.isoformat(timespec="minutes") if u.last_login_at else "never"
         flags = ("active" if u.is_active else "disabled") + (", must change password" if u.must_change_password else "")
         typer.echo(f"{u.username}\t{u.role}\t{flags}\tlast sign-in {last}")
+
+
+vault_cli = typer.Typer(help="HashiCorp Vault Transit as the root of trust for stored secrets.")
+cli.add_typer(vault_cli, name="vault")
+
+
+@vault_cli.command("status")
+def vault_status() -> None:
+    """Vault reachable and unsealed, and how many data keys are loaded."""
+    from app.config import get_settings
+    from app.secrets import service, vault
+
+    s = get_settings()
+    if s.secrets_backend != "vault":
+        typer.echo("MWB_SECRETS_BACKEND=fernet: Vault isn't used")
+        return
+    h = asyncio.run(vault.health())
+    typer.echo(f"vault {s.vault_addr}: {'ok' if h['ok'] else h['error']} (version {h.get('version')})")
+    typer.echo(f"data keys loaded: {len(service._vault_keys or [])}, transit key {s.vault_transit_mount}/"
+               f"{s.vault_transit_key}")  # fmt: skip
+
+
+@vault_cli.command("new-data-key")
+def vault_new_data_key() -> None:
+    """Make a new data key (it encrypts from now on; older ones still decrypt). Restart api and workers, then run
+    `mwb rotate-secrets` to re-encrypt everything with it."""
+    from app.secrets.service import add_data_key
+
+    typer.echo(f"data keys: {asyncio.run(add_data_key())}; restart api, worker and worker-jobs, then run "
+               "mwb rotate-secrets")  # fmt: skip
+
+
+@vault_cli.command("rewrap")
+def vault_rewrap() -> None:
+    """After rotating the Transit key in Vault (`vault write -f transit/keys/mwb/rotate`): wrap the data keys with
+    its newest version, so older versions can be retired."""
+    from app.secrets.service import rewrap_data_keys
+
+    typer.echo(f"rewrapped {asyncio.run(rewrap_data_keys())} data key(s)")
 
 
 @cli.command("rotate-secrets")
