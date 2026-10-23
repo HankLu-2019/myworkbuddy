@@ -345,7 +345,8 @@ Everything is computed in SQL from `jobs`, `plans`, `plan_revisions`, `job_event
 - The inner Docker's data is its own volume (`mwb-dind-<job>`, labelled with the job), mounted at `/var/lib/docker`, removed with the workspace and by the orphan sweep. The disk watchdog counts it with the workspace, against twice `MWB_JOB_DISK_GB`.
 - The limits a plan asks for are checked against the runner's maxima, then doubled (CPU, memory, processes, disk).
 - `MWB_PROXY_REGISTRY_HOSTS` is a runner setting: the run's proxy ACL adds those hosts on the verify port, for this preset only. Inner containers get the same proxy (daemon and client config) and no resolver, so they reach nothing else; compose service names resolve through Docker's own DNS.
-- The approval names it: `sandbox.services` is a warning to acknowledge (`services`), and an error where the repository isn't enabled. Job start checks again, in case an admin turned it off after the approval.
+- The approval names it: `sandbox.services` is a warning to acknowledge (`services`), and an error where the repository isn't enabled. Job start checks again, and so does every verify (later review rounds too): when an admin has turned it off, the job fails `services_disabled`.
+- Inner containers get the proxy by address (`MWB_INNER_PROXY`, set by the runner): they don't get the sandbox's `egress-proxy` hosts entry and have no resolver. Squid sees the sandbox's address (the inner bridge is NATed), so the run's ACL applies to them.
 - Admins turn it on with `PUT /api/projects/{id}/verify-services` (audited), on the repository page. The System page has a Sandboxes block: the runner's checks, and whether `sysbox-runc` is installed (optional: it never makes the runner unhealthy). Migration 0021.
 - CI builds neither the dind image nor runs Sysbox (GitHub's runners can't): the preset's flags, ACL, volume and limits are unit tests; the security tests from an inner container stay manual on the VM.
 

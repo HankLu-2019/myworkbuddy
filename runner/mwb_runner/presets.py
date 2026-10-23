@@ -183,7 +183,10 @@ def container_config(req: RunRequest, *, run_id: str, ip: str, settings: RunnerS
         # A services run starts as the container's root (an unprivileged host user under Sysbox's user namespace)
         # so dockerd can run; the entrypoint drops to 1000:1000 for the verify commands.
         "user": "0:0" if preset.services else "1000:1000",
-        "environment": environment(preset, req),
+        # Containers the inner Docker starts don't get the sandbox's hosts entry for `egress-proxy`, and have no
+        # resolver, so they're given the proxy by address (08 §F10).
+        "environment": environment(preset, req)
+        | ({"MWB_INNER_PROXY": f"http://{settings.proxy_ip}:{preset.proxy_port}"} if preset.services else {}),
         "working_dir": WORKSPACE,
         "labels": labels(req.job_id, run_id, preset, req.timeout_s),
         "stop_timeout": 10,

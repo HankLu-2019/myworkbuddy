@@ -71,6 +71,9 @@ def test_verify_services_preset_is_fixed() -> None:
         env["HTTPS_PROXY"] == "http://egress-proxy:3129" and env["DOCKER_HOST"] == "unix:///run/mwb-docker/docker.sock"
     )
     assert "ANTHROPIC_BASE_URL" not in env
+    assert env["MWB_INNER_PROXY"] == "http://172.31.0.2:3129"  # inner containers have no hosts entry or resolver
+    plain = container_config(req(preset="verify"), run_id="r6", ip="172.31.0.15", settings=s)["environment"]
+    assert "MWB_INNER_PROXY" not in plain
     assert acl_hosts(PRESETS["verify-services"], req(preset="verify-services", extra_hosts_acl=["pypi.org"]), s) == [
         "mirror.gcr.io", "pypi.org", "registry.example.com"]  # fmt: skip
     assert acl_hosts(PRESETS["verify"], req(preset="verify"), s) == []  # only services runs reach the registry
