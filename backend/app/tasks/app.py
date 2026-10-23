@@ -288,6 +288,17 @@ async def send_messages(timestamp: int) -> None:
         log.info("send_messages.done", **vars(result))
 
 
+@app.periodic(cron="23 * * * *")
+@app.task(name="mcp_refresh", queueing_lock="mcp_refresh", lock="mcp_refresh")
+async def mcp_refresh(timestamp: int) -> None:
+    """08 §F12: list every enabled MCP server's tools again; changed definitions turn the tool off."""
+    from app.mcp.service import refresh_all
+
+    totals = await refresh_all()
+    if totals["servers"]:
+        log.info("mcp_refresh.done", **totals)
+
+
 # ---------- Phase 2 system tasks (design 02 §9) ----------
 
 

@@ -35,6 +35,7 @@ describe("MCP servers (08 §F12)", () => {
     expect(screen.getByRole("row", { name: "mcp.docs.get_metric" })).toHaveTextContent("Changed: check it again");
     fireEvent.click(within(screen.getByRole("row", { name: "mcp.docs.search_docs" })).getByRole("button", { name: "Turn on" }));
     const dialog = await screen.findByRole("dialog", { name: "Turn on mcp.docs.search_docs?" });
+    expect(within(dialog).getByText(/The model sees this description and schema/)).toBeInTheDocument();
     const confirm = within(dialog).getByRole("button", { name: "Turn on as read-only" });
     expect(confirm).toBeDisabled();
     fireEvent.change(within(dialog).getByLabelText("Why it's needed, and why it only reads"), { target: { value: "On-call runbook search." } });

@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   Checkbox,
+  CodeBlock,
   ConfirmDialog,
   DataTable,
   Dialog,
@@ -107,7 +108,9 @@ function EnableDialog({ tool, onClose }: { tool: McpTool; onClose: () => void })
       }
     >
       <div className="stack">
-        <p className="small">{tool.description || "No description."}</p>
+        <p className="small pre-wrap">{tool.description || "No description."}</p>
+        <CodeBlock label="Input schema">{JSON.stringify(tool.input_schema, null, 2)}</CodeBlock>
+        <p className="muted small">The model sees this description and schema. If the server changes either, the tool turns off again until you look.</p>
         <TextArea label="Why it's needed, and why it only reads" rows={3} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
         <ErrorNote error={enable.error} />
       </div>
