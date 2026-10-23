@@ -61,6 +61,76 @@ export interface paths {
         patch: operations["admin_update_api_admin_integrations__integration_id__patch"];
         trace?: never;
     };
+    "/api/admin/mcp-servers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Servers */
+        get: operations["list_servers_api_admin_mcp_servers_get"];
+        put?: never;
+        /** Create Server */
+        post: operations["create_server_api_admin_mcp_servers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/mcp-servers/{server_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Server */
+        delete: operations["delete_server_api_admin_mcp_servers__server_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Server */
+        patch: operations["update_server_api_admin_mcp_servers__server_id__patch"];
+        trace?: never;
+    };
+    "/api/admin/mcp-servers/{server_id}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Server */
+        post: operations["refresh_server_api_admin_mcp_servers__server_id__refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/mcp-tools/{tool_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Decide Tool */
+        put: operations["decide_tool_api_admin_mcp_tools__tool_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/system": {
         parameters: {
             query?: never;
@@ -1061,6 +1131,26 @@ export interface paths {
         };
         /** Search */
         get: operations["search_api_knowledge_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/mcp-tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My Tools
+         * @description The MCP tools chat may use for you: enabled, read-only, on servers open to your role.
+         */
+        get: operations["my_tools_api_mcp_tools_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2852,6 +2942,15 @@ export interface components {
                 [key: string]: unknown;
             }[];
         };
+        /** MyTool */
+        MyTool: {
+            /** Description */
+            description: string;
+            /** Name */
+            name: string;
+            /** Server */
+            server: string;
+        };
         /**
          * NeedsYou
          * @description One card. The same message and fix button wherever the problem shows up (07-ux §5.10).
@@ -3776,6 +3875,61 @@ export interface components {
             /** Timezone */
             timezone?: string | null;
         };
+        /** ServerIn */
+        ServerIn: {
+            /** Auth Header */
+            auth_header?: string | null;
+            /** Auth Value */
+            auth_value?: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Roles
+             * @default [
+             *       "admin",
+             *       "member"
+             *     ]
+             */
+            roles: ("admin" | "member")[];
+            /** Url */
+            url: string;
+        };
+        /** ServerOut */
+        ServerOut: {
+            /** Auth Header */
+            auth_header: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Has Auth */
+            has_auth: boolean;
+            /** Id */
+            id: number;
+            /** Last Error */
+            last_error: string | null;
+            /** Last Refreshed At */
+            last_refreshed_at: string | null;
+            /** Name */
+            name: string;
+            /** Roles */
+            roles: ("admin" | "member")[];
+            /** Tools */
+            tools: components["schemas"]["ToolOut"][];
+            /** Url */
+            url: string;
+        };
+        /** ServerPatch */
+        ServerPatch: {
+            /** Auth Header */
+            auth_header?: string | null;
+            /** Auth Value */
+            auth_value?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Roles */
+            roles?: ("admin" | "member")[] | null;
+            /** Url */
+            url?: string | null;
+        };
         /** SessionCreate */
         SessionCreate: {
             /**
@@ -3885,6 +4039,44 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "warning" | "alert";
+        };
+        /** ToolDecision */
+        ToolDecision: {
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+        };
+        /** ToolOut */
+        ToolOut: {
+            /** Description */
+            description: string;
+            /** Enabled At */
+            enabled_at: string | null;
+            /** Full Name */
+            full_name: string;
+            /** Id */
+            id: number;
+            /** Input Schema */
+            input_schema: {
+                [key: string]: unknown;
+            };
+            /** Name */
+            name: string;
+            /** Read Only Hint */
+            read_only_hint: boolean | null;
+            /** Reason */
+            reason: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "disabled" | "enabled" | "changed" | "removed";
+            /** Write Hint */
+            write_hint: string | null;
         };
         /** UnreadCount */
         UnreadCount: {
@@ -4448,6 +4640,189 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminIntegrationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_servers_api_admin_mcp_servers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerOut"][];
+                };
+            };
+        };
+    };
+    create_server_api_admin_mcp_servers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServerIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_server_api_admin_mcp_servers__server_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                server_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_server_api_admin_mcp_servers__server_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                server_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServerPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_server_api_admin_mcp_servers__server_id__refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                server_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_tool_api_admin_mcp_tools__tool_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tool_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToolDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolOut"];
                 };
             };
             /** @description Validation Error */
@@ -6359,6 +6734,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    my_tools_api_mcp_tools_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyTool"][];
                 };
             };
         };

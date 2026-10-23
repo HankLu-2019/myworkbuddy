@@ -94,6 +94,15 @@ class InboxKind(StrEnum):
     job = "job"  # Phase 4: a job is ready for review, failed, or was pushed
 
 
+class McpToolStatus(StrEnum):
+    """08 §F12: a tool from an admin-registered MCP server."""
+
+    disabled = "disabled"  # listed, not callable (every tool starts here)
+    enabled = "enabled"  # an admin enabled it as read, with a reason
+    changed = "changed"  # its definition changed on refresh: not callable until an admin looks again
+    removed = "removed"  # the server no longer lists it
+
+
 class ChannelKind(StrEnum):
     """08 §F8: where chat notifications go."""
 

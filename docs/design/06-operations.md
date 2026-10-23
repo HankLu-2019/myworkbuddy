@@ -53,6 +53,7 @@ Then sign in at `https://$MWB_HOSTNAME`, create integrations (Phase 2+), create 
 | `MWB_OIDC_ISSUER`, `MWB_OIDC_CLIENT_ID`, `MWB_OIDC_CLIENT_SECRET` | — | 08 §F11: single sign-on (authorization code + PKCE). Empty issuer: off. Register `<MWB_HOSTNAME>/api/auth/oidc/callback` as the redirect URI. Checked at startup: https issuer, client id and secret, `MWB_HOSTNAME` |
 | `MWB_OIDC_SCOPES` / `MWB_OIDC_NAME` | `openid email profile` / `SSO` | Must include `openid`; the name is on the sign-in button |
 | `MWB_OIDC_AUTO_CREATE` | `false` | Unknown users become members; otherwise "Ask an admin to add you" |
+| `MWB_MCP_CALL_TIMEOUT_S` / `MWB_MCP_MAX_OUTPUT_CHARS` | `30` / `20000` | 08 §F12: one MCP tool call's time limit, and how much of its answer reaches the model |
 | `MWB_LOCAL_LOGIN` | `all` | `admins`: members sign in with SSO only (needs `MWB_OIDC_ISSUER`); admins keep the password |
 | `MWB_LOGIN_MAX_ATTEMPTS` / `_IP` / `_USER`, `MWB_LOGIN_WINDOW_MINUTES` | `5` / `30` / `20`, `15` | Failed sign-ins per username+IP, per IP, per username |
 | `MWB_SMTP_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_FROM`, `_STARTTLS` | — / 587 / — / — / — / true | Phase 2 |

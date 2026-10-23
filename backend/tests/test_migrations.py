@@ -107,6 +107,12 @@ SEEDS["0020"] = [  # 08 §F8: a channel and its outbox row
     "SELECT 1, 1, max(id), '1:seed', 'Job ready', 'info', '/inbox' FROM inbox_items",
 ]
 SEEDS["0021"] = []  # 08 §F10: projects.verify_services has a default; the seeded repository must get it
+SEEDS["0022"] = []  # users.oidc_sub is nullable: existing users have none
+SEEDS["0023"] = [  # 08 §F12: a server and one enabled read tool
+    "INSERT INTO mcp_servers (id, name, url) VALUES (1, 'docs', 'https://mcp.example.com/mcp')",
+    "INSERT INTO mcp_tools (server_id, name, definition_hash, status, reason) "
+    f"VALUES (1, 'search_docs', '{'2' * 64}', 'enabled', 'seed')",
+]
 SEEDS["0005"] = []  # 0005 adds a column with a default; the 0001 user must get it
 CHECKS = {
     "users": 1,
@@ -129,6 +135,8 @@ CHECKS = {
     "finding_tickets": 1,
     "notify_channels": 1,
     "outbound_messages": 1,
+    "mcp_servers": 1,
+    "mcp_tools": 1,
 }
 
 

@@ -23,6 +23,7 @@ from app.jobs.routes import router as jobs_router
 from app.knowledge.routes import router as knowledge_router
 from app.llm.routes import router as usage_router
 from app.logs import log, setup_logging
+from app.mcp.routes import router as mcp_router
 from app.ops.routes import router as ops_router
 from app.plans.routes import router as plans_router
 from app.schedules.routes import router as schedules_router
@@ -85,6 +86,7 @@ for r in (
     inbox_router,
     channels_router,
     insights_router,
+    mcp_router,
     plans_router,
     jobs_router,
 ):

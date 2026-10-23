@@ -36,6 +36,7 @@ from app.knowledge.indexer import set_visibility
 from app.llm import client as llm
 from app.llm import usage
 from app.logs import log
+from app.mcp.service import tools_for as mcp_tools_for
 from app.models import ChatSession, Document, Episode, Message, Project, ScheduleProposal, ToolCall, User
 from app.schedules.proposals import proposal_summary
 from app.tasks.app import build_episode_task, defer_once
@@ -382,7 +383,7 @@ async def _stream(session: ChatSession, user: User, content: str, lock: ReplyLoc
     try:
         with usage.track() as tracked:
             history = await _history(session.id)
-            agent = build_agent(await llm.model_for(user.id))
+            agent = build_agent(await llm.model_for(user.id), await mcp_tools_for(user))
             async with (
                 asyncio.timeout(llm.timeout_for("chat_turn")),
                 agent.run_stream_events(
