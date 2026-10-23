@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from app import errors
 from app.agents.routes import router as agents_router
+from app.auth.oidc_routes import router as oidc_router
 from app.auth.routes import router as auth_router
 from app.chat.routes import router as chat_router
 from app.config import ensure_runtime_ok, get_settings
@@ -71,6 +72,7 @@ async def health() -> dict[str, str]:
 
 for r in (
     auth_router,
+    oidc_router,
     users_router,
     chat_router,
     knowledge_router,

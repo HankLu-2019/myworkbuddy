@@ -280,6 +280,63 @@ export interface paths {
         patch: operations["update_profile_api_auth_me_patch"];
         trace?: never;
     };
+    "/api/auth/oidc/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Callback */
+        get: operations["callback_api_auth_oidc_callback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oidc/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Config
+         * @description For the sign-in page, before anyone is signed in.
+         */
+        get: operations["config_api_auth_oidc_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oidc/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Start
+         * @description `link=true` while signed in: link your own account to your SSO identity (Settings → Profile).
+         */
+        get: operations["start_api_auth_oidc_start_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/password": {
         parameters: {
             query?: never;
@@ -2831,6 +2888,18 @@ export interface components {
             /** Transfer To */
             transfer_to: number;
         };
+        /** OidcConfig */
+        OidcConfig: {
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Local Login
+             * @enum {string}
+             */
+            local_login: "all" | "admins";
+            /** Name */
+            name: string;
+        };
         /** OutcomeRow */
         OutcomeRow: {
             /** Cost Usd */
@@ -3890,6 +3959,11 @@ export interface components {
              * @enum {string}
              */
             role: "admin" | "member";
+            /**
+             * Sso Linked
+             * @default false
+             */
+            sso_linked: boolean;
             /** Timezone */
             timezone?: string | null;
             /**
@@ -3964,6 +4038,11 @@ export interface components {
              * @enum {string}
              */
             role: "admin" | "member";
+            /**
+             * Sso Linked
+             * @default false
+             */
+            sso_linked: boolean;
             /** Timezone */
             timezone?: string | null;
             /**
@@ -4784,6 +4863,91 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    callback_api_auth_oidc_callback_get: {
+        parameters: {
+            query?: {
+                code?: string | null;
+                state?: string | null;
+                error?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    config_api_auth_oidc_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OidcConfig"];
+                };
+            };
+        };
+    };
+    start_api_auth_oidc_start_get: {
+        parameters: {
+            query?: {
+                next?: string | null;
+                link?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

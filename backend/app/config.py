@@ -28,6 +28,14 @@ class Settings(BaseSettings):
     data_dir: Path = Path("/data")
     cookie_secure: bool = True
     session_ttl_hours: int = Field(72, gt=0)
+    # 08 §F11: single sign-on with OpenID Connect (authorization code + PKCE). Empty issuer: off.
+    oidc_issuer: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: SecretStr = SecretStr("")
+    oidc_scopes: str = "openid email profile"
+    oidc_name: str = Field("SSO", max_length=40)  # the sign-in button: "Sign in with <name>"
+    oidc_auto_create: bool = False  # unknown users become members; otherwise "Ask an admin to add you"
+    local_login: Literal["all", "admins"] = "all"  # "admins": members sign in with SSO only
     session_idle_hours: int = Field(12, gt=0)
     login_max_attempts: int = 5  # per username and IP
     login_max_attempts_ip: int = 30
@@ -147,6 +155,29 @@ def get_settings() -> Settings:
     return Settings()
 
 
+def oidc_problems(s: Settings) -> list[str]:
+    """08 §F11, rule R14."""
+    problems = []
+    if not s.oidc_issuer:
+        if s.local_login == "admins":
+            problems.append("MWB_LOCAL_LOGIN=admins needs single sign-on: set MWB_OIDC_ISSUER")
+        return problems
+    issuer = urlparse(s.oidc_issuer)
+    if issuer.scheme != "https" and not (s.env == "dev" and issuer.scheme == "http"):
+        problems.append("MWB_OIDC_ISSUER must be an https URL")
+    if issuer.query or issuer.fragment or not issuer.netloc:
+        problems.append("MWB_OIDC_ISSUER must be the issuer URL, without a query or fragment")
+    if not s.oidc_client_id:
+        problems.append("Set MWB_OIDC_CLIENT_ID with MWB_OIDC_ISSUER")
+    if not s.oidc_client_secret.get_secret_value():
+        problems.append("Set MWB_OIDC_CLIENT_SECRET with MWB_OIDC_ISSUER")
+    if "openid" not in s.oidc_scopes.split():
+        problems.append("MWB_OIDC_SCOPES must include openid")
+    if not s.hostname:
+        problems.append("Set MWB_HOSTNAME with MWB_OIDC_ISSUER: the provider redirects back to it")
+    return problems
+
+
 def runtime_problems(s: Settings) -> list[str]:
     """Checks that need more than field validation (design 01 §H5). Empty list = OK."""
     import shutil
@@ -173,6 +204,7 @@ def runtime_problems(s: Settings) -> list[str]:
         problems.append(
             "MWB_SMTP_FROM must be an address (e.g. MyWorkBuddy <mwb@example.com>) when MWB_SMTP_HOST is set"
         )
+    problems += oidc_problems(s)
     if bool(s.smtp_user) != bool(s.smtp_password.get_secret_value()):
         problems.append("Set both MWB_SMTP_USER and MWB_SMTP_PASSWORD, or neither")
     try:

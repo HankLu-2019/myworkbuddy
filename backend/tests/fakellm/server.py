@@ -30,6 +30,8 @@ Chat behaviour:
 
 - Phase 4 (04 §4): `POST /v1/messages`, the Anthropic API Claude Code uses in the sandbox (tests/fakellm/anthropic.py).
 
+- Phase 5 (08 §F11): an OpenID Connect provider at /oidc (tests/fakellm/oidc.py).
+
 Also a stand-in feed at GET /fake/feed.xml with one item published a minute ago, and stand-ins for Jira and a Git
 server (tests/fakellm/forge.py).
 """
@@ -46,11 +48,12 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from tests.fakellm import anthropic, forge
+from tests.fakellm import anthropic, forge, oidc
 
 app = FastAPI(title="fake-llm")
 app.include_router(forge.router)
 app.include_router(anthropic.router)
+app.include_router(oidc.router)
 
 CHAT_COST = 0.001
 EMBED_COST = 0.00001

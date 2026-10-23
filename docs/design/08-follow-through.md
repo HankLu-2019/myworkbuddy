@@ -369,6 +369,17 @@ Everything is computed in SQL from `jobs`, `plans`, `plan_revisions`, `job_event
 - A deactivated user can't log in.
 - Admins keep the local login.
 
+*Changed while building F11:*
+- "An admin can turn passwords off for members" is the server setting `MWB_LOCAL_LOGIN=admins`, not a switch in the UI: it changes how everyone signs in, so it sits with the other settings checked at startup.
+- The flow's `state`, `nonce`, PKCE verifier and `next` are kept in a 10-minute cookie encrypted with the app's key (`mwb_oidc`, path `/api/auth/oidc`, HttpOnly, SameSite=Lax), not in the database. A callback without that cookie (another browser, or a link someone sent) is refused.
+- Routes: `GET /api/auth/oidc/config` (for the sign-in page), `/start?next=`, `/callback`. Refusals redirect to `/login?sso_error=<code>` (`state`, `nonce`, `signature`, `expired_token`, `audience`, `issuer`, `no_account`, `inactive`, `ambiguous`, `denied`, `expired`, `provider_unreachable`); the detail goes only to the log and the audit row (`login.failed` with `method: oidc` and the reason). `next` is an in-app path only.
+- Email matches only when the token says `email_verified: true`, only accounts without a `sub` yet, and never when two accounts share the address (`ambiguous`). Linking is audited (`user.oidc_linked`).
+- *Review fix:* admin accounts are never matched by email (`admin_link`): an email claim alone must not make someone an admin. Any user, admins included, can link their own account while signed in (`/start?link=true`, Settings → Profile → **Link single sign-on**); a `sub` already linked to another account is refused (`taken`). `UserOut.sso_linked` says whether an account is linked.
+- *Review fix:* signing in with SSO clears `must_change_password` (audited as `initial_password_skipped`): an account an admin just created otherwise couldn't get past the one-time password screen without that password. A token endpoint that doesn't answer with JSON is refused (`token`), not a 500; usernames made from the token are ASCII only.
+- Auto-created users get a username from `preferred_username` (or the email's local part, with a suffix when taken), the verified email and the name, and a random password nobody knows (an admin can reset it).
+- ID tokens: the algorithm must be asymmetric (RS/PS/ES), the key is chosen by `kid` (fetched again once when the provider rotates keys), `azp` is checked when there are several audiences, and 60 s of clock leeway. Discovery and keys are cached for an hour. PyJWT is a new dependency.
+- The fake provider is in the fake gateway (`tests/fakellm/oidc.py`) and can break each check on purpose. Migration 0022.
+
 ## F12. Admin-registered MCP servers (read tier)
 
 **Why:** extra data sources (an internal wiki, a ticket system, a metrics API) without writing a connector each time. ADR-3 deferred this to Phase 5.
