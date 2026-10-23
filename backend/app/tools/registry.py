@@ -19,7 +19,7 @@ from sqlalchemy import select
 from app.connectors.base import ConnectorError
 from app.db import get_sessionmaker
 from app.enums import Tier
-from app.llm.untrusted import wrap
+from app.llm.untrusted import UNTRUSTED_NOTICE, wrap
 from app.logs import log
 from app.models import Integration, User, UserCredential
 
@@ -119,9 +119,15 @@ async def verified_kinds(user_id: int) -> set[str]:
 
 async def toolset_for(agent: AgentLike, user: User) -> FunctionToolset:
     """The agent's tools within its tier and for which the user holds a verified credential (02 §2)."""
+    return (await toolset_and_missing(agent, user))[0]
+
+
+async def toolset_and_missing(agent: AgentLike, user: User) -> tuple[FunctionToolset, dict[str, str]]:
+    """`toolset_for`, plus the tools it left out only because their integration isn't usable: name -> kind."""
     max_tier = TIER_ORDER[Tier(agent.max_tier)]
     usable = await verified_kinds(user.id)
     toolset: FunctionToolset = FunctionToolset()
+    missing: dict[str, str] = {}
     mcp_names = [n for n in agent.tools if n.startswith("mcp.")]
     if mcp_names:  # 08 §F12: read tier only; a tool not enabled for this user is simply absent
         from app.mcp.service import tools_for
@@ -137,10 +143,35 @@ async def toolset_for(agent: AgentLike, user: User) -> FunctionToolset:
         if TIER_ORDER[spec.tier] > max_tier:
             continue
         if spec.integration_kind is not None and spec.integration_kind not in usable:
+            missing[spec.name] = spec.integration_kind
             continue
         toolset.add_function(_guarded(spec), name=spec.name)
-    return toolset
+    return toolset, missing
+
+
+def missing_tools_note(missing: dict[str, str]) -> str | None:
+    """Tells the model which tools its instructions name but this run lacks, so it skips them instead of calling
+    a tool that doesn't exist (which fails the whole run)."""
+    if not missing:
+        return None
+    listed = ", ".join(f"{name} ({kind})" for name, kind in missing.items())
+    return (
+        f"Not available in this run, because these integrations aren't set up or have no verified credentials "
+        f"for this user: {listed}. "
+        "Don't call these tools. Skip the steps that need them and say in the report which sources were skipped."
+    )
 
 
 # Registration lives in app.tools.catalog; importing it here makes REGISTRY complete for every caller.
 from app.tools import catalog  # noqa: E402,F401
+
+
+def instructions_for(system_prompt: str, missing: dict[str, str]) -> str:
+    """The agent's system prompt with the missing-tools note, kept before UNTRUSTED_NOTICE so the notice stays last."""
+    note = missing_tools_note(missing)
+    if note is None:
+        return system_prompt
+    body = system_prompt.rstrip()
+    if body.endswith(UNTRUSTED_NOTICE):
+        return f"{body.removesuffix(UNTRUSTED_NOTICE).rstrip()}\n\n{note}\n\n{UNTRUSTED_NOTICE}"
+    return f"{body}\n\n{note}"

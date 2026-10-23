@@ -86,7 +86,7 @@ class ToolSpec:
     fn: Callable[..., Awaitable[Any]]   # signature: (ctx: RunContext[AgentDeps], **typed_args)
 ```
 
-`toolset_for(agent, user) -> FunctionToolset` returns only tools whose tier ≤ the agent's `max_tier` **and** for which the user has a verified credential (or that need none). Tool calls are recorded in `tool_calls` exactly as in chat.
+`toolset_for(agent, user) -> FunctionToolset` returns only tools whose tier ≤ the agent's `max_tier` **and** for which the user has a verified credential (or that need none). Tools left out only for want of a credential are named to the model: the run appends a note to the agent's instructions (`missing_tools_note`) saying to skip them and report the skipped sources, because a prompt that names a tool the run lacks otherwise makes the model call it and fails the whole run. Tool calls are recorded in `tool_calls` exactly as in chat.
 
 ### Phase 2 read tools
 

@@ -57,7 +57,7 @@ from app.plans import conventions, repo
 from app.plans.schema import PlanDoc, content_hash
 from app.plans.validation import ValidationResult, validate_plan, visible_document_ids
 from app.plans.work_items import upsert_issue
-from app.tools.registry import toolset_for
+from app.tools.registry import instructions_for, toolset_and_missing
 
 CONTEXT_CHARS = 6000
 ISSUE_CHARS = 20_000
@@ -344,10 +344,15 @@ async def _run_planner(inputs: _Inputs, checkout: Path, sha: str, branch: str, f
         {"source": rules.source, "protected": rules.protected, "test": rules.test} if rules is not None else None
     )
     deps = PlannerDeps(user=inputs.owner, session_id=session_id, checkout=checkout, base_sha=sha)
-    recorder = RecordingToolset(wrapped=await toolset_for(agent, inputs.owner), session_id=session_id)
+    toolset, missing = await toolset_and_missing(agent, inputs.owner)
+    recorder = RecordingToolset(wrapped=toolset, session_id=session_id)
     model = await llm.model_for(inputs.owner.id, "planner")
     runner = PydanticAgent(
-        model, deps_type=PlannerDeps, instructions=agent.system_prompt, toolsets=[recorder], output_type=PlanDoc
+        model,
+        deps_type=PlannerDeps,
+        instructions=instructions_for(agent.system_prompt, missing),
+        toolsets=[recorder],
+        output_type=PlanDoc,
     )
     issues: list[dict] | None = None
     attempts = 0

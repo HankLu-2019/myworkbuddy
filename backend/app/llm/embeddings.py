@@ -35,7 +35,8 @@ def _normalize(vec: list[float]) -> list[float]:
     return [v / norm for v in vec]
 
 
-# The gateway's `model` field, e.g. amazon.titan-embed-text-v2:0. Shared by every GatewayEmbedder in the process
+# The gateway's `model` field (or its x-litellm-model-name header when the body only echoes the alias), e.g.
+# amazon.titan-embed-text-v2:0. Shared by every GatewayEmbedder in the process
 # (one per user key), so the model is resolved once and a switch is noticed whichever key sees it.
 _resolved: str | None = None
 
@@ -62,10 +63,19 @@ class GatewayEmbedder:
             await self.embed(["model probe"])
         return self.model_id
 
+    def _served_model(self, body_model: str | None, headers: httpx2.Headers) -> str | None:
+        # LiteLLM sets the body's `model` to the requested alias; the deployment's model is only in this header.
+        # A body naming another model (a gateway that doesn't rewrite it) is taken as is.
+        if body_model and body_model != self._model:
+            return body_model
+        # Without the header the response can't tell a switch apart, so it keeps the model already resolved.
+        return headers.get("x-litellm-model-name") or _resolved or body_model
+
     def _check_model(self, model: str | None) -> None:
         global _resolved
         model = model or self._model
-        if _resolved is None:
+        if _resolved is None or (_resolved == self._model and model != self._model):
+            # The first answer may have carried only the alias; a later one naming the deployment refines it.
             _resolved = model
         elif model != _resolved:
             log.error("embed.model_changed", expected=_resolved, got=model)
@@ -83,7 +93,7 @@ class GatewayEmbedder:
                 )
                 resp.raise_for_status()
                 body = resp.json()
-                self._check_model(body.get("model"))
+                self._check_model(self._served_model(body.get("model"), resp.headers))
                 data = sorted(body["data"], key=lambda d: d["index"])
                 if len(data) != len(texts):
                     raise ValueError(f"gateway returned {len(data)} embeddings for {len(texts)} inputs")

@@ -1,5 +1,7 @@
 """Search quality (design 01 §H10): multilingual BM25, embedding provenance, reembed, poison chunks."""
 
+import json
+
 import httpx2 as httpx  # the embedder uses httpx2 (same API)
 import pytest
 from sqlalchemy import func, select, update
@@ -154,6 +156,68 @@ async def test_gateway_records_the_resolved_model_and_refuses_a_switch(monkeypat
     assert len(await e.embed(["a", "b"])) == 2
     with pytest.raises(EmbedModelChanged):
         await e.embed(["c"])
+
+
+async def test_gateway_reads_the_model_header_when_the_body_echoes_the_alias(monkeypatch) -> None:
+    # LiteLLM with an OpenAI-compatible deployment answers {"model": "embed"}; the deployment is only in the header.
+    served = iter(["openai/bge-m3", "openai/bge-m3", "openai/other-embed"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        data = [{"index": i, "embedding": [1.0, 0.0]} for i in range(len(payload["input"]))]
+        return httpx.Response(
+            200, json={"model": payload["model"], "data": data}, headers={"x-litellm-model-name": next(served)}
+        )
+
+    embeddings.set_transport(httpx.MockTransport(handler))
+    monkeypatch.setattr(embeddings, "_resolved", None)
+    e = GatewayEmbedder()
+    assert await e.resolve_model() == "openai/bge-m3"
+    assert len(await e.embed(["a"])) == 1
+    with pytest.raises(EmbedModelChanged):  # a switch behind the alias is noticed, not stored under the old label
+        await e.embed(["b"])
+
+
+async def test_gateway_without_a_header_keeps_the_body_model(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"model": "embed", "data": [{"index": 0, "embedding": [1.0, 0.0]}]})
+
+    embeddings.set_transport(httpx.MockTransport(handler))
+    monkeypatch.setattr(embeddings, "_resolved", None)
+    assert await GatewayEmbedder().resolve_model() == "embed"
+
+
+async def test_a_header_after_an_alias_only_answer_refines_the_model(monkeypatch) -> None:
+    headers = iter([{}, {"x-litellm-model-name": "openai/bge-m3"}, {"x-litellm-model-name": "openai/other"}])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"model": "embed", "data": [{"index": 0, "embedding": [1.0, 0.0]}]}, headers=next(headers)
+        )
+
+    embeddings.set_transport(httpx.MockTransport(handler))
+    monkeypatch.setattr(embeddings, "_resolved", None)
+    e = GatewayEmbedder()
+    assert await e.resolve_model() == "embed"
+    await e.embed(["a"])
+    assert e.model_id == "openai/bge-m3"  # refined, not refused
+    with pytest.raises(EmbedModelChanged):  # a real switch after that is still refused
+        await e.embed(["b"])
+
+
+async def test_a_response_without_the_header_is_not_a_switch(monkeypatch) -> None:
+    headers = iter([{"x-litellm-model-name": "openai/bge-m3"}, {}])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"model": "embed", "data": [{"index": 0, "embedding": [1.0, 0.0]}]}, headers=next(headers)
+        )
+
+    embeddings.set_transport(httpx.MockTransport(handler))
+    monkeypatch.setattr(embeddings, "_resolved", None)
+    e = GatewayEmbedder()
+    assert await e.resolve_model() == "openai/bge-m3"
+    assert len(await e.embed(["a"])) == 1 and e.model_id == "openai/bge-m3"
 
 
 def test_permanent_failures_are_input_errors_only() -> None:

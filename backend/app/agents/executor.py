@@ -34,7 +34,7 @@ from app.llm import client as llm
 from app.llm import usage
 from app.logs import log
 from app.models import Agent, ChatSession, Message, ToolCall, User
-from app.tools.registry import toolset_for
+from app.tools.registry import instructions_for, toolset_and_missing
 
 RunStatus = Literal["succeeded", "failed", "timed_out"]
 ERROR_CHARS = 500
@@ -92,10 +92,12 @@ async def execute_agent_run(
     result = None
     with usage.track() as tracked:
         try:
-            recorder = RecordingToolset(wrapped=await toolset_for(agent, user), session_id=session_id)
+            toolset, missing = await toolset_and_missing(agent, user)
+            recorder = RecordingToolset(wrapped=toolset, session_id=session_id)
+            instructions = instructions_for(agent.system_prompt, missing)
             model = await llm.model_for(user.id, agent.model_alias)  # type: ignore[arg-type]
             runner = PydanticAgent(
-                model, deps_type=RunDeps, instructions=agent.system_prompt, toolsets=[recorder], output_type=RunReport
+                model, deps_type=RunDeps, instructions=instructions, toolsets=[recorder], output_type=RunReport
             )
             result = await llm.run(
                 runner,

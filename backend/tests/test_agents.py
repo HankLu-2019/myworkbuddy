@@ -31,6 +31,7 @@ from app.llm import usage
 from app.llm.models import set_model_override
 from app.llm.untrusted import UNTRUSTED_NOTICE
 from app.models import Agent, ChatSession, Message, ToolCall, User, UserCredential
+from app.tools.registry import instructions_for, missing_tools_note
 from tests.connector_fakes import fixture, kubeconfig, ok, setup_integration
 
 K8S = "https://k8s.example.com:6443"
@@ -306,6 +307,54 @@ async def test_tools_without_a_verified_credential_are_not_offered(make_user) ->
     set_model_override(FunctionModel(respond))
     outcome = await execute_agent_run(agent, alice, session_id=session_id)
     assert offered == [{"search_knowledge"}] and outcome.report["status"] == "ok"
+
+
+async def test_the_model_is_told_which_named_tools_this_run_lacks(make_user) -> None:
+    # The morning brief names jira_my_open_issues in its prompt; without Jira the tool is left out, and the model
+    # must be told, or it calls a tool that doesn't exist and the whole run fails.
+    alice, _, session_id = await _k8s_agent(make_user)
+    async with get_sessionmaker()() as db:
+        brief = await db.scalar(select(Agent).where(Agent.slug == "morning-brief"))
+        db.expunge_all()
+    seen: list[str] = []
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.append(info.instructions or "")
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, REPORT | {"findings": []})])
+
+    set_model_override(FunctionModel(respond))
+    outcome = await execute_agent_run(brief, alice, session_id=session_id)
+
+    assert outcome.status == "succeeded"
+    [instructions] = seen
+    assert instructions.endswith(UNTRUSTED_NOTICE)  # the notice stays the last instruction
+    note = instructions.removeprefix(brief.system_prompt.removesuffix(UNTRUSTED_NOTICE).rstrip())
+    assert note.startswith("\n\nNot available in this run")
+    for tool in ("jira_my_open_issues", "gitlab_list_mrs", "jenkins_failed_builds", "gerrit_query", "feed_latest"):
+        assert tool in note
+    assert "search_knowledge" not in note  # needs no integration
+
+
+async def test_no_note_when_every_named_tool_is_available(make_user) -> None:
+    alice, agent, session_id = await _k8s_agent(make_user)
+    seen: list[str] = []
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.append(info.instructions or "")
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, REPORT | {"findings": []})])
+
+    set_model_override(FunctionModel(respond))
+    await execute_agent_run(agent, alice, session_id=session_id)
+    assert seen == [agent.system_prompt]
+    assert missing_tools_note({}) is None
+
+
+def test_the_note_goes_before_the_notice_or_at_the_end() -> None:
+    missing = {"jira_search": "jira"}
+    with_notice = instructions_for(f"Do things.\n\n{UNTRUSTED_NOTICE}", missing)
+    assert with_notice.startswith("Do things.\n\nNot available") and with_notice.endswith(UNTRUSTED_NOTICE)
+    assert instructions_for("Do things.", missing).endswith("which sources were skipped.")
+    assert instructions_for("Do things.", {}) == "Do things."
 
 
 async def test_timeout(make_user) -> None:
