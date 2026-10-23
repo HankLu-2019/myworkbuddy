@@ -60,7 +60,7 @@ async def test_admin_manages_integrations_with_validation_and_audit(client_for) 
     ).status_code == 403
 
     bad = [
-        ({"kind": "jira", "name": "Jira", "base_url": "http://jira.example.com"}, "must be an https URL"),
+        ({"kind": "jira", "name": "Jira", "base_url": "http://jira.example.com"}, "isn't allowed over plain http"),
         ({"kind": "jira", "name": "Jira", "base_url": "https://u:p@jira.example.com"}, "Don't put credentials"),
         (
             {"kind": "jira", "name": "Jira", "base_url": "https://jira.example.com", "settings": {"api_version": "9"}},
