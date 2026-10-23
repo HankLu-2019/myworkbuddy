@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit.service import audit
 from app.auth import oidc
 from app.auth.routes import _set_cookie
-from app.auth.service import create_session, hash_password, login_keys
+from app.auth.service import create_session, hash_password, login_keys, resolve_session
 from app.config import get_settings
 from app.db import get_sessionmaker
 from app.deps import client_ip
@@ -58,12 +58,26 @@ def _to_login(code: str) -> RedirectResponse:
     return response
 
 
+async def _signed_in(request: Request) -> User | None:
+    token = request.cookies.get(get_settings().session_cookie)
+    if not token:
+        return None
+    async with get_sessionmaker()() as db:
+        resolved = await resolve_session(db, token)
+        await db.commit()
+    return resolved[1] if resolved else None
+
+
 @router.get("/start")
-async def start(next: str | None = None) -> RedirectResponse:
+async def start(request: Request, next: str | None = None, link: bool = False) -> RedirectResponse:
+    """`link=true` while signed in: link your own account to your SSO identity (Settings → Profile)."""
     if not oidc.enabled():
         raise AppError(404, "not_found", "Single sign-on isn't set up")
+    link_user = await _signed_in(request) if link else None
+    if link and link_user is None:
+        return _to_login("expired")
     try:
-        flow = await oidc.start(next)
+        flow = await oidc.start(next, link_user.id if link_user else None)
     except oidc.OidcError as exc:
         log.warning("oidc.start_failed", code=exc.code, detail=exc.detail)
         return _to_login(exc.code)
@@ -74,7 +88,8 @@ async def start(next: str | None = None) -> RedirectResponse:
 
 def _username_base(claims: dict) -> str:
     raw = str(claims.get("preferred_username") or str(claims.get("email") or "").split("@")[0] or "user")
-    name = "".join(ch for ch in raw.lower() if ch.isalnum() or ch in "._-")[:56]
+    # ASCII only, like the admin form (`USERNAME_PATTERN`): `Öberg` becomes `berg`, never `öberg`.
+    name = "".join(ch for ch in raw.lower() if (ch.isascii() and ch.isalnum()) or ch in "._-")[:56]
     return name if len(name) >= 2 else "user"
 
 
@@ -83,6 +98,22 @@ async def _free_username(db: AsyncSession, base: str) -> str:
     while await db.scalar(select(User.id).where(User.username == name)) is not None:
         name = f"{base}-{secrets.randbelow(10_000):04d}"
     return name
+
+
+async def _link(db: AsyncSession, claims: dict, user_id: int, ip: str) -> tuple[User | None, str | None]:
+    """A signed-in user linking their own account: any role, no email needed, `sub` not used elsewhere."""
+    sub = str(claims["sub"])
+    user = await db.get(User, user_id)
+    if user is None or not user.is_active:
+        return None, "inactive"
+    other = await db.scalar(select(User.id).where(User.oidc_sub == sub, User.id != user_id))
+    if other is not None:
+        return None, "taken"
+    if user.oidc_sub != sub:
+        user.oidc_sub = sub
+        await audit(db, "user.oidc_linked", user_id=user.id, target_type="user", target_id=user.id,
+                    detail={"by": "self"}, ip=ip)  # fmt: skip
+    return user, None
 
 
 async def _match(db: AsyncSession, claims: dict, ip: str) -> tuple[User | None, str | None]:
@@ -96,6 +127,10 @@ async def _match(db: AsyncSession, claims: dict, ip: str) -> tuple[User | None, 
         )
         if len(found) > 1:
             return None, "ambiguous"
+        if found and found[0].is_admin:
+            # An email claim is never enough to become an admin: admins link their account themselves, signed in
+            # with their password (Settings → Profile → Link single sign-on).
+            return None, "admin_link"
         if found:
             user = found[0]
             user.oidc_sub = sub
@@ -128,26 +163,34 @@ async def callback(
     if error:
         problem: str | None = "denied"
         detail = f"the provider answered error={error[:50]}"
-        claims, next_path = None, "/"
+        claims, flow, next_path = None, {}, "/"
     else:
         try:
-            claims, next_path = await oidc.finish(code, state, request.cookies.get(oidc.COOKIE))  # network (R1)
-            problem, detail = None, ""
+            claims, flow = await oidc.finish(code, state, request.cookies.get(oidc.COOKIE))  # network (R1)
+            next_path, problem, detail = flow["next"], None, ""
         except oidc.OidcError as exc:
-            claims, next_path, problem, detail = None, "/", exc.code, exc.detail
+            claims, flow, next_path, problem, detail = None, {}, "/", exc.code, exc.detail
     async with get_sessionmaker()() as db:
         user = None
         if claims is not None:
-            user, problem = await _match(db, claims, ip)
+            if flow.get("link"):
+                user, problem = await _link(db, claims, int(flow["link"]), ip)
+            else:
+                user, problem = await _match(db, claims, ip)
             detail = problem or ""
         if user is None:
             await audit(db, "login.failed", user_id=None, detail={"method": "oidc", "reason": problem}, ip=ip)
             await db.commit()
             log.warning("oidc.login_refused", code=problem, detail=detail)
             return _to_login(problem or "denied")
+        # The identity provider vouched for them: the one-time password an admin created is no longer needed, and
+        # asking for it would lock out someone who only ever signs in with SSO.
+        skipped = bool(user.must_change_password)
+        user.must_change_password = False
         token, session = await create_session(db, user, login_keys(user.username, ip), ip=ip,
                                               user_agent=request.headers.get("user-agent"))  # fmt: skip
-        await audit(db, "login", user_id=user.id, detail={"method": "oidc"}, ip=ip)
+        await audit(db, "login", user_id=user.id, detail={"method": "oidc", "initial_password_skipped": skipped,
+                                                          "linked": bool(flow.get("link"))}, ip=ip)  # fmt: skip
         await db.commit()
     response = RedirectResponse(next_path, status_code=302)
     _set_cookie(response, token)

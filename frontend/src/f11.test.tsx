@@ -30,3 +30,21 @@ describe("Single sign-on (08 §F11)", () => {
     expect(screen.queryByRole("link", { name: /Sign in with/ })).toBeNull();
   });
 });
+
+describe("Linking single sign-on (08 §F11, review fix)", () => {
+  it("offers a link in Settings → Profile until the account is linked", async () => {
+    const { default: SettingsPage } = await import("./features/settings/SettingsPage");
+    const { ADMIN, signedInAs } = await import("./test-utils");
+    mockApi({ ...signedInAs({ ...ADMIN, sso_linked: false } as typeof ADMIN), "GET /api/auth/oidc/config": { enabled: true, name: "Company SSO", local_login: "all" } });
+    renderAt("/settings/profile", <SettingsPage />, "/settings/:tab");
+    const link = await screen.findByRole("link", { name: "Link Company SSO" });
+    expect(link).toHaveAttribute("href", "/api/auth/oidc/start?link=true&next=%2Fsettings%2Fprofile");
+    expect(screen.getByText(/Admin accounts are only ever linked this way/)).toBeInTheDocument();
+  });
+
+  it("explains why an admin's email didn't sign them in", async () => {
+    mockApi({ ...signedOut, "GET /api/auth/oidc/config": { enabled: true, name: "SSO", local_login: "all" } });
+    renderAt("/login?sso_error=admin_link", <LoginPage />);
+    expect(await screen.findByText(SSO_ERRORS.admin_link)).toBeInTheDocument();
+  });
+});

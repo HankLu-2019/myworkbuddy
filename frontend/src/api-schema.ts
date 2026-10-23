@@ -394,7 +394,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Start */
+        /**
+         * Start
+         * @description `link=true` while signed in: link your own account to your SSO identity (Settings → Profile).
+         */
         get: operations["start_api_auth_oidc_start_get"];
         put?: never;
         post?: never;
@@ -4148,6 +4151,11 @@ export interface components {
              * @enum {string}
              */
             role: "admin" | "member";
+            /**
+             * Sso Linked
+             * @default false
+             */
+            sso_linked: boolean;
             /** Timezone */
             timezone?: string | null;
             /**
@@ -4222,6 +4230,11 @@ export interface components {
              * @enum {string}
              */
             role: "admin" | "member";
+            /**
+             * Sso Linked
+             * @default false
+             */
+            sso_linked: boolean;
             /** Timezone */
             timezone?: string | null;
             /**
@@ -5295,6 +5308,7 @@ export interface operations {
         parameters: {
             query?: {
                 next?: string | null;
+                link?: boolean;
             };
             header?: never;
             path?: never;

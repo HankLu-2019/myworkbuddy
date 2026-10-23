@@ -14,6 +14,9 @@ export const SSO_ERRORS: Record<string, string> = {
   denied: "Sign-in was cancelled at the identity provider.",
   expired: "The sign-in took too long or was started in another browser. Try again.",
   provider_unreachable: "The identity provider isn't reachable right now. Try again in a minute.",
+  admin_link:
+    "That email address belongs to an admin account, which isn't linked by email. Sign in with your password, then link single sign-on in Settings → Profile.",
+  taken: "That single sign-on identity is already linked to another account.",
 };
 const ssoError = (code: string) => SSO_ERRORS[code] ?? "Single sign-on didn't work. Try again, or ask an admin if it keeps happening.";
 

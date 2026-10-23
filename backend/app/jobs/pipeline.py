@@ -391,6 +391,15 @@ async def _wait(run_id: str, timeout_s: int) -> dict[str, Any] | None:
     return {"state": "killed"}
 
 
+async def _services_allowed(job: Job) -> bool:
+    """08 §F10: checked at every verify, not only at job start, so turning it off applies to later rounds too."""
+    async with get_sessionmaker()() as db:
+        project = await db.get(Project, job.project_id) if job.project_id else None
+        allowed = bool(project and project.verify_services)
+        await db.commit()
+    return allowed
+
+
 async def verify(ctx: dict[str, Any]) -> None:
     job: Job = ctx["job"]
     policy = job.policy
@@ -398,6 +407,9 @@ async def verify(ctx: dict[str, Any]) -> None:
     run_id = job.current_run
     try:
         if run_id is None or (await runner_client.run_status(run_id)) is None:
+            if policy.get("services") and not await _services_allowed(job):
+                raise StepFailed("verifying", "services_disabled", "An admin turned off containers in verification for "
+                                 "this repository. Revise the plan without them, or ask an admin.")  # fmt: skip
             preset = "verify-services" if policy.get("services") else "verify"  # 08 §F10
             run_id = await runner_client.start_run(
                 job.id, preset, timeout_s=timeout_s, cpus=policy["cpus"], memory_gb=policy["memory_gb"],

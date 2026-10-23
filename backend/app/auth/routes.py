@@ -48,6 +48,7 @@ class UserOut(BaseModel):
     jira_intake_enabled: bool = False
     jira_intake_jql: str | None = None
     jira_autoplan_label: str | None = None
+    sso_linked: bool = False  # 08 §F11: the account has an SSO identity
 
     @classmethod
     def of(cls, u: User) -> "UserOut":
@@ -67,6 +68,7 @@ class UserOut(BaseModel):
             jira_intake_enabled=bool(u.jira_intake_enabled),
             jira_intake_jql=u.jira_intake_jql,
             jira_autoplan_label=u.jira_autoplan_label,
+            sso_linked=u.oidc_sub is not None,
         )
 
 
