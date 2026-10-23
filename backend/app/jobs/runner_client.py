@@ -54,6 +54,12 @@ async def _call(method: str, path: str, *, timeout: float = 120, **kw: Any) -> h
     return resp
 
 
+async def health() -> dict[str, Any]:
+    """The runner's own checks, plus whether Sysbox is installed for verification with containers (08 §F10)."""
+    resp = await _call("GET", "/v1/health", timeout=5)
+    return resp.json()
+
+
 async def create_workspace(job_id: uuid.UUID) -> None:
     await _call("POST", f"/v1/workspaces/{job_id}")
 

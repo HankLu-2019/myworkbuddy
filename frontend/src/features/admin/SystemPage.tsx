@@ -32,6 +32,8 @@ type System = {
   wiki_reconcile: Record<string, unknown> | null;
   embeddings: { failed: number; sample: { chunk_id: number; document_id: number; error: string }[] };
   llm_spend: { month_to_date_usd: number; users_counted: number; users_unknown: number };
+  /** 08 §F10: the runner, and whether verification with containers (Sysbox) can run. */
+  sandbox?: { ok: boolean; error: string | null; runtime?: string | null; checks?: Record<string, string>; services: string | null };
   audit?: { at: string; action: string; user: string | null; target: string | null }[];
 };
 
@@ -180,6 +182,31 @@ export default function SystemPage() {
               )}
               {s.disk_guard && !s.disk_guard.ok && <Banner tone="danger">{s.disk_guard.problem}</Banner>}
             </Section>
+
+            {s.sandbox && (
+              <Section id="sys-sandbox" title="Sandboxes">
+                {s.sandbox.error ? (
+                  <Banner tone="danger">The runner isn't reachable: {s.sandbox.error}</Banner>
+                ) : (
+                  <p>
+                    Runner {s.sandbox.ok ? "ready" : "has problems"}
+                    {s.sandbox.runtime && <span className="muted"> (runtime {s.sandbox.runtime})</span>}
+                  </p>
+                )}
+                {s.sandbox.checks &&
+                  Object.entries(s.sandbox.checks)
+                    .filter(([, v]) => v !== "ok")
+                    .map(([k, v]) => (
+                      <Banner key={k} tone="warning">
+                        {v}
+                      </Banner>
+                    ))}
+                <p>
+                  Verification with containers:{" "}
+                  {s.sandbox.services === "ok" ? "available (Sysbox installed)" : s.sandbox.services ? `not available. ${s.sandbox.services}.` : "unknown"}
+                </p>
+              </Section>
+            )}
 
             <Section id="sys-spend" title="AI spend this month">
               <p>

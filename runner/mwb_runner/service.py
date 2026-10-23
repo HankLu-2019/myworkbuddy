@@ -19,7 +19,17 @@ from typing import Any, BinaryIO
 
 from mwb_runner import tarsafe
 from mwb_runner.config import RunnerSettings
-from mwb_runner.presets import RunRejected, RunRequest, check, container_config, volume_name
+from mwb_runner.presets import (
+    PRESETS,
+    SERVICES_FACTOR,
+    RunRejected,
+    RunRequest,
+    acl_hosts,
+    check,
+    container_config,
+    dind_volume_name,
+    volume_name,
+)
 
 log = logging.getLogger("mwb_runner")
 SHA = re.compile(r"^[0-9a-f]{7,64}$")
@@ -120,6 +130,8 @@ class Runner:
             self._forget(c["Labels"].get("mwb.run", ""))
             self.ops.remove(c["Id"])
         self.ops.remove_volume(volume_name(job_id))
+        if self.ops.volume_exists(dind_volume_name(job_id)):
+            self.ops.remove_volume(dind_volume_name(job_id))
 
     # ---------- runs ----------
 
@@ -140,18 +152,21 @@ class Runner:
         raise RunRejected("no_capacity", "No free sandbox address; too many runs at once.")
 
     def start_run(self, req: RunRequest) -> str:
-        check(req, self.s)
+        preset = check(req, self.s)
         if not self.ops.volume_exists(volume_name(req.job_id)):
             raise NotFound(f"No workspace for job {req.job_id}.")
         if not self._disk_ok():
             raise RunRejected("disk_full", "Docker's disk is too full to start a sandbox.")
+        if preset.services and not self.ops.volume_exists(dind_volume_name(req.job_id)):
+            self.ops.create_volume(dind_volume_name(req.job_id), {"mwb.job": str(req.job_id), "mwb.kind": "dind"})
         run_id = uuid.uuid4().hex[:16]
         with self._lock:
             ip = self._allocate_ip()
         try:
             cfg = container_config(req, run_id=run_id, ip=ip, settings=self.s)
-            if req.extra_hosts_acl:
-                self._write_acl(run_id, ip, req.preset, req.extra_hosts_acl)
+            hosts = acl_hosts(preset, req, self.s)
+            if hosts:
+                self._write_acl(run_id, ip, req.preset, hosts)
             self.ops.create_and_start(cfg, f"mwb-run-{run_id}")
         except Exception:
             self._forget(run_id)
@@ -274,7 +289,7 @@ class Runner:
                     self.ops.kill(c["Id"])
                     self._remove_acl(run_id)
                     report["timed_out"] += 1
-                elif job and self._workspace_bytes(job, stop_at=self._disk_limit()) > self._disk_limit():
+                elif job and self._job_bytes(job, labels, self._disk_limit(labels)) > self._disk_limit(labels):
                     self.killed.add(run_id)
                     self.kill_reason[run_id] = "disk_limit"
                     self.ops.kill(c["Id"])
@@ -303,13 +318,24 @@ class Runner:
                     log.warning("sweep: %s", exc)
         return report
 
-    def _disk_limit(self) -> int:
-        return int(self.s.job_disk_gb * 1024**3)
+    def _disk_limit(self, labels: dict[str, str] | None = None) -> int:
+        preset = PRESETS.get((labels or {}).get("mwb.preset", ""))
+        factor = SERVICES_FACTOR if preset is not None and preset.services else 1
+        return int(self.s.job_disk_gb * factor * 1024**3)
 
-    def _workspace_bytes(self, job_id: str, stop_at: int) -> int:
+    def _job_bytes(self, job_id: str, labels: dict[str, str], stop_at: int) -> int:
+        """The workspace, plus the inner Docker's volume for a services run (08 §F10)."""
+        total = self._workspace_bytes(job_id, stop_at)
+        preset = PRESETS.get(labels.get("mwb.preset", ""))
+        if preset is not None and preset.services and total <= stop_at:
+            total += self._workspace_bytes(job_id, stop_at - total, dind=True)
+        return total
+
+    def _workspace_bytes(self, job_id: str, stop_at: int, *, dind: bool = False) -> int:
         """Size of a job's volume, read through the read-only Docker root mount; stops counting past `stop_at`."""
         try:
-            data = Path(self.s.docker_root) / "volumes" / volume_name(uuid.UUID(job_id)) / "_data"
+            name = (dind_volume_name if dind else volume_name)(uuid.UUID(job_id))
+            data = Path(self.s.docker_root) / "volumes" / name / "_data"
         except ValueError:
             return 0
         total = 0
@@ -348,4 +374,7 @@ class Runner:
         )
         checks["proxy"] = "ok" if self.proxy_container() else "The egress proxy isn't running"
         checks["disk"] = "ok" if self._disk_ok() else "Docker's disk has less than the minimum free"
-        return {"ok": all(v == "ok" for v in checks.values()), "checks": checks, "runtime": self.s.sandbox_runtime}
+        # 08 §F10: optional, so it never makes the runner unhealthy; the System page shows it.
+        services = "ok" if self.s.services_runtime in runtimes else f"Runtime {self.s.services_runtime} isn't installed"
+        return {"ok": all(v == "ok" for v in checks.values()), "checks": checks, "runtime": self.s.sandbox_runtime,
+                "services": services}  # fmt: skip

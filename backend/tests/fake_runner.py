@@ -80,6 +80,8 @@ class FakeRunner:
         self.runs: dict[str, dict[str, Any]] = {}
         self.agent: list[Any] = []  # behaviours, used in order; planned_change when empty
         self.calls: list[tuple[str, str]] = []
+        self.services = "Runtime sysbox-runc isn't installed"  # 08 §F10
+        self.presets: list[str] = []  # every run started, in order
         self.app = self._build()
 
     def ws(self, job_id: str) -> Path:
@@ -93,6 +95,10 @@ class FakeRunner:
             self.calls.append((request.method, request.url.path))
             assert request.headers.get("authorization", "").startswith("Bearer "), "runner token missing"
             return await call_next(request)
+
+        @app.get("/v1/health")
+        async def health() -> dict:
+            return {"ok": True, "runtime": "runc", "checks": {"docker": "ok"}, "services": self.services}
 
         @app.post("/v1/workspaces/{job_id}", status_code=201)
         async def create(job_id: str):
@@ -145,7 +151,8 @@ class FakeRunner:
             ws = self.ws(body["job_id"])
             run: dict[str, Any] = {"body": body, "state": "running", "exit_code": None, "lines": []}
             self.runs[run_id] = run
-            if body["preset"] == "verify":
+            self.presets.append(body["preset"])
+            if body["preset"] in ("verify", "verify-services"):
                 code = mwb_verify.run(str(ws / ".mwb" / "verify.json"), str(ws))
                 run.update(state="exited", exit_code=code)
             else:

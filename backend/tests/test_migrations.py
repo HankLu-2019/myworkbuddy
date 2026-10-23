@@ -106,6 +106,7 @@ SEEDS["0020"] = [  # 08 §F8: a channel and its outbox row
     "INSERT INTO outbound_messages (owner_id, channel_id, inbox_item_id, dedupe_key, title, severity, link) "
     "SELECT 1, 1, max(id), '1:seed', 'Job ready', 'info', '/inbox' FROM inbox_items",
 ]
+SEEDS["0021"] = []  # 08 §F10: projects.verify_services has a default; the seeded repository must get it
 SEEDS["0005"] = []  # 0005 adds a column with a default; the 0001 user must get it
 CHECKS = {
     "users": 1,

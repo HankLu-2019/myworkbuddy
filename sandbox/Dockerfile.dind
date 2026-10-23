@@ -1,0 +1,31 @@
+# The sandbox with its own Docker (design 08 §F10, preset `verify-services`): for repositories whose tests need
+# containers (a database, a queue). Runs only under Sysbox (`sysbox-runc`), whose user namespace makes the
+# container's root an unprivileged host user; the host's Docker socket is never mounted. Built on the VM:
+#   docker build -t mwb-sandbox:latest sandbox && docker build -f sandbox/Dockerfile.dind -t mwb-sandbox-dind:latest sandbox
+ARG BASE=mwb-sandbox:latest
+FROM ${BASE}
+
+ARG DOCKER_VERSION=5:27.3.1-1~debian.12~bookworm
+ARG CONTAINERD_VERSION=1.7.22-1
+ARG COMPOSE_VERSION=2.29.7-1~debian.12~bookworm
+
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl gnupg iptables \
+ && install -m 0755 -d /etc/apt/keyrings \
+ && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+ && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" \
+    > /etc/apt/sources.list.d/docker.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends "docker-ce=${DOCKER_VERSION}" "docker-ce-cli=${DOCKER_VERSION}" \
+    "containerd.io=${CONTAINERD_VERSION}" "docker-compose-plugin=${COMPOSE_VERSION}" \
+ && rm -rf /var/lib/apt/lists/* \
+ && usermod -aG docker agent
+
+# The inner daemon pulls through the egress proxy (verify port: mirrors and MWB_PROXY_REGISTRY_HOSTS only).
+COPY dind-daemon.json /etc/docker/daemon.json
+COPY mwb-dind-verify /usr/local/bin/mwb-dind-verify
+RUN chmod 0755 /usr/local/bin/mwb-dind-verify
+
+# The preset starts this as the container's root (0:0) and the entrypoint drops to agent (1000:1000).
+USER 1000:1000

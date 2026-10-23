@@ -106,7 +106,8 @@ async def test_the_planner_sees_similar_changes_of_the_same_repository_only(
     similar = await planner.similar_changes(inputs)  # type: ignore[arg-type]
     assert [h.title for h in similar] == ["PAY-12: Retry webhook delivery (merged)"]
     prompt = planner.prompt_for(
-        SimpleNamespace(issue_key="PAY-13", project=SimpleNamespace(name="payments"), issue={}, card="", how_i_work="",
+        SimpleNamespace(issue_key="PAY-13", project=SimpleNamespace(name="payments", verify_services=False), issue={},
+                        card="", how_i_work="",
                         previous=None),  # type: ignore[arg-type]
         "main", "a" * 40, None, similar=similar,
     )  # fmt: skip

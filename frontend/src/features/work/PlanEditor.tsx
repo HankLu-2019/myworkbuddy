@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { api, ApiError, type Plan, type PlanDoc, type Revision } from "../../api";
 import { UnsavedGuard } from "../../app/UnsavedGuard";
-import { Button, Card, ErrorNote, IconButton, Select, TextArea, TextField, useToast } from "../../components/ui";
+import { Button, Card, Checkbox, ErrorNote, IconButton, Select, TextArea, TextField, useToast } from "../../components/ui";
 
 type Row = Record<string, string>;
 
@@ -194,6 +194,11 @@ export function PlanEditor({ plan, revision, onDone }: { plan: Plan; revision: R
           hint="Comma-separated. Only hosts an admin allows are accepted."
           value={hosts}
           onChange={(e) => setHosts(e.target.value)}
+        />
+        <Checkbox
+          label="Verification runs containers (only where an admin allows it)"
+          checked={!!doc.sandbox.services}
+          onChange={(on) => update("sandbox", { ...doc.sandbox, services: on })}
         />
         <TextArea label="Commit message" rows={3} inputClassName="mono" value={doc.commit_message} onChange={(e) => update("commit_message", e.target.value)} required />
       </Group>

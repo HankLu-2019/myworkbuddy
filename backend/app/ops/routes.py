@@ -129,6 +129,18 @@ def _alerts(
     return alerts
 
 
+async def _sandbox() -> dict[str, Any]:
+    """The runner's health and whether verification with containers can run (08 §F10)."""
+    from app.jobs import runner_client
+
+    try:
+        h = await runner_client.health()
+    except Exception as exc:  # the runner is optional in dev, and a block must degrade on its own
+        return {"ok": False, "error": getattr(exc, "message", type(exc).__name__)[:200], "services": None}
+    return {"ok": bool(h.get("ok")), "checks": h.get("checks") or {}, "runtime": h.get("runtime"),
+            "services": h.get("services"), "error": None}  # fmt: skip
+
+
 @router.get("/admin/system")
 async def system(auth: AdminAuth, db: DB) -> dict[str, Any]:
     """Everything the System page shows (design 01 §H14). Each block degrades on its own."""
@@ -160,7 +172,7 @@ async def system(auth: AdminAuth, db: DB) -> dict[str, Any]:
     ]
     outbox = await outbox_status(db)
     await db.commit()  # rule R1: the gateway checks below are network calls
-    checks, spend = await asyncio.gather(health.readiness(), _spend())
+    checks, spend, sandbox = await asyncio.gather(health.readiness(), _spend(), _sandbox())
     disk = _disk()
     hb = states.get(health.HEARTBEAT_KEY)
     age = health.heartbeat_age(hb)
@@ -178,6 +190,7 @@ async def system(auth: AdminAuth, db: DB) -> dict[str, Any]:
         "agent_evals": states.get("agent_evals"),
         "embeddings": {"failed": stuck, "sample": stuck_sample},
         "llm_spend": spend,
+        "sandbox": sandbox,
         "audit": audit_rows,
     }
 

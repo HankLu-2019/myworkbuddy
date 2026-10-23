@@ -67,6 +67,8 @@ Then sign in at `https://$MWB_HOSTNAME`, create integrations (Phase 2+), create 
 | `MWB_LIBRARIAN_LOCAL_HOUR` | `2` | User's local time |
 | `MWB_MAX_CONCURRENT_JOBS` | `2` | Phase 4 |
 | `MWB_SANDBOX_RUNTIME` | `runsc` | Phase 4. `runc` only where gVisor can't run; the System page then warns |
+| `MWB_SERVICES_IMAGE` | `mwb-sandbox-dind:latest` | Runner, 08 §F10: the sandbox with its own Docker (`sandbox/Dockerfile.dind`), run with `sysbox-runc` (install Sysbox on the host; the System page says whether it's there) |
+| `MWB_PROXY_REGISTRY_HOSTS` | — | Runner, 08 §F10: comma-separated registry (mirror) hosts a verification with containers may pull images from, through the proxy's verify port |
 | `MWB_CODER_MODEL_ID` | the chat model | Phase 4. A Claude model: Claude Code uses LiteLLM's Anthropic route |
 | `MWB_SANDBOX_NETWORK`, `MWB_SANDBOX_PREFIX` | `mwb-sandbox`, `172.31.0` | Phase 4. The internal sandbox network; change only to run a second stack on the same host |
 | `MWB_RUNNER_TOKEN` | — | Phase 4, at least 32 characters; api, worker and runner share it |

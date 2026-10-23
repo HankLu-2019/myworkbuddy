@@ -71,6 +71,9 @@ async def _checked(db: AsyncSession, user: User, work_item_id: uuid.UUID, revisi
         raise _conflict("The ticket has no repository.", "project_id")
     if project.status != "ready":
         raise _conflict(f"The repository {project.name} isn't ready (it's {project.status}).", "project_id")
+    if (rev.content.get("sandbox") or {}).get("services") and not project.verify_services:
+        raise _conflict(f"The plan's verification runs containers, which {project.name} no longer allows. Ask an "
+                        "admin, or revise the plan.", "project_id")  # fmt: skip
     integration = await db.get(Integration, project.integration_id) if project.integration_id else None
     if integration is None or not integration.enabled:
         raise _conflict(f"The {project.host} integration for {project.name} isn't available.", "project_id")
@@ -135,6 +138,7 @@ def policy_for(doc: dict[str, Any], acknowledged: list[str]) -> dict[str, Any]:
         "memory_gb": sandbox.get("memory_gb", 4),
         "timeout_min": sandbox.get("timeout_min", 45),
         "max_attempts": sandbox.get("max_attempts", 3),
+        "services": bool(sandbox.get("services", False)),  # 08 §F10: checked again when the job starts
         "optional_hosts": [h for h in sandbox.get("optional_hosts", []) if h.lower() in s.optional_hosts],
         "max_changed_lines": s.job_max_changed_lines,
         "max_turns": s.job_max_turns,

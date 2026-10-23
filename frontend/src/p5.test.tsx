@@ -40,7 +40,7 @@ const DOC: PlanDoc = {
   ],
   tests: [{ name: "test_retries", kind: "unit", description: "Retries 3 times." }],
   verification: ["pytest -q"], risks: [], rollback: "Revert.", estimate: "S", commit_message: "PAY-12 Retry webhooks",
-  sandbox: { optional_hosts: [], cpus: 2, memory_gb: 4, timeout_min: 45, max_attempts: 3 },
+  sandbox: { optional_hosts: [], cpus: 2, memory_gb: 4, timeout_min: 45, max_attempts: 3, services: false },
 };
 
 const revision = (over: Partial<Revision> = {}): Revision => ({

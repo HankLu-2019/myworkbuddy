@@ -1,0 +1,29 @@
+#!/bin/sh
+# Preset `verify-services` (design 08 §F10): start the sandbox's own dockerd, then run mwb-verify as agent.
+# Started as the container's root, which Sysbox maps to an unprivileged host user. The daemon's socket is in /run
+# (a tmpfs); its data is in /var/lib/docker (the job's own volume). Inner containers reach the outside only through
+# the egress proxy, like the sandbox itself: the sandbox network has no other route and no resolver.
+set -eu
+SOCK_DIR=/run/mwb-docker
+mkdir -p "$SOCK_DIR" /tmp/mwb-docker-exec
+dockerd --host="unix://$SOCK_DIR/docker.sock" --group=docker --data-root=/var/lib/docker \
+  --exec-root=/tmp/mwb-docker-exec --pidfile="$SOCK_DIR/dockerd.pid" >/tmp/dockerd.log 2>&1 &
+i=0
+until docker info >/dev/null 2>&1; do
+  i=$((i + 1))
+  if [ "$i" -ge 60 ]; then
+    echo "mwb-dind-verify: the inner Docker didn't start in 60 s:" >&2
+    tail -n 20 /tmp/dockerd.log >&2
+    exit 70
+  fi
+  sleep 1
+done
+# Containers the tests start get the proxy too (the Docker client adds these to their environment). By address:
+# they don't get the sandbox's hosts entry for egress-proxy and have no resolver. The runner sets MWB_INNER_PROXY.
+PROXY="${MWB_INNER_PROXY:?the runner sets MWB_INNER_PROXY}"
+case "$PROXY" in http://[0-9]*.[0-9]*.[0-9]*.[0-9]*:[0-9]*) ;; *) echo "mwb-dind-verify: bad MWB_INNER_PROXY" >&2; exit 64 ;; esac
+mkdir -p /home/agent/.docker
+printf '{"proxies": {"default": {"httpProxy": "%s", "httpsProxy": "%s", "noProxy": "localhost,127.0.0.1"}}}\n' \
+  "$PROXY" "$PROXY" > /home/agent/.docker/config.json
+chown -R 1000:1000 /home/agent/.docker
+exec setpriv --reuid=1000 --regid=1000 --init-groups --no-new-privs -- /usr/local/bin/mwb-verify "$@"

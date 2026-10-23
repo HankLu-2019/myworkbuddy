@@ -224,8 +224,9 @@ Design: [08-follow-through.md](design/08-follow-through.md). Tasks are in priori
 - [x] **F9 Outcome dashboard** (08 §F9).
   - Acceptance: figures match a seeded fixture exactly; members can't read `scope=all`; periods in the user's time zone; table view for every chart; empty states.
   - Done with the changes recorded in 08 §F9: jobs counted by creation date in local dates, `in_progress` outcome, planning cost included, an options endpoint for the filters, shared chart components.
-- [ ] **F10 Verification with containers (Sysbox, opt-in)** (08 §F10).
+- [x] **F10 Verification with containers (Sysbox, opt-in)** (08 §F10).
   - Acceptance: `services: true` on a repository that isn't enabled is a validation error; the `verify-services` preset is fixed in the runner (unit tests); security tests 1–3 from an inner container and a Postgres service under `docker compose` on the VM (*manual*).
+  - Done with the changes recorded in 08 §F10 (inner dockerd as the Sysbox-mapped root, its own volume, doubled limits, registry hosts in the run's ACL, a System page block, migration 0021). Still *manual*: build `mwb-sandbox-dind` and run security tests 1–3 and a compose Postgres on the VM.
 - [ ] **F11 Single sign-on (OIDC)** (08 §F11).
   - Acceptance (fake OIDC provider): login; wrong state, nonce, signature, audience or an expired token refused; email matched once then `sub` only; auto-create by setting; deactivated users refused; admins keep the local login.
 - [ ] **F12 Admin-registered MCP servers, read tier** (08 §F12).
