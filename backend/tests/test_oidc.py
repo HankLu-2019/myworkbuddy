@@ -180,3 +180,65 @@ def test_settings_are_checked_at_startup() -> None:
     good = Settings(**base, oidc_issuer="https://idp.example.com/realms/x", oidc_client_id="mwb",
                     oidc_client_secret="s")  # fmt: skip
     assert oidc_problems(good) == []
+
+
+async def test_admins_are_never_matched_by_email_but_can_link_themselves(make_user, client_for, sso) -> None:
+    await make_user("root", role="admin", email="alice@example.com")  # the provider's user has the admin's email
+    async with await browser() as c:
+        assert refused(await sign_in(c), "admin_link")
+        assert (await c.get("/api/auth/me")).status_code == 401
+    root = await client_for("root", create=False)  # signed in with the password, the admin links on purpose
+    assert (await root.get("/api/auth/me")).json()["user"]["sso_linked"] is False
+    r = await root.get("/api/auth/oidc/start", params={"link": "true", "next": "/settings/profile"})
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=fake_gateway.app)) as p:
+        back = await p.get(r.headers["location"])
+    url = urlparse(back.headers["location"])
+    r = await root.get(f"{url.path}?{url.query}")
+    assert r.headers["location"] == "/settings/profile"
+    assert (await root.get("/api/auth/me")).json()["user"]["sso_linked"] is True
+    async with await browser() as c:  # from now on SSO signs the admin in, by `sub`
+        assert (await sign_in(c)).headers["location"] == "/work"
+        assert (await c.get("/api/auth/me")).json()["user"]["username"] == "root"
+    # Another account can't take the same identity.
+    await make_user("bob")
+    bob = await client_for("bob", create=False)
+    r = await bob.get("/api/auth/oidc/start", params={"link": "true"})
+    async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=fake_gateway.app)) as p:
+        back = await p.get(r.headers["location"])
+    url = urlparse(back.headers["location"])
+    assert refused(await bob.get(f"{url.path}?{url.query}"), "taken")
+    async with await browser() as anon:  # linking needs a session
+        assert refused(await anon.get("/api/auth/oidc/start", params={"link": "true"}), "expired")
+
+
+async def test_sso_replaces_the_one_time_password(make_user, sso) -> None:
+    """An account an admin just created must change its one-time password; signing in with SSO makes it moot."""
+    alice = await make_user("alice", email="alice@example.com")
+    async with get_sessionmaker()() as db:
+        await db.execute(update(User).where(User.id == alice.id).values(must_change_password=True))
+        await db.commit()
+    async with await browser() as c:
+        await sign_in(c)
+        me = (await c.get("/api/auth/me")).json()["user"]
+        assert me["must_change_password"] is False and me["sso_linked"] is True
+        assert (await c.get("/api/home")).status_code == 200  # not password_change_required
+    async with get_sessionmaker()() as db:
+        row = await db.scalar(select(AuditLog).where(AuditLog.action == "login").order_by(AuditLog.id.desc()))
+    assert row.detail["initial_password_skipped"] is True
+
+
+async def test_odd_provider_answers_and_usernames(make_user, sso, monkeypatch) -> None:
+    monkeypatch.setattr(get_settings(), "oidc_auto_create", True)
+    sso.STATE["user"] = {**sso.DEFAULT_USER, "sub": "oidc-o", "email": "o@example.com", "preferred_username": "Öberg"}
+    async with await browser() as c:
+        await sign_in(c)
+        assert (await c.get("/api/auth/me")).json()["user"]["username"] == "berg"  # ASCII, like the admin form
+
+    async def not_json(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith("/token"):
+            return httpx2.Response(200, text="<html>maintenance</html>")
+        return await httpx2.ASGITransport(app=fake_gateway.app).handle_async_request(request)
+
+    oidc.set_transport(httpx2.MockTransport(not_json))
+    async with await browser() as c:
+        assert refused(await sign_in(c), "token")  # not a 500

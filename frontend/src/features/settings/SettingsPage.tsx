@@ -1,7 +1,7 @@
 import { useState, type FormEvent, type ReactElement } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type SignIn, type Usage, type User } from "../../api";
+import { api, type OidcConfig, type SignIn, type Usage, type User } from "../../api";
 import IntegrationsTab from "./IntegrationsTab";
 import ChatChannels from "./ChatChannels";
 import { readTheme, saveTheme, type Theme } from "../../app/theme";
@@ -22,6 +22,7 @@ import {
   SkeletonRows,
   TextField,
   formatDate,
+  buttonClass,
   useToast,
 } from "../../components/ui";
 
@@ -253,7 +254,34 @@ function ProfileTab() {
         />
         <p className="muted small">Kept in this browser.</p>
       </Card>
+      <SingleSignOn />
     </div>
+  );
+}
+
+/** 08 §F11: link this account to your SSO identity. The only way an admin account gets one (never by email). */
+function SingleSignOn() {
+  const { user } = useAuth();
+  const sso = useQuery({ queryKey: ["oidc-config"], queryFn: () => api<OidcConfig>("/api/auth/oidc/config"), retry: false });
+  if (!sso.data?.enabled || !user) return null;
+  return (
+    <Card as="section" className="stack narrow" aria-labelledby="profile-sso">
+      <h2 id="profile-sso">Single sign-on</h2>
+      {user.sso_linked ? (
+        <p>This account is linked to {sso.data.name}: you can sign in with it.</p>
+      ) : (
+        <>
+          <p className="muted">
+            Link this account to {sso.data.name} to sign in with it.{user.role === "admin" && " Admin accounts are only ever linked this way, never by email address."}
+          </p>
+          <div>
+            <a className={buttonClass("secondary")} href="/api/auth/oidc/start?link=true&next=%2Fsettings%2Fprofile">
+              Link {sso.data.name}
+            </a>
+          </div>
+        </>
+      )}
+    </Card>
   );
 }
 

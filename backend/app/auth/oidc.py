@@ -106,7 +106,8 @@ class Flow:
     cookie: str
 
 
-async def start(next_path: str | None) -> Flow:
+async def start(next_path: str | None, link_user_id: int | None = None) -> Flow:
+    """`link_user_id`: a signed-in user linking their own account (the only way an admin account gets a `sub`)."""
     s = get_settings()
     doc = await discovery()
     state, nonce, verifier = secrets.token_urlsafe(24), secrets.token_urlsafe(24), secrets.token_urlsafe(48)
@@ -115,7 +116,8 @@ async def start(next_path: str | None) -> Flow:
         "scope": s.oidc_scopes, "state": state, "nonce": nonce,
         "code_challenge": _b64(hashlib.sha256(verifier.encode()).digest()), "code_challenge_method": "S256",
     }  # fmt: skip
-    flow = {"state": state, "nonce": nonce, "verifier": verifier, "next": safe_next(next_path), "at": int(time.time())}
+    flow = {"state": state, "nonce": nonce, "verifier": verifier, "next": safe_next(next_path), "at": int(time.time()),
+            "link": link_user_id}  # fmt: skip
     cookie = _fernet().encrypt(json.dumps(flow).encode()).decode()
     return Flow(url=f"{doc['authorization_endpoint']}?{urlencode(params)}", cookie=cookie)
 
@@ -130,8 +132,8 @@ def _read_flow(cookie: str | None) -> dict[str, Any]:
     return flow
 
 
-async def finish(code: str | None, state: str | None, cookie: str | None) -> tuple[dict[str, Any], str]:
-    """The ID token's verified claims, and the in-app path to go to."""
+async def finish(code: str | None, state: str | None, cookie: str | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The ID token's verified claims, and the flow (`next`, and `link` when a signed-in user is linking)."""
     flow = _read_flow(cookie)
     if not state or not secrets.compare_digest(state, flow["state"]):
         raise OidcError("state", "state doesn't match")
@@ -151,11 +153,15 @@ async def finish(code: str | None, state: str | None, cookie: str | None) -> tup
         raise OidcError("provider_unreachable", f"token endpoint: {type(exc).__name__}") from None
     if resp.status_code != 200:
         raise OidcError("token", f"token endpoint answered {resp.status_code}")  # never the body: it may echo secrets
-    id_token = (resp.json() or {}).get("id_token")
+    try:
+        body = resp.json()
+    except ValueError:
+        raise OidcError("token", "the token endpoint didn't answer with JSON") from None
+    id_token = body.get("id_token") if isinstance(body, dict) else None
     if not id_token:
         raise OidcError("token", "no id_token in the token response")
     claims = await verify_id_token(id_token, doc, flow["nonce"])
-    return claims, flow["next"]
+    return claims, flow
 
 
 async def _key_for(token: str, doc: dict[str, Any]) -> tuple[Any, str]:
